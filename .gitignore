@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.env
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# CAFE local run artifacts (resumable checkpoints, exported results)
+.cafe/
+*.cafe.jsonl
+
+# Docs build output (MkDocs)
+site/
+
+# Node / frontend
+node_modules/
+apps/frontend/dist/
+apps/landing/dist/
+
+# LaTeX aux (paper builds in place)
+*.aux
+*.log
+*.out
+*.bbl
+*.blg
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# ── Local-only: NOT part of the public GitHub repo ──
+.claude/
+design/
+paper/
+stitch_cafe_landing_page_design/
+CLAUDE.md
