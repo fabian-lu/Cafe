@@ -163,6 +163,23 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_doctor(_args: argparse.Namespace) -> int:
+    """Check optional runtime prerequisites (currently: R for the ordinal CLMM)."""
+    from cafe.stats import check_r
+
+    print("cafe doctor — optional capability checks\n")
+    ok, msg = check_r()
+    mark = "✓" if ok else "✗"
+    print(f"  [{mark}] ordinal CLMM (R + 'ordinal')")
+    print(f"      {msg}")
+    print()
+    if ok:
+        print("All set — the ordinal CLMM layer is available.")
+    else:
+        print("CAFE still works without this; it falls back to the Gaussian mixed model.")
+    return 0 if ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="cafe", description=__doc__)
     parser.add_argument("--version", action="store_true", help="print version and exit")
@@ -180,6 +197,9 @@ def main(argv: list[str] | None = None) -> int:
     p_val = sub.add_parser("validate", help="expand a study's design without running it")
     p_val.add_argument("target", nargs="?", default="example", help="'example' or a .py study file")
     p_val.set_defaults(func=_cmd_validate)
+
+    p_doc = sub.add_parser("doctor", help="check optional prerequisites (R for the ordinal CLMM)")
+    p_doc.set_defaults(func=_cmd_doctor)
 
     args = parser.parse_args(argv)
     if args.version:

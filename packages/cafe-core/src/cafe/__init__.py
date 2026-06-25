@@ -27,6 +27,7 @@ Or define your own::
     results = study.run()
 """
 
+from cafe import datasets
 from cafe.design import full_factorial, generate, single, size
 from cafe.evaluation import Evaluation, Preflight, evaluate, preflight
 from cafe.execution import estimate, run_study
@@ -43,13 +44,23 @@ from cafe.judging import (
 from cafe.llm import LLMError, complete
 from cafe.execution.results import Observation, Results, config_id, config_label
 from cafe.judging.rubric import ANSWER_QUALITY_1_5, Level, Rubric, ScaleType
-from cafe.stats import Attribution, attribute
+from cafe.stats import (
+    Attribution,
+    CLMMResult,
+    Effects,
+    attribute,
+    check_r,
+    fit_clmm,
+    fit_effects,
+)
 from cafe.study import Factor, FactorType, Study
 from cafe.system import System, as_system
 
 __version__ = "0.0.1"
 
 __all__ = [
+    # ── data ──
+    "datasets",
     # ── define an experiment ──
     "Study",
     "Factor",
@@ -90,5 +101,10 @@ __all__ = [
     # ── statistics ──
     "attribute",
     "Attribution",
+    "fit_effects",
+    "Effects",
+    "fit_clmm",
+    "CLMMResult",
+    "check_r",
     "__version__",
 ]
