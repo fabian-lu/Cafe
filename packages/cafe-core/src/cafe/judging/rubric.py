@@ -6,7 +6,7 @@ statistics layer how to treat the numbers (ordinal → cumulative-link model;
 numeric → linear model; binary → logistic). The order of levels defines the
 numeric mapping. Keep scales short and well-described — the judge reads them.
 
-The judge *prompt* is assembled from the rubric by :mod:`cafe.judge`, using a
+The judge *prompt* is assembled from the rubric by :mod:`cafe.judging`, using a
 research-grounded default (MT-Bench / Inspect style) unless ``prompt_template`` is
 set. Either way the full prompt is printable and editable — never hidden.
 """
@@ -41,7 +41,7 @@ class Rubric:
     Set ``prompt_template`` to take full control of the judge prompt (placeholders:
     ``{instruction}``, ``{question}``, ``{answer}``, ``{reference}``, ``{scale}``,
     ``{min}``, ``{max}``). Leave it ``None`` to use the cited default in
-    :mod:`cafe.judge`.
+    :mod:`cafe.judging`.
     """
 
     name: str

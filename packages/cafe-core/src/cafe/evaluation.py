@@ -13,7 +13,7 @@ estimate.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable
 
 from cafe.design import size
@@ -36,6 +36,40 @@ class Evaluation:
     answers: Results
     ratings: Ratings | None = None
     attribution: Attribution | None = None
+
+    _effects_cache: Any = field(default=None, repr=False, compare=False)
+
+    _clmm_cache: Any = field(default=None, repr=False, compare=False)
+
+    @property
+    def effects(self):
+        """Inferential statistics (mixed model → F/p, partial η², Cohen's d).
+
+        Computed lazily on first access from the ratings; cached thereafter.
+        Returns ``None`` if the study wasn't judged.
+        """
+        if self.ratings is None:
+            return None
+        if self._effects_cache is None:
+            from cafe.stats import fit_effects
+
+            self._effects_cache = fit_effects(self.ratings)
+        return self._effects_cache
+
+    @property
+    def clmm(self):
+        """Ordinal CLMM (R) for ordinal rubrics. Lazy; returns ``None`` if unjudged.
+
+        The result's ``available`` flag says whether R produced a fit; if not, its
+        ``reason`` explains why (e.g. R not installed) — see ``cafe doctor``.
+        """
+        if self.ratings is None:
+            return None
+        if self._clmm_cache is None:
+            from cafe.stats import fit_clmm
+
+            self._clmm_cache = fit_clmm(self.ratings)
+        return self._clmm_cache
 
     def summary(self) -> dict[str, Any]:
         out = self.answers.summary()

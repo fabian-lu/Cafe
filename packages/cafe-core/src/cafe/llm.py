@@ -3,15 +3,16 @@
 We don't ship a bespoke client. :func:`complete` is a thin async wrapper over
 ``litellm.acompletion`` so a model string selects the provider:
 
-- ``"gpt-4o"``                  → OpenAI    (needs ``OPENAI_API_KEY``)
-- ``"anthropic/claude-..."``    → Anthropic (needs ``ANTHROPIC_API_KEY``)
-- ``"ollama/gpt-oss:120b"``     → Ollama Cloud (needs ``OLLAMA_API_KEY``)
-- ``"ollama/llama3@localhost"`` style, vLLM, Groq, Together, … — all via LiteLLM
+- ``"gpt-4o"``                    → OpenAI        (needs ``OPENAI_API_KEY``)
+- ``"anthropic/claude-..."``      → Anthropic     (needs ``ANTHROPIC_API_KEY``)
+- ``"ollama_cloud/gpt-oss:120b"`` → Ollama Cloud  (needs ``OLLAMA_API_KEY``)
+- ``"ollama/llama3"``             → a local Ollama daemon (no key needed)
+- vLLM, Groq, Together, … — anything LiteLLM supports, by its model string
 
 Keys are read from the environment / nearest ``.env``. ``litellm`` is imported
 lazily and only required if you actually call an LLM (``pip install
 'cafe-core[llm]'``). If you need something LiteLLM doesn't cover, plug in your own
-:class:`cafe.judge.Judge` instead — there is no client abstraction to implement.
+:class:`cafe.Judge` instead — there is no client abstraction to implement.
 """
 
 from __future__ import annotations
@@ -27,21 +28,28 @@ class LLMError(RuntimeError):
 
 
 def _route(model: str, kwargs: dict[str, Any]) -> dict[str, Any]:
-    """Map a ``model`` string to LiteLLM call kwargs, with Ollama Cloud convenience.
+    """Map a ``model`` string to LiteLLM call kwargs.
 
-    LiteLLM's native ``ollama/`` provider points at a *local* daemon. For Ollama
-    **Cloud** we route through its OpenAI-compatible endpoint using
-    ``OLLAMA_API_KEY`` / ``OLLAMA_HOST`` so ``"ollama/<tag>"`` just works.
+    Almost everything is passed straight to LiteLLM. The one special case is
+    **Ollama Cloud**: LiteLLM's native ``ollama/`` provider only talks to a *local*
+    daemon (``localhost``, no auth), so to keep both possible we use an explicit
+    prefix:
+
+    - ``"ollama/<model>"``        → local daemon, handled entirely by LiteLLM.
+    - ``"ollama_cloud/<model>"``  → Ollama Cloud (``ollama.com``); routed here to its
+      OpenAI-compatible endpoint with ``OLLAMA_API_KEY`` (and optional ``OLLAMA_HOST``).
     """
     out = {"model": model, **kwargs}
-    if model.startswith(("ollama/", "ollama_chat/")) and os.environ.get("OLLAMA_API_KEY"):
+    if model.startswith("ollama_cloud/"):
         tag = model.split("/", 1)[1]
+        key = os.environ.get("OLLAMA_API_KEY")
+        if not key:
+            raise LLMError(
+                "model 'ollama_cloud/...' needs OLLAMA_API_KEY (set it in .env). "
+                "For a local Ollama daemon use 'ollama/<model>' instead."
+            )
         host = (os.environ.get("OLLAMA_HOST") or "https://ollama.com").rstrip("/")
-        out.update(
-            model=f"openai/{tag}",
-            api_base=f"{host}/v1",
-            api_key=os.environ["OLLAMA_API_KEY"],
-        )
+        out.update(model=f"openai/{tag}", api_base=f"{host}/v1", api_key=key)
     return out
 
 

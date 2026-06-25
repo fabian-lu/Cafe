@@ -3,12 +3,12 @@
 This stands in for a real compound AI system so the engine can be exercised with
 no API keys. It simulates a tiny pipeline whose answer quality depends on two
 factors — which model and which prompting strategy — plus realistic run-to-run
-noise (the thing CAFE exists to measure). It is intentionally domain-neutral:
-no DIVA, no specific provider.
+noise (the thing CAFE exists to measure). It is intentionally domain-neutral and
+provider-free.
 
-The "quality" it reports here is only a stand-in so later slices (judging, stats)
-have a signal to attribute. In a real study, quality comes from the judge, not
-the system.
+The "quality" it reports here is only a stand-in so the judging and statistics
+layers have a signal to attribute. In a real study, quality comes from the judge,
+not the system.
 """
 
 from __future__ import annotations

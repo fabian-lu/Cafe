@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="CAFE — Compound AI Factorial Evaluation" width="440">
+</p>
+
 # CAFE
 
 **Compound-AI Factorial Evaluation** — a design-of-experiments platform for

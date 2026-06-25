@@ -1,12 +1,13 @@
 """Study, Factor — the user-facing description of an experiment.
 
 A Study is the black box (the system under test) plus the factors to vary and
-the inputs to run it on. It carries no execution or persistence logic itself;
-:func:`cafe.execution.run_study` consumes it.
+the dataset to run it on. It carries no execution or persistence logic itself;
+:func:`cafe.run_study` consumes it.
 
-This deliberately replaces DIVA's fixed ``Stage``/``PIPELINE_ORDER`` model: CAFE
-does not model pipeline topology. A factor is just a named axis with levels; the
-system reads the chosen levels from the ``config`` dict and does whatever it wants.
+CAFE does not model your pipeline's topology. A factor is just a named axis with
+levels; your system reads the chosen levels from the ``config`` dict and does
+whatever it wants internally — RAG, routing, a cascade, an agent. That black-box
+stance is what makes CAFE general across compound AI systems.
 """
 
 from __future__ import annotations
@@ -65,11 +66,11 @@ class Study:
         is a mapping it may carry ``"id"`` (for resume), ``"text"`` (the question
         shown to the judge), and ``"reference"`` (a gold answer for the judge).
     rubric:
-        The :class:`cafe.rubric.Rubric` the judge scores answers on. Optional —
+        The :class:`cafe.Rubric` the judge scores answers on. Optional —
         leave ``None`` to only generate answers without judging.
     judge:
-        The :class:`cafe.judge.LLMJudge` (or any object with a compatible
-        ``score`` method). Optional, paired with ``rubric``.
+        The :class:`cafe.LLMJudge` (or any object with a compatible ``score``
+        method). Optional, paired with ``rubric``.
     replications:
         How many times each (configuration, input) is executed. This is how CAFE
         measures the *system's* run-to-run nondeterminism.
@@ -123,7 +124,7 @@ class Study:
 
     def run(self, **kwargs: Any):
         """Lower-level: generate answers only (no judging). Returns
-        :class:`cafe.results.Results`. Most users want :meth:`evaluate`."""
+        :class:`cafe.Results`. Most users want :meth:`evaluate`."""
         from cafe.execution import run_study
 
         return self._run_blocking(lambda: run_study(self, **kwargs))

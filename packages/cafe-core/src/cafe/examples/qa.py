@@ -49,7 +49,7 @@ DEFAULT_QUESTIONS = [
 
 
 def build_qa_study(
-    models: tuple[str, ...] = ("ollama/gpt-oss:120b", "ollama/gpt-oss:20b"),
+    models: tuple[str, ...] = ("ollama_cloud/gpt-oss:120b", "ollama_cloud/gpt-oss:20b"),
     dataset: list[dict[str, Any]] | None = None,
     replications: int = 1,
 ):

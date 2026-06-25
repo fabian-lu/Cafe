@@ -1,6 +1,6 @@
 """The execution engine: expand a design and run every cell, robustly.
 
-Design goals (carried from the DIVA worker, made library-mode-friendly):
+Design goals (robust enough for long, expensive, library-mode studies):
 
 - **Incremental + resumable.** Each observation is written to the checkpoint the
   moment it completes; a resumed run skips what's already done.

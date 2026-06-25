@@ -1,9 +1,10 @@
-# CAFE
+<p align="center">
+  <img src="logo.png" alt="CAFE — Compound AI Factorial Evaluation" width="440">
+</p>
 
-**Compound-AI Factorial Evaluation** — a design-of-experiments platform for
-evaluating compound AI systems.
+<p align="center"><b>A design-of-experiments platform for evaluating compound AI systems.</b></p>
 
-> Stop guessing which config is better. Prove it.
+<p align="center"><i>Stop guessing which config is better. Prove it.</i></p>
 
 Modern AI applications are *compound systems*: pipelines of interacting techniques
 (retrieval, reranking, prompting, one or more model calls, tools, routers,
