@@ -87,7 +87,7 @@ class Results:
         timed = [o.elapsed_s for o in oks if o.elapsed_s is not None]
         return {
             "study": self.study_name,
-            "n_observations": len(self.observations),
+            "n_answers": len(self.observations),
             "n_configs": len(configs),
             "n_inputs": len(inputs),
             "n_errors": len(self.errors),
@@ -95,22 +95,51 @@ class Results:
             "mean_cell_s": round(sum(timed) / len(timed), 4) if timed else None,
         }
 
+    def __repr__(self) -> str:
+        s = self.summary()
+        return (
+            f"Results({self.study_name}: {s['n_answers']} answers, "
+            f"{s['n_configs']} configs, {s['n_errors']} errors)"
+        )
+
+    @property
+    def df(self):
+        """A tidy pandas DataFrame of the answers (needs the ``stats`` extra)."""
+        import pandas as pd
+
+        return pd.DataFrame(self.to_records())
+
+    def _repr_html_(self) -> str:  # pragma: no cover - notebook display
+        try:
+            df = self.df
+            note = "" if len(df) <= 20 else f"<i>showing 20 of {len(df)} rows</i>"
+            return f"<b>{self!r}</b>{df.head(20).to_html(index=False)}{note}"
+        except Exception:
+            return f"<b>{self!r}</b>"
+
+    # Column names that the frame reserves for itself; a factor or metadata key
+    # colliding with one of these is suffixed to keep both visible.
+    _RESERVED = ("input_id", "rep", "output", "elapsed_s", "error", "config_id")
+
     def to_records(self) -> list[dict[str, Any]]:
-        """Flat rows (factors expanded as columns) suitable for a DataFrame/CSV."""
+        """Flat rows for a DataFrame/CSV: one column per factor (by its own name),
+        then the answer and timing, then any metadata the system returned.
+
+        Columns: ``<each factor>``, ``input_id``, ``rep``, ``output``,
+        ``elapsed_s``, ``error``, ``<each metadata key>``.
+        """
         rows: list[dict[str, Any]] = []
         for o in self.observations:
-            row: dict[str, Any] = {
-                "config_id": o.config_id,
-                "input_id": o.input_id,
-                "rep": o.rep,
-                "output": o.output,
-                "error": o.error,
-                "elapsed_s": o.elapsed_s,
-            }
-            for k, v in o.config.items():
-                row[f"factor.{k}"] = v
-            for k, v in o.metadata.items():
-                row[f"meta.{k}"] = v
+            row: dict[str, Any] = {}
+            for name, value in o.config.items():  # factors first, by their own names
+                row[name if name not in self._RESERVED else f"{name}_factor"] = value
+            row["input_id"] = o.input_id
+            row["rep"] = o.rep
+            row["output"] = o.output
+            row["elapsed_s"] = o.elapsed_s
+            row["error"] = o.error
+            for key, value in o.metadata.items():
+                row[key if key not in row else f"{key}_meta"] = value
             rows.append(row)
         return rows
 

@@ -49,23 +49,44 @@ class Factor:
 
 @dataclass
 class Study:
-    """A black box + the factors to vary over it + the inputs to evaluate.
+    """A complete evaluation: a system, the factors to vary, the inputs, and how
+    to judge the results.
 
-    ``system`` is anything runnable as ``run(config, item) -> output`` — a plain
-    callable (sync or async) or an object with such a method. See
-    :mod:`cafe.system`.
-
-    ``inputs`` is the evaluation set: one element per item. An item may be any
-    value; if it is a mapping with an ``"id"`` key, that id is used for
-    idempotency/resume, otherwise the item's position is used.
+    Fields
+    ------
+    system:
+        The black box under test, runnable as ``run(config, item) -> output`` —
+        a plain callable (sync or async) or an object with such a method.
+    factors:
+        The axes to vary. Their Cartesian product (full factorial) defines the
+        configurations.
+    dataset:
+        The evaluation set, one element per item. An item may be any value; if it
+        is a mapping it may carry ``"id"`` (for resume), ``"text"`` (the question
+        shown to the judge), and ``"reference"`` (a gold answer for the judge).
+    rubric:
+        The :class:`cafe.rubric.Rubric` the judge scores answers on. Optional —
+        leave ``None`` to only generate answers without judging.
+    judge:
+        The :class:`cafe.judge.LLMJudge` (or any object with a compatible
+        ``score`` method). Optional, paired with ``rubric``.
+    replications:
+        How many times each (configuration, input) is executed. This is how CAFE
+        measures the *system's* run-to-run nondeterminism.
+    judge_replications:
+        How many times the judge re-scores each answer — measures the *judge's*
+        own nondeterminism, separately from the system's.
     """
 
     name: str
     system: Any
     factors: list[Factor] = field(default_factory=list)
-    inputs: list[Any] = field(default_factory=list)
+    dataset: list[Any] = field(default_factory=list)
+    rubric: Any = None
+    judge: Any = None
     design: str = "full_factorial"
     replications: int = 1
+    judge_replications: int = 1
 
     def __post_init__(self) -> None:
         names = [f.name for f in self.factors]
@@ -73,12 +94,76 @@ class Study:
             raise ValueError(f"duplicate factor names: {names}")
         if self.replications < 1:
             raise ValueError("replications must be >= 1")
+        if self.judge_replications < 1:
+            raise ValueError("judge_replications must be >= 1")
 
-    # Convenience: run this study synchronously. For async contexts (notebooks
-    # already inside an event loop), use ``await cafe.run_study(study)`` instead.
+    # ── Running, synchronously, from anywhere ──────────────────────────────────
+    #
+    # These wrappers work in plain scripts AND inside an already-running event
+    # loop (e.g. a Jupyter notebook): if a loop is running we execute in a worker
+    # thread so we never hit "asyncio.run() cannot be called from a running event
+    # loop". Async-native callers can instead await the module functions
+    # (``cafe.evaluate``, ``cafe.run_study``, ``cafe.preflight``).
+
+    def evaluate(self, **kwargs: Any):
+        """Run the **complete** evaluation: generate answers, judge them (if a
+        rubric + judge are set), and attribute quality to the factors. Returns an
+        :class:`cafe.evaluation.Evaluation`."""
+        from cafe.evaluation import evaluate
+
+        return self._run_blocking(lambda: evaluate(self, **kwargs))
+
+    def preflight(self, **kwargs: Any):
+        """Quick check before a full run: one input through every configuration,
+        no replication or judging, plus a cost/time estimate. Returns a
+        :class:`cafe.evaluation.Preflight`."""
+        from cafe.evaluation import preflight
+
+        return self._run_blocking(lambda: preflight(self, **kwargs))
+
     def run(self, **kwargs: Any):
-        import asyncio
-
+        """Lower-level: generate answers only (no judging). Returns
+        :class:`cafe.results.Results`. Most users want :meth:`evaluate`."""
         from cafe.execution import run_study
 
-        return asyncio.run(run_study(self, **kwargs))
+        return self._run_blocking(lambda: run_study(self, **kwargs))
+
+    def preview_judge_prompt(self, answer: str, item: Any = None) -> str:
+        """Return the exact judge prompt for an example ``answer`` — no LLM call.
+
+        Uses the study's rubric + judge and, by default, the first dataset item.
+        Print it to verify the judging is doing what you intend before spending
+        any tokens.
+        """
+        if self.judge is None or self.rubric is None:
+            raise ValueError("study has no judge/rubric set to preview")
+        if item is None:
+            item = self.dataset[0] if self.dataset else ""
+        question = item["text"] if isinstance(item, dict) and "text" in item else str(item)
+        reference = item.get("reference") if isinstance(item, dict) else None
+        return self.judge.render_prompt(self.rubric, question, answer, reference)
+
+    def _run_blocking(self, make_coro):
+        import asyncio
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(make_coro())
+
+        import threading
+
+        box: dict[str, Any] = {}
+
+        def _worker() -> None:
+            try:
+                box["result"] = asyncio.run(make_coro())
+            except BaseException as exc:  # noqa: BLE001 — re-raised on the caller's thread
+                box["error"] = exc
+
+        thread = threading.Thread(target=_worker, name="cafe-run")
+        thread.start()
+        thread.join()
+        if "error" in box:
+            raise box["error"]
+        return box["result"]

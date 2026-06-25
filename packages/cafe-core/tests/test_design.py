@@ -10,7 +10,7 @@ def _study(design="full_factorial", **kw):
             Factor("model", ["small", "large"]),
             Factor("prompt", ["plain", "cot", "react"]),
         ],
-        inputs=["q"],
+        dataset=["q"],
         design=design,
         **kw,
     )
@@ -38,7 +38,7 @@ def test_single_requires_pinned_factors():
         name="t",
         system=lambda config, item: "x",
         factors=[Factor("model", ["large"]), Factor("prompt", ["cot"])],
-        inputs=["q"],
+        dataset=["q"],
         design="single",
     )
     assert generate(pinned) == [{"model": "large", "prompt": "cot"}]
@@ -68,5 +68,5 @@ def test_duplicate_factor_names_rejected():
             name="t",
             system=lambda c, i: "x",
             factors=[Factor("m", ["a"]), Factor("m", ["b"])],
-            inputs=["q"],
+            dataset=["q"],
         )

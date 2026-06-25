@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from cafe import design
-from cafe.results import Observation, Results, config_label
+from cafe.execution.results import Observation, Results, config_label
 from cafe.study import Study
 from cafe.system import System, as_system, normalize_output
 
@@ -71,6 +71,7 @@ async def run_study(
     resume: bool = True,
     smoke: bool = False,
     on_progress: ProgressFn | None = None,
+    progress: bool = False,
 ) -> Results:
     """Run a study end-to-end and return its :class:`Results`.
 
@@ -96,12 +97,12 @@ async def run_study(
         raise ValueError("replications must be >= 1")
 
     configs = design.generate(study)
-    inputs = list(study.inputs)
+    inputs = list(study.dataset)
     if smoke:
         inputs = inputs[:1]
         reps = 1
     if not inputs:
-        raise ValueError("study has no inputs to run")
+        raise ValueError("study has no dataset to run")
 
     system = as_system(study.system)
 
@@ -109,7 +110,7 @@ async def run_study(
     checkpoint = None
     done: dict[str, Observation] = {}
     if checkpoint_path is not None:
-        from cafe.checkpoint import Checkpoint
+        from cafe.execution.checkpoint import Checkpoint
 
         checkpoint = Checkpoint(checkpoint_path)
         if resume:
@@ -132,20 +133,25 @@ async def run_study(
     write_lock = asyncio.Lock()
     completed = len(done)
 
-    async def worker(cfg: dict[str, Any], item: Any, in_id: str, rep: int) -> None:
-        nonlocal completed
-        async with sem:
-            obs = await _run_cell(system, cfg, item, in_id, rep)
-        async with write_lock:
-            observations.append(obs)
-            if checkpoint is not None:
-                checkpoint.append(obs)
-            completed += 1
-            if on_progress is not None:
-                on_progress(obs, completed, total)
+    from cafe.execution.progress import progress_bar
 
-    if pending:
-        await asyncio.gather(*(worker(*cell) for cell in pending))
+    with progress_bar(total, f"{study.name}: answers", enabled=progress and on_progress is None) as bar:
+        report = on_progress or bar
+
+        async def worker(cfg: dict[str, Any], item: Any, in_id: str, rep: int) -> None:
+            nonlocal completed
+            async with sem:
+                obs = await _run_cell(system, cfg, item, in_id, rep)
+            async with write_lock:
+                observations.append(obs)
+                if checkpoint is not None:
+                    checkpoint.append(obs)
+                completed += 1
+                if report is not None:
+                    report(obs, completed, total)
+
+        if pending:
+            await asyncio.gather(*(worker(*cell) for cell in pending))
 
     return Results(
         study_name=study.name,

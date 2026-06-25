@@ -16,7 +16,7 @@ import json
 import os
 from typing import Iterator
 
-from cafe.results import Observation
+from cafe.execution.results import Observation
 
 
 class Checkpoint:

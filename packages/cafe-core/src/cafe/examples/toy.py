@@ -80,7 +80,7 @@ def build_example_study():
             Factor("model", ["small", "large"], FactorType.categorical),
             Factor("prompt", ["plain", "cot"], FactorType.categorical),
         ],
-        inputs=inputs,
+        dataset=inputs,
         design="full_factorial",
         replications=3,
     )

@@ -28,28 +28,67 @@ Or define your own::
 """
 
 from cafe.design import full_factorial, generate, single, size
+from cafe.evaluation import Evaluation, Preflight, evaluate, preflight
 from cafe.execution import estimate, run_study
-from cafe.results import Observation, Results, config_id, config_label
+from cafe.judging import (
+    JUDGE_PRESETS,
+    Judge,
+    JudgeOutput,
+    LLMJudge,
+    Rating,
+    Ratings,
+    build_judge_prompt,
+    judge_results,
+)
+from cafe.llm import LLMError, complete
+from cafe.execution.results import Observation, Results, config_id, config_label
+from cafe.judging.rubric import ANSWER_QUALITY_1_5, Level, Rubric, ScaleType
+from cafe.stats import Attribution, attribute
 from cafe.study import Factor, FactorType, Study
 from cafe.system import System, as_system
 
 __version__ = "0.0.1"
 
 __all__ = [
+    # ── define an experiment ──
     "Study",
     "Factor",
     "FactorType",
     "System",
     "as_system",
-    "run_study",
-    "estimate",
+    # ── run it ──
+    "evaluate",       # the complete pipeline: answers -> judge -> attribution
+    "preflight",      # cheap pre-run check + cost estimate
+    "run_study",      # lower-level: answers only
+    "Evaluation",
+    "Preflight",
     "Results",
     "Observation",
-    "config_id",
-    "config_label",
+    "estimate",
+    # ── designs ──
     "generate",
     "size",
     "full_factorial",
     "single",
+    "config_id",
+    "config_label",
+    # ── judging ──
+    "complete",
+    "LLMError",
+    "Rubric",
+    "Level",
+    "ScaleType",
+    "ANSWER_QUALITY_1_5",
+    "LLMJudge",
+    "Judge",
+    "JudgeOutput",
+    "JUDGE_PRESETS",
+    "judge_results",
+    "build_judge_prompt",
+    "Rating",
+    "Ratings",
+    # ── statistics ──
+    "attribute",
+    "Attribution",
     "__version__",
 ]

@@ -25,7 +25,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from cafe import design, run_study
-from cafe.results import Observation, Results, config_label
+from cafe.execution.results import Observation, Results, config_label
 from cafe.study import Study
 
 
@@ -117,14 +117,14 @@ def _print_results_table(results: Results) -> None:
 
 def _cmd_run(args: argparse.Namespace) -> int:
     study = _load_study(args.target)
-    n_inputs = 1 if args.smoke else max(1, len(study.inputs))
+    n_inputs = 1 if args.smoke else max(1, len(study.dataset))
     n_reps = 1 if args.smoke else (args.reps or study.replications)
     n_cells = design.size(study) * n_inputs * n_reps
     mode = "SMOKE (1 input, 1 rep)" if args.smoke else f"{n_reps} reps"
     print(f"study   : {study.name}")
     print(f"factors : {', '.join(f'{f.name}{f.levels}' for f in study.factors) or '(none)'}")
     print(f"design  : {study.design} -> {design.size(study)} configs")
-    print(f"inputs  : {len(study.inputs)}   mode: {mode}")
+    print(f"inputs  : {len(study.dataset)}   mode: {mode}")
     print(f"cells   : {n_cells}")
 
     results = asyncio.run(
@@ -141,7 +141,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     s = results.summary()
     _print_results_table(results)
     print(
-        f"  done: {s['n_observations']} obs over {s['n_configs']} configs, "
+        f"  done: {s['n_answers']} obs over {s['n_configs']} configs, "
         f"{s['n_errors']} errors, {s['total_compute_s']}s compute"
     )
     if args.out:
@@ -155,7 +155,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     configs = design.generate(study)
     print(f"ok: study {study.name!r} is valid")
     print(f"    design  : {study.design} -> {len(configs)} configurations")
-    print(f"    factors : {len(study.factors)}   inputs: {len(study.inputs)}")
+    print(f"    factors : {len(study.factors)}   inputs: {len(study.dataset)}")
     for c in configs[: min(8, len(configs))]:
         print(f"      - {config_label(c)}")
     if len(configs) > 8:

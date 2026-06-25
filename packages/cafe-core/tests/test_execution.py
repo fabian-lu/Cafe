@@ -2,7 +2,7 @@ import asyncio
 
 
 from cafe import Factor, Study, run_study
-from cafe.checkpoint import Checkpoint
+from cafe.execution import Checkpoint
 
 
 def _counting_study(fail_on=None):
@@ -18,7 +18,7 @@ def _counting_study(fail_on=None):
         name="exec",
         system=system,
         factors=[Factor("model", ["a", "b"])],
-        inputs=["q1", "q2"],
+        dataset=["q1", "q2"],
         replications=2,
     )
     return study, calls
@@ -82,7 +82,7 @@ async def test_concurrency_is_bounded():
         name="conc",
         system=system,
         factors=[Factor("x", list(range(10)))],
-        inputs=["q"],
+        dataset=["q"],
         replications=2,
     )
     await run_study(study, concurrency=3)
@@ -93,3 +93,12 @@ def test_sync_run_helper():
     study, _ = _counting_study()
     results = study.run()  # sync wrapper around asyncio.run
     assert len(results) == 8
+
+
+async def test_sync_run_inside_event_loop():
+    # This test body runs inside a running loop (like a Jupyter cell). The sync
+    # study.run() must fall back to a worker thread instead of raising.
+    study, _ = _counting_study()
+    results = study.run()
+    assert len(results) == 8
+    assert results.summary()["n_errors"] == 0
