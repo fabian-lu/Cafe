@@ -17,6 +17,7 @@ import json
 import time
 from typing import Any
 
+from cafe import llm
 from cafe.techniques import registry
 
 
@@ -35,6 +36,7 @@ class Context:
         self.config = config
         self.trace: list[dict[str, Any]] = []
         self.total_cost: float = 0.0
+        self.total_tokens: int = 0
         self._cache: dict[str, Any] = {}
 
     async def run(self, stage: str, **inputs: Any) -> Any:
@@ -58,15 +60,27 @@ class Context:
             self.trace.append({**hit["meta"], "cached": True})
             return hit["output"]
 
+        # Collect any LLM usage made *inside* this technique so we attribute
+        # tokens + cost to this stage automatically (the user just calls complete).
+        sink: list[dict[str, Any]] = []
+        token = llm._usage_sink.set(sink)
         t0 = time.monotonic()
-        raw = await spec.fn(self, **inputs, **params)
+        try:
+            raw = await spec.fn(self, **inputs, **params)
+        finally:
+            llm._usage_sink.reset(token)
         elapsed = round(time.monotonic() - t0, 5)
 
-        # A technique may return a plain value, or a dict {"output":…, "cost_usd":…}.
-        output, cost = raw, 0.0
+        auto_tokens = sum(u["tokens"] for u in sink)
+        auto_cost = sum(u["cost_usd"] for u in sink)
+
+        # A technique may also return a plain value, or a dict {"output":…, "cost_usd":…}
+        # to declare a cost explicitly (e.g. a priced API CAFE can't see).
+        output, declared_cost = raw, 0.0
         if isinstance(raw, dict) and "output" in raw:
             output = raw["output"]
-            cost = float(raw.get("cost_usd", 0.0) or 0.0)
+            declared_cost = float(raw.get("cost_usd", 0.0) or 0.0)
+        cost = round(auto_cost + declared_cost, 6)
 
         meta = {
             "stage": stage,
@@ -74,9 +88,11 @@ class Context:
             "params": params,
             "elapsed_s": elapsed,
             "cost_usd": cost,
+            "tokens": auto_tokens,
             "cached": False,
         }
         self.total_cost += cost
+        self.total_tokens += auto_tokens
         self.trace.append(meta)
         self._cache[key] = {"output": output, "meta": meta}
         return output

@@ -41,8 +41,10 @@ apps/landing/dist/
 .vscode/
 
 # ── Local-only: NOT part of the public GitHub repo ──
+# Anchored to the repo root so they don't also match the source package
+# `packages/cafe-core/src/cafe/design/` (an unanchored `design/` ignored it).
 .claude/
-design/
-paper/
-stitch_cafe_landing_page_design/
+/design/
+/paper/
+/stitch_cafe_landing_page_design/
 CLAUDE.md
