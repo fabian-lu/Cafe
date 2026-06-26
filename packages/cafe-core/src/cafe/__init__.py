@@ -29,6 +29,7 @@ Or define your own::
 
 from cafe import datasets
 from cafe.design import full_factorial, generate, single, size
+from cafe.techniques import composed, stage_report, technique, technique_factor
 from cafe.evaluation import Evaluation, Preflight, evaluate, preflight
 from cafe.execution import estimate, run_study
 from cafe.judging import (
@@ -67,6 +68,11 @@ __all__ = [
     "FactorType",
     "System",
     "as_system",
+    # ── mode B: composed pipelines (techniques) ──
+    "technique",
+    "composed",
+    "technique_factor",
+    "stage_report",
     # ── run it ──
     "evaluate",       # the complete pipeline: answers -> judge -> attribution
     "preflight",      # cheap pre-run check + cost estimate
