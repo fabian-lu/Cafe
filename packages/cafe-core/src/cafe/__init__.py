@@ -28,7 +28,15 @@ Or define your own::
 """
 
 from cafe import datasets
-from cafe.design import full_factorial, generate, single, size
+from cafe.design import (
+    FractionalDesign,
+    fractional_factorial,
+    fractional_factorial_design,
+    full_factorial,
+    generate,
+    single,
+    size,
+)
 from cafe.techniques import composed, stage_report, technique, technique_factor
 from cafe.evaluation import Evaluation, Preflight, evaluate, preflight
 from cafe.execution import estimate, run_study
@@ -49,10 +57,18 @@ from cafe.stats import (
     Attribution,
     CLMMResult,
     Effects,
+    HumanRatings,
+    ParetoResult,
+    Reliability,
+    answer_sheet,
     attribute,
     check_r,
     fit_clmm,
     fit_effects,
+    human_ratings,
+    krippendorff_alpha,
+    pareto,
+    reliability,
 )
 from cafe.study import Factor, FactorType, Study
 from cafe.system import System, as_system
@@ -87,6 +103,9 @@ __all__ = [
     "size",
     "full_factorial",
     "single",
+    "fractional_factorial",
+    "fractional_factorial_design",
+    "FractionalDesign",
     "config_id",
     "config_label",
     # ── judging ──
@@ -112,5 +131,13 @@ __all__ = [
     "fit_clmm",
     "CLMMResult",
     "check_r",
+    "pareto",
+    "ParetoResult",
+    "reliability",
+    "Reliability",
+    "human_ratings",
+    "HumanRatings",
+    "answer_sheet",
+    "krippendorff_alpha",
     "__version__",
 ]

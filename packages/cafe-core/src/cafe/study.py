@@ -86,6 +86,7 @@ class Study:
     rubric: Any = None
     judge: Any = None
     design: str = "full_factorial"
+    design_options: dict[str, Any] = field(default_factory=dict)
     replications: int = 1
     judge_replications: int = 1
 
