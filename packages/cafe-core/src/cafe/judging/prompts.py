@@ -37,7 +37,7 @@ Score on this scale:
 {scale}
 
 Then finish with exactly one final line, and nothing after it:
-GRADE: <integer {min}-{max}>"""
+GRADE: <{grade}>"""
 
 # Adapted from MT-Bench "single-v1" (reference-free single-answer grading).
 _MTBENCH_SINGLE = """\
@@ -54,7 +54,7 @@ relevance, accuracy, and depth. Be as objective as possible.
 Begin with a short explanation, then score on this scale:
 {scale}
 
-Finish with exactly one final line: GRADE: <integer {min}-{max}>"""
+Finish with exactly one final line: GRADE: <{grade}>"""
 
 # Adapted from Inspect AI's model_graded_qa criterion grader.
 _CRITERION_GRADED = """\
@@ -76,7 +76,7 @@ Write out, step by step, your reasoning about how well the submission meets the
 criterion (do not just state the answer). Then score on this scale:
 {scale}
 
-End with exactly one final line: GRADE: <integer {min}-{max}>"""
+End with exactly one final line: GRADE: <{grade}>"""
 
 JUDGE_PRESETS: dict[str, str] = {
     "reference_guided": _REFERENCE_GUIDED,
@@ -96,15 +96,33 @@ def build_judge_prompt(
     reference: str | None = None,
     *,
     preset: str = "reference_guided",
+    template: str | None = None,
 ) -> str:
-    """Render the exact prompt sent to the judge (rubric template wins over preset)."""
-    template = rubric.prompt_template or JUDGE_PRESETS.get(preset, _REFERENCE_GUIDED)
-    return template.format(
+    """Render the exact prompt sent to the judge.
+
+    Precedence for the template: an explicit ``template`` (the judge's own) →
+    ``rubric.prompt_template`` → the named ``preset``.
+    """
+    chosen = template or rubric.prompt_template or JUDGE_PRESETS.get(preset, _REFERENCE_GUIDED)
+    if reference and "{reference}" not in chosen:
+        import warnings
+
+        # Silently dropping a gold answer would look like reference-guided judging while
+        # actually grading reference-free — a validity trap. Warn once (Python dedupes).
+        warnings.warn(
+            "a reference was provided but the judge prompt has no {reference} placeholder "
+            "(e.g. the reference-free 'mtbench_single' preset, or a custom template missing "
+            "it) — the reference is being IGNORED. Use a reference-guided preset "
+            "(reference_guided / criterion_graded) or add {reference} to your template.",
+            stacklevel=2,
+        )
+    return chosen.format(
         instruction=rubric.instruction,
         question=question,
         answer=answer,
         reference=reference if reference else "(no reference provided)",
         scale=rubric.scale_text(),
+        grade=rubric.grade_hint(),   # scale-aware: range for numeric, exact values for ordinal/binary
         min=rubric.min_value,
         max=rubric.max_value,
     )

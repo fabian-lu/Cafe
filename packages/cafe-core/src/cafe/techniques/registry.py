@@ -29,10 +29,19 @@ class TechniqueSpec:
     fn: Callable[..., Any]
     params: dict[str, Any]      # tunable parameter -> default
     description: str = ""
+    cost_usd: float = 0.0       # fixed cost charged each time this technique runs
 
 
-def technique(stage: str, name: str, *, description: str = "") -> Callable:
-    """Register ``fn`` as the technique ``name`` for ``stage``. Use as a decorator."""
+def technique(
+    stage: str, name: str, *, description: str = "", cost_usd: float = 0.0
+) -> Callable:
+    """Register ``fn`` as the technique ``name`` for ``stage``. Use as a decorator.
+
+    ``cost_usd`` is a fixed cost charged every time this technique runs — for a
+    non-LLM component whose price CAFE can't see (a web-search API call, a paid
+    reranker, a human step). It's added to any LLM cost tracked inside the function,
+    and shows up in ``stage_report`` / Pareto / ``report()``.
+    """
 
     def deco(fn: Callable[..., Any]) -> Callable[..., Any]:
         sig = inspect.signature(fn)
@@ -44,10 +53,35 @@ def technique(stage: str, name: str, *, description: str = "") -> Callable:
         key = (stage, name)
         if key in REGISTRY:
             raise ValueError(f"technique {stage!r}/{name!r} is already registered")
-        REGISTRY[key] = TechniqueSpec(stage, name, fn, params, description)
+        REGISTRY[key] = TechniqueSpec(stage, name, fn, params, description, cost_usd)
         return fn
 
     return deco
+
+
+def register_passthrough(stage: str, name: str, returns: str | None) -> None:
+    """Register a no-op 'skip this stage' technique without hand-writing a function.
+
+    ``returns`` names the input to pass straight through (e.g. a reranker skipped ⇒
+    return its ``chunks`` unchanged); ``None`` means the stage contributes nothing
+    (return ``None``, for an *additive* stage like web-search). Idempotent.
+    """
+    if (stage, name) in REGISTRY:
+        return
+
+    async def _passthrough(ctx, **inputs):  # noqa: ANN001, ANN003
+        if returns is None:
+            return None
+        if returns not in inputs:
+            raise KeyError(
+                f"skip level {stage!r}/{name!r} passes through {returns!r}, but "
+                f"ctx.run({stage!r}, ...) got inputs {sorted(inputs)}"
+            )
+        return inputs[returns]
+
+    REGISTRY[(stage, name)] = TechniqueSpec(
+        stage, name, _passthrough, {}, description=f"skip {stage} (passthrough {returns})"
+    )
 
 
 def get(stage: str, name: str) -> TechniqueSpec:

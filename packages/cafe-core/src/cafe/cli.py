@@ -164,20 +164,25 @@ def _cmd_validate(args: argparse.Namespace) -> int:
 
 
 def _cmd_doctor(_args: argparse.Namespace) -> int:
-    """Check optional runtime prerequisites (currently: R for the ordinal CLMM)."""
-    from cafe.stats import check_r
+    """Check optional runtime prerequisites (R for the ordinal CLMM and binary GLMM)."""
+    from cafe.stats import check_glmer, check_r
 
     print("cafe doctor — optional capability checks\n")
-    ok, msg = check_r()
-    mark = "✓" if ok else "✗"
-    print(f"  [{mark}] ordinal CLMM (R + 'ordinal')")
-    print(f"      {msg}")
+    clmm_ok, clmm_msg = check_r()
+    glmm_ok, glmm_msg = check_glmer()
+    for label, ok, msg in (
+        ("ordinal CLMM (R + 'ordinal')", clmm_ok, clmm_msg),
+        ("binary logistic GLMM (R + 'lme4')", glmm_ok, glmm_msg),
+    ):
+        print(f"  [{'✓' if ok else '✗'}] {label}")
+        print(f"      {msg}")
     print()
-    if ok:
-        print("All set — the ordinal CLMM layer is available.")
+    if clmm_ok and glmm_ok:
+        print("All set — the ordinal CLMM and binary GLMM layers are available.")
     else:
-        print("CAFE still works without this; it falls back to the Gaussian mixed model.")
-    return 0 if ok else 1
+        print("CAFE still works without these — each falls back to a self-contained model "
+              "(Gaussian for ordinal, statsmodels logistic for binary).")
+    return 0 if (clmm_ok and glmm_ok) else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -198,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
     p_val.add_argument("target", nargs="?", default="example", help="'example' or a .py study file")
     p_val.set_defaults(func=_cmd_validate)
 
-    p_doc = sub.add_parser("doctor", help="check optional prerequisites (R for the ordinal CLMM)")
+    p_doc = sub.add_parser("doctor", help="check optional prerequisites (R for the CLMM & logistic GLMM)")
     p_doc.set_defaults(func=_cmd_doctor)
 
     args = parser.parse_args(argv)

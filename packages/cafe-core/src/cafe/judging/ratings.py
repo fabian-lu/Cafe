@@ -57,6 +57,9 @@ class Ratings:
     judge_model: str
     factors: list[str] = field(default_factory=list)
     items: list[Rating] = field(default_factory=list)
+    #: The judge's system message (constant across verdicts); the per-rating ``prompt``
+    #: holds the user message, so the full judge input is ``judge_system_prompt + prompt``.
+    judge_system_prompt: str | None = None
 
     def __len__(self) -> int:
         return len(self.items)
@@ -68,15 +71,35 @@ class Ratings:
     def errors(self) -> list[Rating]:
         return [r for r in self.items if not r.ok]
 
+    def failures(self) -> list[dict[str, Any]]:
+        """The unparseable verdicts, for debugging — exactly what the judge was given
+        (``prompt``) and returned (``raw_response``), plus the error. Feed to pandas::
+
+            import pandas as pd; pd.DataFrame(ratings.failures())
+        """
+        return [
+            {
+                "input_id": r.input_id,
+                "config": r.config,
+                "error": r.error,
+                "prompt": r.prompt,
+                "raw_response": r.raw_response,
+            }
+            for r in self.items
+            if not r.ok
+        ]
+
     _RESERVED = ("input_id", "rep", "judge_rep", "verdict", "reasoning", "error")
 
     def to_records(self) -> list[dict[str, Any]]:
         """Flat rows: one column per factor (by name), then verdict + reasoning."""
+        from cafe.execution.results import level_label
+
         rows = []
         for r in self.items:
             row: dict[str, Any] = {}
             for name, value in r.config.items():
-                row[name if name not in self._RESERVED else f"{name}_factor"] = value
+                row[name if name not in self._RESERVED else f"{name}_factor"] = level_label(value)
             row["input_id"] = r.input_id
             row["rep"] = r.rep
             row["judge_rep"] = r.judge_rep
@@ -100,9 +123,11 @@ class Ratings:
         try:
             view = self.df.drop(columns=["error"], errors="ignore")
             note = "" if len(view) <= 20 else f"<i>showing 20 of {len(view)} rows</i>"
+            factors = ", ".join(self.factors) or "—"
             return (
                 f"<b>Ratings</b> — {len(self)} verdicts on "
-                f"<code>{self.rubric.name}</code>, judge <code>{self.judge_model}</code>"
+                f"<code>{self.rubric.name}</code>, judge <code>{self.judge_model}</code><br>"
+                f"<small>factor columns: <b>{factors}</b> · then input_id · rep · judge_rep · verdict</small>"
                 f"{view.head(20).to_html(index=False)}{note}"
             )
         except Exception:

@@ -81,9 +81,14 @@ class ParetoResult:
                    c="#f5a623", s=90, edgecolors="black", linewidths=0.6,
                    label="Pareto-optimal", zorder=4)
 
-        if annotate:
-            for r in self.rows:
-                ax.annotate(r["label"], (r[x], r[y]), fontsize=7,
+        if annotate:  # only the frontier — annotating every point is unreadable
+            from cafe.execution.results import level_label
+
+            keys = list(self.rows[0]["config"]) if self.rows else []
+            varying = [k for k in keys if len({str(r["config"].get(k)) for r in self.rows}) > 1]
+            for r in front:
+                short = "·".join(str(level_label(r["config"][k])).split("/")[-1] for k in varying) or r["label"]
+                ax.annotate(short, (r[x], r[y]), fontsize=7,
                             xytext=(4, 4), textcoords="offset points", color="#444")
 
         ax.set_xlabel(x + ("  (lower is better)" if _DIRECTION.get(x, 1) < 0 else ""))

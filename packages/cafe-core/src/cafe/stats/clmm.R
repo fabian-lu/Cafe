@@ -29,6 +29,14 @@ if (length(args) < 2) {
 }
 csv_path <- args[[1]]
 factors <- strsplit(args[[2]], ",")[[1]]
+order <- if (length(args) >= 3) suppressWarnings(as.integer(args[[3]])) else 1L
+if (is.na(order)) order <- 1L
+
+build_formula <- function(ord) {
+  terms <- paste(sprintf("`%s`", factors), collapse = " + ")
+  fixed <- if (ord >= 2 && length(factors) >= 2) sprintf("(%s)^%d", terms, ord) else terms
+  stats::as.formula(sprintf("verdict ~ (1|input_id) + %s", fixed))  # random effect first
+}
 
 if (!have_ordinal) {
   emit(list(available = FALSE,
@@ -40,10 +48,17 @@ result <- tryCatch({
   d <- read.csv(csv_path, stringsAsFactors = TRUE, check.names = FALSE)
   d$verdict <- ordered(d$verdict)
   d$input_id <- factor(d$input_id)
+  # Treat every declared factor as categorical (so a numeric-valued knob like top_k=[1,2]
+  # is levels, not a continuous covariate — consistent with the Gaussian model).
+  for (f in factors) d[[f]] <- factor(d[[f]])
 
-  fixed <- paste(sprintf("`%s`", factors), collapse = " + ")
-  form <- stats::as.formula(sprintf("verdict ~ %s + (1|input_id)", fixed))
-  m <- ordinal::clmm(form, data = d, Hess = TRUE)
+  form <- build_formula(order)
+  m <- tryCatch(ordinal::clmm(form, data = d, Hess = TRUE), error = function(e) NULL)
+  if (is.null(m) && order >= 2) {   # interactions not estimable -> fall back to main effects
+    form <- build_formula(1L)
+    m <- ordinal::clmm(form, data = d, Hess = TRUE)
+  }
+  if (is.null(m)) stop("model did not converge")
 
   ct <- coef(summary(m))
   beta_names <- names(m$beta)          # fixed-effect (factor) coefficients

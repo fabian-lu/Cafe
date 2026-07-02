@@ -88,4 +88,90 @@ def test_answer_sheet_has_stable_ids():
     ev, keys = _evaluation_with_judge()
     sheet = cafe.answer_sheet(ev)
     assert [r["answer_id"] for r in sheet] == keys
-    assert all("output" in r for r in sheet)
+    assert all("output" in r and r["score"] == "" for r in sheet)
+
+
+def test_answer_sheet_csv_roundtrip_skips_blanks(tmp_path):
+    ev, keys = _evaluation_with_judge()
+    path = str(tmp_path / "sheet.csv")
+    rows = cafe.answer_sheet(ev, path, raters=("expert_1", "expert_2"))
+    assert len(rows) == 2 * len(keys)          # one row per (answer × expert)
+    import pandas as pd
+    df = pd.read_csv(path)
+    df.loc[df["answer_id"] == keys[0], "score"] = 5   # only one answer rated; rest blank
+    df.to_csv(path, index=False)
+    hr = cafe.human_ratings(path)               # reads CSV, skips the blank rows
+    assert hr.raters() == ["expert_1", "expert_2"]
+    assert {r["answer_id"] for r in hr.records} == {keys[0]}
+
+
+def test_reliability_auto_metric_from_rubric():
+    ev, keys = _evaluation_with_judge()  # ANSWER_QUALITY_1_5 is ordinal
+    human = [{"answer_id": k, "rater": "ann", "score": s} for k, s in zip(keys, [5, 4, 5, 3])]
+    assert cafe.reliability(ev, human=human).metric == "ordinal"
+
+
+def test_rejudge_and_raters_judge_vs_judge():
+    from cafe.judging.ratings import JudgeOutput
+
+    class FakeJudge:
+        model = "judge-B"
+
+        async def score(self, rubric, question, answer, reference=None):
+            v = 4 if "5" in str(answer) else 3   # deterministic, no LLM
+            return JudgeOutput(v, v, "fake", "prompt", "raw")
+
+    ev, keys = _evaluation_with_judge()
+    ev_b = ev.rejudge(FakeJudge(), progress=False)     # same answers, new judge, sync
+    assert ev_b.ratings.judge_model == "judge-B"
+    assert [r.obs_key for r in ev_b.ratings.items] == keys   # same answers rejudged
+    rel = cafe.reliability(raters={"A": ev, "B": ev_b})
+    assert set(rel.raters) == {"A", "B"}
+
+
+def test_custom_non_llm_judge_satisfies_protocol_and_drives_rejudge():
+    from cafe.judging.ratings import JudgeOutput
+
+    class LengthJudge:  # no LLM, purely programmatic
+        model = "length-grader"
+
+        async def score(self, rubric, question, answer, reference=None):
+            v = 1 if len(answer or "") >= 3 else 0
+            return JudgeOutput(v, v, "programmatic", "(no prompt)", None)
+
+    assert isinstance(LengthJudge(), cafe.Judge)   # duck-typed protocol
+    ev, keys = _evaluation_with_judge()
+    graded = ev.rejudge(LengthJudge(), rubric=cafe.rubrics.CORRECT_PASS_FAIL, progress=False)
+    assert graded.ratings.judge_model == "length-grader"
+    assert graded.overall_mean == 1.0   # every stored answer is "ans" (len 3)
+
+
+def test_rejudge_respects_rubric_and_repetitions():
+    from cafe.judging.ratings import JudgeOutput
+
+    class PassFail:
+        model = "pf"
+
+        async def score(self, rubric, question, answer, reference=None):
+            return JudgeOutput(1, 1, "pass", "prompt", "raw")
+
+    ev, keys = _evaluation_with_judge()
+    # different rubric (binary) applied to the same answers
+    binary = cafe.rubrics.CORRECT_PASS_FAIL
+    ev_b = ev.rejudge(PassFail(), rubric=binary, progress=False)
+    assert ev_b.ratings.rubric is binary
+    assert {r.obs_key for r in ev_b.ratings.items} == set(keys)
+    # repetitions multiply the verdicts per answer, without regenerating answers
+    ev_r = ev.rejudge(PassFail(), repetitions=3, progress=False)
+    assert len(ev_r.ratings.items) == 3 * len(keys)
+    assert len(ev_r.answers.observations) == len(ev.answers.observations)
+
+
+def test_human_evaluation_runs_full_stats():
+    ev, keys = _evaluation_with_judge()
+    human = [{"answer_id": k, "rater": r, "score": s}
+             for k, s in zip(keys, [5, 4, 2, 1]) for r in ("e1", "e2")]
+    hev = cafe.human_evaluation(ev, human)
+    assert hev.ratings.judge_model == "human"
+    assert hev.attribution.n_usable == len(keys)   # 2 experts collapsed per answer
+    assert hev.effects is not None

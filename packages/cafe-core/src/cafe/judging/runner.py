@@ -33,6 +33,10 @@ async def judge_results(
     """
     questions = questions or {}
     references = references or {}
+    # Resolve one-time judge setup (e.g. structured-output capability) once, before the
+    # loop — so a capability probe runs at most once, never per judged answer.
+    if hasattr(judge, "prepare"):
+        await judge.prepare()
     targets = [o for o in results.observations if o.ok and o.output]
     total = len(targets) * repetitions
     ratings: list[Rating] = []
@@ -76,4 +80,5 @@ async def judge_results(
         judge_model=getattr(judge, "model", "judge"),
         factors=list(results.factors),
         items=ratings,
+        judge_system_prompt=getattr(judge, "system_prompt", None),
     )

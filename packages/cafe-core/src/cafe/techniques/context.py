@@ -38,15 +38,38 @@ class Context:
         self.total_cost: float = 0.0
         self.total_tokens: int = 0
         self._cache: dict[str, Any] = {}
+        self._manual_cost: float = 0.0  # accrued via add_cost() during the current step
+
+    def add_cost(self, usd: float) -> None:
+        """Charge an extra cost to the current stage — for a variable, non-LLM price
+        the technique computes itself (e.g. ``ctx.add_cost(0.001 * len(hits))``)."""
+        self._manual_cost += float(usd)
 
     async def run(self, stage: str, **inputs: Any) -> Any:
         """Run whichever technique the config selected for ``stage`` and return its output."""
-        name = self.config.get(stage)
-        if name is None:
+        if stage not in self.config:
             raise KeyError(
                 f"the config selects no technique for stage {stage!r} "
                 f"(add a factor named {stage!r} to the study)"
             )
+        name = self.config[stage]
+
+        # A ``None`` level — cafe.Factor("rerank", ["by_length", None]) — means "skip this
+        # stage": pass the sole input straight through. (A technique literally named "none"
+        # is not special — it just runs. Multi-input stages: technique_factor(none="<input>").)
+        if name is None:
+            if len(inputs) != 1:
+                raise KeyError(
+                    f"stage {stage!r} is skipped (None level) but got {len(inputs)} inputs "
+                    f"{sorted(inputs)}; use cafe.technique_factor({stage!r}, "
+                    "none='<input to pass through>') to say which one to keep"
+                )
+            self.trace.append({
+                "stage": stage, "technique": "none", "params": {},
+                "elapsed_s": 0.0, "cost_usd": 0.0, "tokens": 0, "cached": False,
+            })
+            return next(iter(inputs.values()))
+
         spec = registry.get(stage, str(name))
 
         params = {
@@ -64,6 +87,7 @@ class Context:
         # tokens + cost to this stage automatically (the user just calls complete).
         sink: list[dict[str, Any]] = []
         token = llm._usage_sink.set(sink)
+        self._manual_cost = 0.0
         t0 = time.monotonic()
         try:
             raw = await spec.fn(self, **inputs, **params)
@@ -80,7 +104,9 @@ class Context:
         if isinstance(raw, dict) and "output" in raw:
             output = raw["output"]
             declared_cost = float(raw.get("cost_usd", 0.0) or 0.0)
-        cost = round(auto_cost + declared_cost, 6)
+        # Total = LLM cost + the technique's fixed cost_usd + anything via ctx.add_cost()
+        # + an explicit cost in the return dict.
+        cost = round(auto_cost + spec.cost_usd + self._manual_cost + declared_cost, 6)
 
         meta = {
             "stage": stage,

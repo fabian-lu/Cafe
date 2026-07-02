@@ -23,9 +23,16 @@ def config_id(config: dict[str, Any]) -> str:
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
 
 
+def level_label(value: Any) -> str:
+    """Display a factor level. A ``None`` level (a skipped stage) renders as ``none`` so
+    it's a clean category everywhere (labels, DataFrames, the statistical model) rather
+    than a missing/NaN value."""
+    return "none" if value is None else value
+
+
 def config_label(config: dict[str, Any]) -> str:
     """Human-readable one-line label, e.g. ``model=large·prompt=cot``."""
-    return "·".join(f"{k}={config[k]}" for k in sorted(config))
+    return "·".join(f"{k}={level_label(config[k])}" for k in sorted(config))
 
 
 @dataclass
@@ -113,7 +120,11 @@ class Results:
         try:
             df = self.df
             note = "" if len(df) <= 20 else f"<i>showing 20 of {len(df)} rows</i>"
-            return f"<b>{self!r}</b>{df.head(20).to_html(index=False)}{note}"
+            factors = ", ".join(self.factors) or "—"
+            return (
+                f"<b>{self!r}</b><br><small>factor columns: <b>{factors}</b></small>"
+                f"{df.head(20).to_html(index=False)}{note}"
+            )
         except Exception:
             return f"<b>{self!r}</b>"
 
@@ -132,7 +143,7 @@ class Results:
         for o in self.observations:
             row: dict[str, Any] = {}
             for name, value in o.config.items():  # factors first, by their own names
-                row[name if name not in self._RESERVED else f"{name}_factor"] = value
+                row[name if name not in self._RESERVED else f"{name}_factor"] = level_label(value)
             row["input_id"] = o.input_id
             row["rep"] = o.rep
             row["output"] = o.output

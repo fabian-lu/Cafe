@@ -12,6 +12,26 @@ import random
 from typing import Any
 
 
+def _quiet_hf() -> None:
+    """Best-effort: silence HuggingFace's download chatter (the 'unauthenticated requests
+    to the HF Hub / set HF_TOKEN' warning, progress logs). Purely cosmetic for showcasing;
+    never let it break the actual load."""
+    import warnings
+
+    warnings.filterwarnings("ignore", message=r".*unauthenticated requests to the HF Hub.*")
+    for mod in ("huggingface_hub", "datasets"):
+        try:
+            __import__(mod).logging.set_verbosity_error()
+        except Exception:  # noqa: BLE001 — cosmetic only
+            pass
+    try:
+        import logging
+
+        logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _load_hf(name: str, *args: Any, **kwargs: Any):
     try:
         from datasets import load_dataset
@@ -19,6 +39,7 @@ def _load_hf(name: str, *args: Any, **kwargs: Any):
         raise ImportError(
             "dataset loaders need the 'datasets' extra: pip install 'cafe-core[datasets]'"
         ) from exc
+    _quiet_hf()
     return load_dataset(name, *args, **kwargs)
 
 

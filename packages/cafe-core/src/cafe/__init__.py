@@ -27,7 +27,7 @@ Or define your own::
     results = study.run()
 """
 
-from cafe import datasets
+from cafe import datasets, rubrics
 from cafe.design import (
     FractionalDesign,
     fractional_factorial,
@@ -37,7 +37,14 @@ from cafe.design import (
     single,
     size,
 )
-from cafe.techniques import composed, stage_report, technique, technique_factor
+from cafe.techniques import (
+    Pipeline,
+    composed,
+    pipeline,
+    stage_report,
+    technique,
+    technique_factor,
+)
 from cafe.evaluation import Evaluation, Preflight, evaluate, preflight
 from cafe.execution import estimate, run_study
 from cafe.judging import (
@@ -50,7 +57,7 @@ from cafe.judging import (
     build_judge_prompt,
     judge_results,
 )
-from cafe.llm import LLMError, complete
+from cafe.llm import LLMError, complete, set_model_cost
 from cafe.execution.results import Observation, Results, config_id, config_label
 from cafe.judging.rubric import ANSWER_QUALITY_1_5, Level, Rubric, ScaleType
 from cafe.stats import (
@@ -58,6 +65,8 @@ from cafe.stats import (
     CLMMResult,
     Effects,
     HumanRatings,
+    JudgeStability,
+    Logistic,
     ParetoResult,
     Reliability,
     answer_sheet,
@@ -65,9 +74,13 @@ from cafe.stats import (
     check_r,
     fit_clmm,
     fit_effects,
+    fit_logistic,
+    human_evaluation,
     human_ratings,
+    judge_stability,
     krippendorff_alpha,
     pareto,
+    ratings_from_human,
     reliability,
 )
 from cafe.study import Factor, FactorType, Study
@@ -78,17 +91,20 @@ __version__ = "0.0.1"
 __all__ = [
     # ── data ──
     "datasets",
+    "rubrics",
     # ── define an experiment ──
     "Study",
     "Factor",
     "FactorType",
     "System",
     "as_system",
-    # ── mode B: composed pipelines (techniques) ──
+    # ── composed pipelines (techniques) ──
     "technique",
     "composed",
     "technique_factor",
     "stage_report",
+    "pipeline",
+    "Pipeline",
     # ── run it ──
     "evaluate",       # the complete pipeline: answers -> judge -> attribution
     "preflight",      # cheap pre-run check + cost estimate
@@ -110,6 +126,7 @@ __all__ = [
     "config_label",
     # ── judging ──
     "complete",
+    "set_model_cost",
     "LLMError",
     "Rubric",
     "Level",
@@ -133,11 +150,17 @@ __all__ = [
     "check_r",
     "pareto",
     "ParetoResult",
+    "judge_stability",
+    "JudgeStability",
+    "fit_logistic",
+    "Logistic",
     "reliability",
     "Reliability",
     "human_ratings",
     "HumanRatings",
     "answer_sheet",
     "krippendorff_alpha",
+    "ratings_from_human",
+    "human_evaluation",
     "__version__",
 ]

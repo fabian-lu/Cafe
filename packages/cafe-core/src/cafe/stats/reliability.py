@@ -114,8 +114,14 @@ class HumanRatings:
 def human_ratings(records: Any) -> HumanRatings:
     """Build :class:`HumanRatings` from rows of ``{answer_id, rater, score}``.
 
-    Accepts a list of dicts or a pandas DataFrame (with those columns).
+    Accepts a list of dicts, a pandas DataFrame, or a **path to a filled-in CSV**
+    (e.g. the sheet from :func:`answer_sheet`). Rows with a blank ``score`` are skipped,
+    so a partially-rated sheet is fine.
     """
+    if isinstance(records, str):  # a CSV path (a filled-in answer sheet)
+        import pandas as pd
+
+        records = pd.read_csv(records)
     if hasattr(records, "to_dict"):  # a DataFrame
         records = records.to_dict("records")
     out = []
@@ -124,35 +130,58 @@ def human_ratings(records: Any) -> HumanRatings:
         if missing:
             raise ValueError(f"human rating row {i} is missing {sorted(missing)}: {rec}")
         score = rec["score"]
+        if score is None or score == "" or (isinstance(score, float) and score != score):
+            continue  # unrated row (blank in the sheet)
         out.append({
             "answer_id": rec["answer_id"],
             "rater": str(rec["rater"]),
-            "score": None if score is None else (int(score) if float(score).is_integer() else float(score)),
+            "score": int(score) if float(score).is_integer() else float(score),
         })
     return HumanRatings(records=out)
 
 
-def answer_sheet(evaluation: "Evaluation", questions: dict[str, str] | None = None) -> list[dict[str, Any]]:
-    """One row per answer with a stable ``answer_id`` for humans to rate.
+def answer_sheet(
+    evaluation: "Evaluation",
+    path: str | None = None,
+    *,
+    raters: tuple[str, ...] = ("expert_1",),
+    questions: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    """A rating sheet: one row per (answer × rater) with a blank ``score`` to fill in.
 
-    Give the resulting rows (or their DataFrame) to your experts; they fill a
-    ``score`` column keyed by ``answer_id``. ``questions`` optionally maps
-    ``input_id`` → question text to include for context.
+    Give it to your experts to rate. Pass ``path="sheet.csv"`` to **write a CSV** they can
+    open in Excel/Sheets, fill the ``score`` column, and save; load it back with
+    ``cafe.human_ratings("sheet.csv")``. ``raters`` names the columns of experts (one row
+    each). ``questions`` maps ``input_id`` → question text (defaults to the evaluation's).
     """
-    questions = questions or {}
+    from cafe.execution.results import config_label
+
+    questions = questions if questions is not None else getattr(evaluation, "questions", {}) or {}
+    references = getattr(evaluation, "references", {}) or {}
     rows = []
     for o in evaluation.answers.observations:
         if not o.ok:
             continue
-        from cafe.execution.results import config_label
+        for rater in raters:
+            # Column order = what a human reads left→right, then fills `score`:
+            # question, the gold reference (same one the judge saw), the answer, then score.
+            rows.append({
+                "answer_id": o.key(),
+                "rater": rater,
+                "question": questions.get(o.input_id, ""),
+                "reference": references.get(o.input_id, ""),
+                "output": o.output,
+                "score": "",
+                "config": config_label(o.config),
+            })
+    if path is not None:
+        import os
 
-        rows.append({
-            "answer_id": o.key(),
-            "config": config_label(o.config),
-            "input_id": o.input_id,
-            "question": questions.get(o.input_id, ""),
-            "output": o.output,
-        })
+        import pandas as pd
+
+        parent = os.path.dirname(os.path.abspath(path))
+        os.makedirs(parent, exist_ok=True)  # so "data/sheet.csv" works even if data/ is new
+        pd.DataFrame(rows).to_csv(path, index=False)
     return rows
 
 
@@ -180,21 +209,24 @@ class Reliability:
         return "unreliable"
 
     def show(self) -> str:
+        a0 = "n/a" if self.alpha != self.alpha else f"{self.alpha:.3f}"
         lines = [
-            f"Krippendorff's α ({self.metric}) — {len(self.raters)} raters, "
-            f"{self.n_units} jointly-rated answers",
+            f"inter-rater reliability — Krippendorff's α ({self.metric})",
+            f"  raters ({len(self.raters)}): {', '.join(self.raters)}"
+            f"      answers rated by ≥2: {self.n_units}",
             "",
-            f"  overall α = {self.alpha:.3f}   → {self.interpret(self.alpha)}",
+            f"  overall α = {a0}   ({self.interpret(self.alpha)})",
         ]
-        if self.pairwise:
+        if len(self.pairwise) > 1:  # only interesting with ≥3 raters
             lines.append("")
             lines.append("  pairwise:")
+            w = max((len(p["a"]) for p in self.pairwise), default=6)
             for p in self.pairwise:
                 a = p["alpha"]
-                astr = "  n/a" if a != a else f"{a:+.3f}"
-                lines.append(f"     {p['a']:>12} ↔ {p['b']:<12}  α={astr}  (n={p['n_common']})")
+                astr = "n/a" if a != a else f"{a:+.3f}"
+                lines.append(f"    {p['a']:>{w}} ↔ {p['b']:<{w}}   α = {astr}   (n={p['n_common']})")
         lines.append("")
-        lines.append("  α≥0.80 reliable · 0.667–0.80 tentative · below unreliable")
+        lines.append("  α ≥ 0.80 reliable · 0.667–0.80 tentative · < 0.667 unreliable")
         if self.note:
             lines.append(f"  note: {self.note}")
         return "\n".join(lines)
@@ -217,27 +249,56 @@ def _judge_scores(evaluation: "Evaluation", label: str) -> dict[Any, Any]:
     return {u: round(statistics.fmean(v)) for u, v in by_answer.items()}
 
 
+def _metric_for(evaluation: "Evaluation" | None) -> str:
+    """Pick the disagreement metric from the rubric's scale: ordinal→ordinal,
+    numeric→interval, binary→nominal (so 1-vs-5 counts more than 1-vs-2 on an ordinal
+    scale, but categories are all-or-nothing)."""
+    scale = getattr(getattr(getattr(evaluation, "ratings", None), "rubric", None), "scale_type", None)
+    return {"ordinal": "ordinal", "numeric": "interval", "binary": "nominal"}.get(
+        getattr(scale, "value", None), "ordinal"
+    )
+
+
+def _scores_of(source: Any, judge_label: str = "judge") -> dict[Any, Any]:
+    """A ``{answer_id: score}`` map from a rater source — an ``Evaluation`` (its judge's
+    per-answer scores) or an already-built dict."""
+    if isinstance(source, dict):
+        return source
+    if getattr(source, "answers", None) is not None:  # an Evaluation
+        return _judge_scores(source, judge_label)
+    raise TypeError(f"a rater must be an Evaluation or a {{answer_id: score}} dict; got {type(source).__name__}")
+
+
 def reliability(
     evaluation: "Evaluation" | None = None,
     human: Any = None,
     *,
+    raters: dict[str, Any] | None = None,
     table: dict[str, dict[Any, Any]] | None = None,
-    metric: str = "ordinal",
+    metric: str | None = None,
     judge_label: str = "judge",
 ) -> Reliability:
-    """Inter-rater reliability across the judge and any human raters.
+    """Inter-rater reliability across judges and/or human raters.
 
     Common uses::
 
         cafe.reliability(evaluation, human=expert_scores)   # judge ↔ humans
+        cafe.reliability(raters={"120b": result, "20b": result.rejudge(judge_20b)})  # judge ↔ judge
         cafe.reliability(human=expert_scores)               # humans ↔ each other
-        cafe.reliability(table={"judgeA": {...}, "judgeB": {...}})  # any raters
 
-    ``human`` is a :class:`HumanRatings` or rows accepted by :func:`human_ratings`.
+    ``raters`` maps a display name to a rater source — an ``Evaluation`` (its judge's
+    scores) or a ``{answer_id: score}`` dict. ``human`` is a :class:`HumanRatings` or rows
+    for :func:`human_ratings`. The disagreement ``metric`` defaults to the rubric's scale.
     """
+    if metric is None:
+        metric = _metric_for(evaluation or next((s for s in (raters or {}).values()
+                                                 if getattr(s, "answers", None) is not None), None))
     if table is None:
         table = {}
-        if evaluation is not None:
+        if raters:
+            for name, src in raters.items():
+                table[name] = _scores_of(src, judge_label)
+        if evaluation is not None and not raters:
             js = _judge_scores(evaluation, judge_label)
             if js:
                 table[judge_label] = js
@@ -279,4 +340,53 @@ def reliability(
         raters=raters,
         n_units=n_units,
         pairwise=pairwise,
+    )
+
+
+# ── Use human ratings as the ratings for the full stats ─────────────────────────────
+
+def ratings_from_human(evaluation: "Evaluation", human: Any, *, rubric: Any = None):
+    """Turn human scores into a :class:`~cafe.judging.ratings.Ratings`, so the whole stats
+    stack (``attribute`` / ``fit_effects`` / ``fit_clmm`` / ``report``) runs on **humans**
+    instead of the judge. Each rater's score becomes a verdict; several raters on one
+    answer act like judge replications (averaged before the factor models)."""
+    from cafe.judging.ratings import Rating, Ratings
+
+    hr = human if isinstance(human, HumanRatings) else human_ratings(human)
+    by_key = {o.key(): o for o in evaluation.answers.observations}
+    if rubric is None:
+        rubric = getattr(getattr(evaluation, "ratings", None), "rubric", None)
+    if rubric is None:
+        raise ValueError("no rubric available (this evaluation has no judge ratings) — pass rubric=")
+
+    grouped: dict[Any, list[tuple[str, Any]]] = defaultdict(list)
+    for rec in hr.records:
+        grouped[rec["answer_id"]].append((rec["rater"], rec["score"]))
+
+    items = []
+    for aid, rs in grouped.items():
+        obs = by_key.get(aid)
+        if obs is None:
+            continue
+        for jr, (rater, score) in enumerate(sorted(rs)):
+            items.append(Rating(
+                obs_key=aid, config=dict(obs.config), input_id=obs.input_id, rep=obs.rep,
+                judge_rep=jr, value=score, value_numeric=score, reasoning=f"human:{rater}",
+            ))
+    return Ratings(rubric=rubric, judge_model="human",
+                   factors=list(evaluation.answers.factors), items=items)
+
+
+def human_evaluation(evaluation: "Evaluation", human: Any, *, rubric: Any = None):
+    """An :class:`~cafe.evaluation.Evaluation` backed by **human** ratings — so
+    ``.report()`` / ``.plot()`` / ``.effects`` / ``.clmm`` all describe what the *humans*
+    found, letting you compare it against the judge-backed evaluation side by side."""
+    from cafe.evaluation import Evaluation
+    from cafe.stats.descriptive import attribute
+
+    rt = ratings_from_human(evaluation, human, rubric=rubric)
+    return Evaluation(
+        study_name=f"{evaluation.study_name} (human-rated)",
+        answers=evaluation.answers, ratings=rt, attribution=attribute(rt),
+        questions=getattr(evaluation, "questions", {}), references=getattr(evaluation, "references", {}),
     )

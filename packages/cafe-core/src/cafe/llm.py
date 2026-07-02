@@ -19,38 +19,92 @@ from __future__ import annotations
 
 import contextvars
 import os
+import warnings
 from typing import Any
 
 from cafe._env import load_env
+
+# LiteLLM's background logging worker sometimes leaves a success-logging coroutine
+# unawaited when the event loop tears down (e.g. the sync study.evaluate() worker thread).
+# It's harmless — the completion already returned — but noisy, so silence just that message.
+warnings.filterwarnings(
+    "ignore",
+    message=r"coroutine 'Logging\.async_success_handler' was never awaited",
+    category=RuntimeWarning,
+)
 
 
 class LLMError(RuntimeError):
     """Raised when an LLM call fails (auth, network, provider error, empty payload)."""
 
 
-# A sink that, when set, collects per-call usage (tokens + cost). The Mode-B
+# A sink that, when set, collects per-call usage (tokens + cost). The composed-mode
 # Context sets this around each technique so LLM usage is attributed per stage
 # automatically — the user just calls ``cafe.complete`` as normal. ``None`` (the
-# default, e.g. Mode A or judging) means usage is simply not collected.
+# default, e.g. black-box mode or judging) means usage is simply not collected.
 _usage_sink: contextvars.ContextVar[list | None] = contextvars.ContextVar(
     "cafe_usage_sink", default=None
 )
 
+# User-set price overrides, model string -> {"input": $/1k, "output": $/1k}. Used when
+# LiteLLM's automatic pricing is wrong or missing: a flat subscription, a negotiated
+# rate, self-hosting, or a provider LiteLLM doesn't price (e.g. Ollama Cloud → $0 auto).
+_model_prices: dict[str, dict[str, float]] = {}
+
+
+def set_model_cost(
+    model: str,
+    *,
+    per_1k_tokens: float | None = None,
+    per_1k_input: float | None = None,
+    per_1k_output: float | None = None,
+) -> None:
+    """Override the price CAFE uses for ``model`` (USD per 1,000 tokens).
+
+    Use ``per_1k_tokens`` for a single blended rate, or ``per_1k_input`` /
+    ``per_1k_output`` for separate prompt/completion rates. This takes priority over
+    LiteLLM's automatic pricing — set it for subscriptions, negotiated/enterprise
+    rates, self-hosted models, or providers LiteLLM doesn't price. Pass all-None to
+    clear the override.
+    """
+    if per_1k_tokens is None and per_1k_input is None and per_1k_output is None:
+        _model_prices.pop(model, None)
+        return
+    inp = per_1k_input if per_1k_input is not None else (per_1k_tokens or 0.0)
+    out = per_1k_output if per_1k_output is not None else (per_1k_tokens or 0.0)
+    _model_prices[model] = {"input": inp, "output": out}
+
+
+def _price_from_override(model: str, prompt_tokens: int, completion_tokens: int) -> float | None:
+    """Cost from a user-set price, or ``None`` if this model has no override."""
+    price = _model_prices.get(model)
+    if price is None:
+        return None
+    return round(prompt_tokens / 1000 * price["input"] + completion_tokens / 1000 * price["output"], 6)
+
 
 def _emit_usage(model: str, resp: Any) -> None:
-    """Record one completion's token usage and (if priceable) cost to the sink."""
+    """Record one completion's tokens + cost to the sink.
+
+    Cost priority: (1) a user override via :func:`set_model_cost`, else (2) LiteLLM's
+    automatic pricing, else (3) 0.0 (tokens are still recorded, so it can be priced later).
+    """
     sink = _usage_sink.get()
     if sink is None:
         return
     usage = getattr(resp, "usage", None)
+    prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0) if usage is not None else 0
+    completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0) if usage is not None else 0
     tokens = int(getattr(usage, "total_tokens", 0) or 0) if usage is not None else 0
-    cost = 0.0
-    try:
-        import litellm
 
-        cost = float(litellm.completion_cost(completion_response=resp) or 0.0)
-    except Exception:  # noqa: BLE001 — pricing unknown (e.g. local/Ollama) → cost 0
-        cost = 0.0
+    cost = _price_from_override(model, prompt_tokens, completion_tokens)
+    if cost is None:
+        try:
+            import litellm
+
+            cost = float(litellm.completion_cost(completion_response=resp) or 0.0)
+        except Exception:  # noqa: BLE001 — pricing unknown (e.g. local/Ollama) → cost 0
+            cost = 0.0
     sink.append({"model": model, "tokens": tokens, "cost_usd": cost})
 
 

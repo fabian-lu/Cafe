@@ -24,16 +24,26 @@ class Attribution:
     n_ratings: int = 0
     n_usable: int = 0
     factors: list[str] = field(default_factory=list)
+    overall_mean: float | None = None
     config_means: list[dict[str, Any]] = field(default_factory=list)   # per configuration
     factor_marginals: list[dict[str, Any]] = field(default_factory=list)  # per factor level
     best_config: dict[str, Any] | None = None
 
     def show(self) -> str:
-        lines = [
-            f"ratings: {self.n_ratings} ({self.n_usable} usable)   factors: {', '.join(self.factors)}",
-            "",
-            "per-configuration mean quality:",
-        ]
+        usable = "" if self.n_usable == self.n_ratings else f" ({self.n_usable} usable)"
+        factors = ", ".join(self.factors) if self.factors else "none"
+        lines = [f"verdicts: {self.n_ratings}{usable}   factors: {factors}", ""]
+
+        if self.overall_mean is not None:
+            lines.append(f"overall mean quality: {self.overall_mean:.2f}  (n={self.n_usable})")
+
+        # With no factors there's nothing to attribute — say so and stop.
+        if not self.factors:
+            lines += ["", "no factors varied — nothing to attribute "
+                      "(add factors to compare configurations)"]
+            return "\n".join(lines)
+
+        lines += ["", "per-configuration mean quality:"]
         for c in sorted(self.config_means, key=lambda r: r["mean"], reverse=True):
             cfg = "·".join(f"{k}={c['config'][k]}" for k in sorted(c["config"]))
             lines.append(f"  {c['mean']:.2f}  (n={c['n']:>2})  {cfg}")
@@ -53,19 +63,20 @@ class Attribution:
 
 
 def attribute(ratings: Ratings) -> Attribution:
-    """Compute per-config and per-factor mean quality from judge ratings."""
-    import pandas as pd
+    """Compute per-config and per-factor mean quality from judge ratings.
 
-    df = pd.DataFrame(ratings.to_records())
-    result = Attribution(n_ratings=len(df))
+    Judge replications of the same answer are averaged first (see
+    :func:`cafe.stats._frame.analysis_frame`), so each answer counts once.
+    """
+    from cafe.stats._frame import analysis_frame
+
+    result = Attribution(n_ratings=len(ratings.items))
+    df = analysis_frame(ratings)  # one row per answer (judge replications averaged)
     if df.empty or "verdict" not in df.columns:
         return result
-
-    df = df.dropna(subset=["verdict"]).copy()
     result.n_usable = len(df)
-    if df.empty:
-        return result
     df["verdict"] = df["verdict"].astype(float)
+    result.overall_mean = float(df["verdict"].mean())
 
     # Factor columns are exactly the study's factor names (carried on Ratings).
     factor_cols = [f for f in ratings.factors if f in df.columns]

@@ -15,6 +15,8 @@ venv/
 # CAFE local run artifacts (resumable checkpoints, exported results)
 .cafe/
 *.cafe.jsonl
+# Notebook-generated rating sheets (produced by cafe.answer_sheet in the examples)
+examples/answer_sheet.csv
 
 # Docs build output (MkDocs)
 site/

@@ -28,6 +28,19 @@ _INSTALL_HINT = (
 )
 
 
+def _readable_term(term: str, factors: list[str]) -> str:
+    """Turn R's ``retrievekeyword:reranknone`` into ``retrieve=keyword × rerank=none``."""
+    parts = []
+    for piece in term.split(":"):
+        matches = [f for f in factors if piece.startswith(f)]
+        if matches:
+            f = max(matches, key=len)  # longest prefix wins (retrieve.top_k vs retrieve)
+            parts.append(f"{f}={piece[len(f):]}")
+        else:
+            parts.append(piece)
+    return " × ".join(parts)
+
+
 def check_r() -> tuple[bool, str]:
     """Return ``(ok, message)`` describing R + ``ordinal`` availability."""
     if shutil.which("Rscript") is None:
@@ -57,37 +70,55 @@ class CLMMResult:
     log_lik: float | None = None
     coefficients: list[dict[str, Any]] = field(default_factory=list)  # term, estimate, std_error, z, p, factor, significant
     thresholds: list[dict[str, Any]] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def significant_factors(self) -> list[str]:
         return sorted({c["factor"] for c in self.coefficients if c.get("significant") and c.get("factor")})
 
     def show(self) -> str:
+        from cafe.stats._format import SIG_LEGEND, sig_code
+
         if not self.available:
             return f"ordinal CLMM unavailable: {self.reason or self.error}"
         ll = f"{self.log_lik:.1f}" if self.log_lik is not None else "?"
+        labels = [c.get("label") or c.get("term", "") for c in self.coefficients]
+        w = max([len("term")] + [len(t) for t in labels])
         lines = [
             f"ordinal CLMM — {self.formula}   (n={self.n_obs}, logLik={ll}, α={self.alpha})",
             "",
             "fixed effects (ordinal log-odds of a higher score; + = better):",
-            f"  {'term':<30}{'estimate':>10}{'p':>10}   significant",
+            f"  {'term':<{w}}{'estimate':>11}{'p':>11}     ",
         ]
-        for c in self.coefficients:
+        for c, term in zip(self.coefficients, labels):
             est = f"{c['estimate']:+.3f}" if c.get("estimate") is not None else "-"
             p = "-" if c.get("p") is None else f"{c['p']:.4f}"
-            sig = "✓ yes" if c.get("significant") else "  no"
-            lines.append(f"  {c['term']:<30}{est:>10}{p:>10}   {sig}")
+            lines.append(f"  {term:<{w}}{est:>11}{p:>11}   {sig_code(c.get('p'))}")
+        if self.coefficients and all(c.get("p") is None for c in self.coefficients):
+            lines.append("")
+            lines.append("  note: standard errors / p-values unavailable — the model is near-degenerate "
+                         "(separation or a ceiling in the scores); the estimates are unstable.")
+        else:
+            lines.append(f"  {SIG_LEGEND}")
+        for w in self.warnings:
+            lines.append(f"  note: {w}")
         return "\n".join(lines)
 
 
-def fit_clmm(ratings: "Ratings", *, alpha: float = 0.05, timeout: int = 120) -> CLMMResult:
-    """Fit an ordinal CLMM (``verdict ~ factors + (1|question)``) via R."""
+def fit_clmm(
+    ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 2, timeout: int = 120
+) -> CLMMResult:
+    """Fit an ordinal CLMM (``verdict ~ factors + (1|question)``) via R.
+
+    ``interactions`` is the maximum interaction order (1 = main effects, 2 = also two-way,
+    …); R falls back to main effects if the interaction model doesn't converge.
+    """
     import json
     import os
     import tempfile
     from importlib.resources import files
 
-    import pandas as pd
+    from cafe.stats._frame import analysis_frame
 
     res = CLMMResult(alpha=alpha)
 
@@ -97,11 +128,10 @@ def fit_clmm(ratings: "Ratings", *, alpha: float = 0.05, timeout: int = 120) -> 
         res.reason = f"CLMM is for ordinal scales; this rubric's scale_type is {scale!r}."
         return res
 
-    df = pd.DataFrame(ratings.to_records())
+    df = analysis_frame(ratings)  # one row per answer (judge replications averaged)
     if df.empty or "verdict" not in df.columns:
         res.reason = "no verdicts to fit"
         return res
-    df = df.dropna(subset=["verdict"]).copy()
     df["verdict"] = df["verdict"].astype(int)
 
     factors = [
@@ -123,9 +153,21 @@ def fit_clmm(ratings: "Ratings", *, alpha: float = 0.05, timeout: int = 120) -> 
         df[keep].to_csv(tmp.name, index=False)
         tmp.close()
         r_script = files("cafe.stats").joinpath("clmm.R")
+        order = max(1, min(interactions, len(factors)))
+        # Cap the order to what the design can estimate: an aliased fractional factorial is
+        # rank-deficient above main effects, so its 2FIs can't be separated (matches the
+        # Gaussian layer, so the two reports agree).
+        from cafe.stats.inferential import _design_rank_deficient
+
+        if order >= 2 and _design_rank_deficient(df, factors, order):
+            order = 1
+            res.warnings.append(
+                "interactions are aliased in this design (e.g. a fractional factorial below "
+                "resolution V) — they can't be separated, so only main effects are fit"
+            )
         try:
             proc = subprocess.run(
-                ["Rscript", str(r_script), tmp.name, ",".join(factors)],
+                ["Rscript", str(r_script), tmp.name, ",".join(factors), str(order)],
                 capture_output=True, text=True, timeout=timeout,
             )
         except subprocess.TimeoutExpired:
@@ -158,7 +200,9 @@ def fit_clmm(ratings: "Ratings", *, alpha: float = 0.05, timeout: int = 120) -> 
     coeffs = payload.get("coefficients", [])
     for c in coeffs:
         term = str(c.get("term", ""))
+        c["interaction"] = ":" in term  # R names interaction coefficients a:b
         c["factor"] = next((f for f in factors if term.startswith(f)), None)
+        c["label"] = _readable_term(term, factors)  # "retrieve=keyword × rerank=none"
         c["significant"] = c.get("p") is not None and c["p"] < alpha
     res.coefficients = coeffs
     return res

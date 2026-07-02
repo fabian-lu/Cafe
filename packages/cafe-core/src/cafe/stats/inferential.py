@@ -26,6 +26,7 @@ class Effects:
     """Per-factor significance + variance attribution, plus pairwise effect sizes."""
 
     model: str = ""
+    formula: str = ""
     alpha: float = 0.05
     n_obs: int = 0
     terms: list[dict[str, Any]] = field(default_factory=list)       # factor, df, F, p, partial_eta_sq, significant
@@ -37,26 +38,72 @@ class Effects:
         return [t["factor"] for t in self.terms if t.get("significant")]
 
     def show(self) -> str:
-        lines = [f"model: {self.model}   (n={self.n_obs}, α={self.alpha})", ""]
+        from cafe.stats._format import SIG_LEGEND, sig_code
+
+        lines = [self.formula or self.model, f"  {self.model}   (n={self.n_obs}, α={self.alpha})", ""]
         if self.terms:
-            lines.append("factor effects (is it real? how much variance?):")
-            lines.append(f"  {'factor':<16}{'F':>9}{'p':>10}{'partial η²':>13}   significant")
-            for t in sorted(self.terms, key=lambda x: (x.get("partial_eta_sq") or 0), reverse=True):
-                F = "-" if t["F"] is None else f"{t['F']:.2f}"
+            rows = sorted(self.terms, key=lambda x: (x.get("partial_eta_sq") or 0), reverse=True)
+            w = max([len("term")] + [len(t["factor"]) for t in rows])
+            lines.append("per-term effects  (F-test, p, partial η²;  '×' = interaction):")
+            lines.append(f"  {'term':<{w}}{'F':>9}{'p':>11}{'partial η²':>13}     ")
+            for t in rows:
+                if t["F"] is None:
+                    F = "-"
+                elif t["F"] >= 1e4:  # degenerate/separated fit — avoid a 30-digit number
+                    F = f"{t['F']:.0e}"
+                else:
+                    F = f"{t['F']:.2f}"
                 p = "-" if t["p"] is None else f"{t['p']:.4f}"
                 eta = "-" if t["partial_eta_sq"] is None else f"{t['partial_eta_sq']:.3f}"
-                star = "✓ yes" if t.get("significant") else "  no"
-                lines.append(f"  {t['factor']:<16}{F:>9}{p:>10}{eta:>13}   {star}")
+                lines.append(f"  {t['factor']:<{w}}{F:>9}{p:>11}{eta:>13}   {sig_code(t['p'])}")
+            lines.append(f"  {SIG_LEGEND}")
         if self.pairwise_d:
             lines.append("")
-            lines.append("pairwise effect sizes (Cohen's d):")
+            lines.append("effect sizes — Cohen's d (magnitude of the gap; 0.2 small, 0.5 medium, 0.8 large):")
             for d in self.pairwise_d:
-                val = "-" if d["d"] is None else f"{d['d']:+.2f}"
-                ci = "" if d["ci_low"] is None else f"  [{d['ci_low']:+.2f}, {d['ci_high']:+.2f}]"
-                lines.append(f"  {d['factor']}: {d['level_a']} vs {d['level_b']}  d={val}{ci}")
-        for w in self.warnings:
-            lines.append(f"  ! {w}")
+                val = " n/a" if d["d"] is None else f"{d['d']:+.2f}"
+                ci = "" if d["ci_low"] is None else f"   95% CI [{d['ci_low']:+.2f}, {d['ci_high']:+.2f}]"
+                lines.append(f"  {d['factor']}: {d['level_a']} vs {d['level_b']}   d = {val}{ci}")
+        if self.warnings:
+            lines.append("")
+            for w in self.warnings:
+                lines.append(f"note: {w}")
         return "\n".join(lines)
+
+
+def _safe_factor_frame(df, factors: list[str]):
+    """Rename factor columns to collision-proof patsy identifiers and return
+    ``(renamed_df, real->safe, safe->real)``. A factor named like a patsy builtin (``C``,
+    ``Q``, ``I``) would otherwise shadow that function in the formula namespace and crash
+    (``'Series' object is not callable``). Screening designs often use letter names, so this
+    matters here."""
+    safe = {c: f"cafe_f{i}" for i, c in enumerate(factors)}
+    return df.rename(columns=safe), safe, {v: k for k, v in safe.items()}
+
+
+def _design_rank_deficient(df, factors: list[str], order: int) -> bool:
+    """Whether the fixed-effects design at this interaction ``order`` is rank-deficient —
+    true for an **aliased** design (e.g. a fractional factorial below resolution V), where
+    interaction columns are collinear and cannot be separated. Used by both the Gaussian
+    and ordinal layers to avoid reporting un-estimable interactions."""
+    if order < 2 or len(factors) < 2:
+        return False
+    import numpy as np
+    import statsmodels.formula.api as smf
+
+    dfs, safe, _ = _safe_factor_frame(df, factors)
+    main = " + ".join(f"C(Q('{safe[c]}'))" for c in factors)
+    try:
+        exog = smf.ols(f"verdict ~ ({main})**{order}", dfs).fit().model.exog
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(np.linalg.matrix_rank(exog) < exog.shape[1])
+
+
+def _degenerate(w) -> bool:
+    """Whether a captured warning indicates a near-singular / non-converged fit."""
+    msg = str(getattr(w, "message", w)).lower()
+    return any(k in msg for k in ("singular", "converge", "positive definite", "boundary"))
 
 
 def _cohens_d(arr_a, arr_b):
@@ -125,19 +172,32 @@ def _oneway(df, factors, warnings, alpha):
     return terms
 
 
-def fit_effects(ratings: "Ratings", *, alpha: float = 0.05) -> Effects:
-    """Fit the mixed-effects model and return per-factor significance + η²."""
+def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 2) -> Effects:
+    """Fit the mixed-effects model and return per-term significance + η².
+
+    ``interactions`` is the maximum interaction order to include: ``1`` = main effects
+    only, ``2`` = also two-way (e.g. model×prompt — the default, since two-way captures
+    most), ``3`` = up to three-way. It's auto-capped at the number of factors, and falls
+    back to main-effects-only if the interaction model can't be estimated on the data.
+    """
     import numpy as np  # noqa: F401
-    import pandas as pd
+
+    from cafe.stats._frame import analysis_frame
 
     res = Effects(alpha=alpha)
-    df = pd.DataFrame(ratings.to_records())
+    df = analysis_frame(ratings)  # one row per answer (judge replications averaged)
     if df.empty or "verdict" not in df.columns:
         res.model = "skipped (no verdicts)"
         return res
-    df = df.dropna(subset=["verdict"]).copy()
     df["verdict"] = df["verdict"].astype(float)
     res.n_obs = len(df)
+
+    if df["verdict"].nunique() < 2:
+        # Every answer scored identically — there is no variance for any factor to
+        # explain (a degenerate fit would otherwise report a spurious effect).
+        res.model = "skipped (no variance in verdict — every answer scored the same)"
+        res.warnings.append("all verdicts identical; no effect to estimate")
+        return res
 
     usable = [
         c for c in ratings.factors
@@ -158,47 +218,111 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05) -> Effects:
         res.terms = _oneway(df, usable, res.warnings, alpha)
         return res
 
-    formula = "verdict ~ " + " + ".join(f"C(Q('{c}'))" for c in usable)
+    order = max(1, min(interactions, len(usable)))
+    # Fit on collision-proof column names so a factor named like a patsy builtin (C/Q/I)
+    # can't shadow the formula function; the display formula + term labels keep real names.
+    dfs, safe, _back = _safe_factor_frame(df, usable)
+    main_terms = " + ".join(f"C(Q('{safe[c]}'))" for c in usable)
+
+    def _formula(o: int) -> str:
+        return f"verdict ~ ({main_terms})**{o}" if o >= 2 and len(usable) >= 2 else f"verdict ~ {main_terms}"
+
+    def _display_formula(o: int) -> str:
+        fixed = f"({' + '.join(usable)})^{o}" if o >= 2 and len(usable) >= 2 else " + ".join(usable)
+        return f"verdict ~ (1 | input_id) + {fixed}"  # random effect first, human-readable
+
+    res.formula = _display_formula(order)
 
     # Mixed model needs ≥2 questions to estimate the random intercept.
-    if "input_id" in df.columns and df["input_id"].nunique() >= 2:
-        try:
-            smf.mixedlm(formula, df, groups=df["input_id"]).fit(method="lbfgs", reml=False, disp=False)
-            res.model = "MixedLM (random intercept: question) + Type-II ANOVA"
-        except Exception as exc:  # noqa: BLE001
-            res.warnings.append(f"mixed model did not fit ({exc}); using one-way ANOVA")
-            res.model = "one-way ANOVA (mixed model failed)"
-            res.terms = _oneway(df, usable, res.warnings, alpha)
-            return res
-    else:
+    if not ("input_id" in df.columns and df["input_id"].nunique() >= 2):
         res.warnings.append("only one question group; using one-way ANOVA")
         res.model = "one-way ANOVA (need ≥2 questions for a random effect)"
         res.terms = _oneway(df, usable, res.warnings, alpha)
         return res
 
-    # Per-factor F / p / partial η² via Type-II ANOVA on the OLS counterpart.
-    try:
-        ols = smf.ols(formula, df).fit()
-        table = sm.stats.anova_lm(ols, typ=2)
-        ss_resid = float(table.loc["Residual", "sum_sq"])
-        for c in usable:
-            term = f"C(Q('{c}'))"
-            if term not in table.index:
-                continue
-            ss = float(table.loc[term, "sum_sq"])
-            F = float(table.loc[term, "F"])
-            p = float(table.loc[term, "PR(>F)"])
-            eta = ss / (ss + ss_resid) if (ss + ss_resid) > 0 else None
-            res.terms.append(
-                {
-                    "factor": c,
-                    "df": float(table.loc[term, "df"]),
-                    "F": F if F == F else None,
-                    "p": p if p == p else None,
-                    "partial_eta_sq": eta,
-                    "significant": (p < alpha) if p == p else False,
-                }
-            )
-    except Exception as exc:  # noqa: BLE001
-        res.warnings.append(f"ANOVA failed ({exc})")
+    # statsmodels emits a flurry of singular/convergence warnings on small or
+    # near-degenerate data. Capture them quietly and translate to ONE clear note,
+    # rather than leaking the raw stack-trace-like spam to the user.
+    import warnings as _warnings
+
+    with _warnings.catch_warnings(record=True) as caught:
+        _warnings.simplefilter("always")
+        # The main-effects mixedlm just confirms the random intercept is identifiable.
+        # If it isn't, we keep the interaction formula but drop to fixed-effects ANOVA
+        # (rather than one-way, which would silently lose the interaction terms).
+        mixed_ok = True
+        try:
+            smf.mixedlm(_formula(1), dfs, groups=dfs["input_id"]).fit(method="lbfgs", reml=False, disp=False)
+        except Exception:  # noqa: BLE001
+            mixed_ok = False
+            res.warnings.append("random intercept not estimable; using fixed-effects ANOVA")
+
+        # Per-term F / p / partial η² via Type-II ANOVA on the OLS counterpart, at the
+        # requested interaction order — falling back to main effects if it won't estimate.
+        order_used, table = order, None
+        try:
+            fit = smf.ols(_formula(order), dfs).fit()
+            # A fractional factorial (or any aliased design) makes interaction columns
+            # collinear — e.g. at resolution IV model×sabotage IS verbosity×hedge. statsmodels
+            # would silently split their variance into meaningless separate terms, so detect
+            # the rank deficiency and drop to main effects rather than report bogus interactions.
+            if order >= 2:
+                exog = fit.model.exog
+                if np.linalg.matrix_rank(exog) < exog.shape[1]:
+                    order_used = 1
+                    res.formula = _display_formula(1)
+                    res.warnings.append(
+                        "interactions are aliased in this design (e.g. a fractional factorial "
+                        "below resolution V) — they can't be separated, so only main effects are "
+                        "fit; read the design's alias structure to interpret them"
+                    )
+                    fit = smf.ols(_formula(1), dfs).fit()
+            table = sm.stats.anova_lm(fit, typ=2)
+        except Exception:  # noqa: BLE001
+            if order_used >= 2:
+                order_used = 1
+                res.formula = _display_formula(1)
+                res.warnings.append("interactions not estimable on this data — main effects only")
+                try:
+                    table = sm.stats.anova_lm(smf.ols(_formula(1), dfs).fit(), typ=2)
+                except Exception as exc:  # noqa: BLE001
+                    res.warnings.append(f"ANOVA failed ({exc})")
+            else:
+                res.warnings.append("ANOVA failed")
+
+        if table is None:
+            res.model = "ANOVA failed"
+            res.terms = _oneway(df, usable, res.warnings, alpha)
+        else:
+            base = "MixedLM (random intercept: question)" if mixed_ok else "fixed-effects model"
+            res.model = (f"{base} + Type-II ANOVA"
+                         + (f", up to {order_used}-way" if order_used >= 2 else ""))
+            ss_resid = float(table.loc["Residual", "sum_sq"])
+            for name in table.index:
+                if name in ("Residual", "Intercept"):
+                    continue
+                cols = [c for c in usable if f"Q('{safe[c]}')" in name]
+                if not cols:
+                    continue
+                ss = float(table.loc[name, "sum_sq"])
+                F = float(table.loc[name, "F"])
+                p = float(table.loc[name, "PR(>F)"])
+                eta = ss / (ss + ss_resid) if (ss + ss_resid) > 0 else None
+                res.terms.append(
+                    {
+                        "factor": " × ".join(cols),
+                        "interaction": len(cols) > 1,
+                        "df": float(table.loc[name, "df"]),
+                        "F": F if F == F else None,
+                        "p": p if p == p else None,
+                        "partial_eta_sq": eta,
+                        "significant": (p < alpha) if p == p else False,
+                    }
+                )
+
+    if any(_degenerate(w) for w in caught):
+        res.warnings.append(
+            "model was near-singular (little between-question variance) — treat p-values as "
+            "unstable; the effect sizes (Cohen's d) are the more reliable signal here"
+        )
     return res

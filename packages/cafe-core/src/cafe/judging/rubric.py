@@ -40,8 +40,8 @@ class Rubric:
 
     Set ``prompt_template`` to take full control of the judge prompt (placeholders:
     ``{instruction}``, ``{question}``, ``{answer}``, ``{reference}``, ``{scale}``,
-    ``{min}``, ``{max}``). Leave it ``None`` to use the cited default in
-    :mod:`cafe.judging`.
+    ``{min}``, ``{max}``, ``{grade}`` — the scale-aware "allowed final grade" hint).
+    Leave it ``None`` to use the cited default in :mod:`cafe.judging`.
     """
 
     name: str
@@ -57,16 +57,31 @@ class Rubric:
             raise ValueError("a rubric needs at least two levels")
 
     def numeric(self, value: object) -> int | None:
-        """Map a raw verdict value onto its integer scale point (or None)."""
+        """Map a raw verdict value onto its integer scale point (or None).
+
+        For ``numeric`` scales any integer within ``[min_value, max_value]`` is valid
+        (the levels are just anchors); for ordinal/binary the value must match a defined
+        level exactly."""
         try:
             iv = int(value)  # type: ignore[arg-type]
         except (TypeError, ValueError):
             return None
+        if self.scale_type == ScaleType.numeric:
+            return iv if self.min_value <= iv <= self.max_value else None
         return iv if any(lvl.value == iv for lvl in self.levels) else None
 
     def scale_text(self) -> str:
         """A compact, judge-readable description of the scale."""
         return "\n".join(f"  {lvl.value} = {lvl.label}: {lvl.description}" for lvl in self.levels)
+
+    def grade_hint(self) -> str:
+        """How to constrain the judge's final grade, matched to the scale type: a range
+        for ``numeric`` (any integer in it is valid — the levels are anchors), or the
+        **exact allowed values** for ``ordinal``/``binary`` (only the defined levels are
+        valid, and they may be non-contiguous, e.g. 1, 3, 5)."""
+        if self.scale_type == ScaleType.numeric:
+            return f"an integer from {self.min_value} to {self.max_value}"
+        return "exactly one of: " + ", ".join(str(lvl.value) for lvl in self.levels)
 
     @property
     def min_value(self) -> int:
