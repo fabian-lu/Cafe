@@ -179,7 +179,15 @@ def plot_distribution(evaluation: "Evaluation", *, by=None, ax=None):
 
 
 def plot_effects(evaluation: "Evaluation", *, ax=None):
-    """Forest plot of Cohen's d (point + 95% CI) for each level comparison."""
+    """Effect-size forest, routed to the model that matches the rubric's scale — a
+    **log-odds** forest for a binary rubric (consistent with the logistic GLMM in
+    ``report()``), a **Cohen's d** forest otherwise."""
+    from cafe.judging.rubric import ScaleType
+
+    scale = getattr(getattr(getattr(evaluation, "ratings", None), "rubric", None), "scale_type", None)
+    if scale == ScaleType.binary:
+        return _plot_logodds_forest(evaluation, ax=ax)
+
     import matplotlib.pyplot as plt
 
     eff = evaluation.effects
@@ -197,6 +205,26 @@ def plot_effects(evaluation: "Evaluation", *, ax=None):
     ax.set_yticklabels([f"{d['factor']}: {_short(d['level_a'])} vs {_short(d['level_b'])}" for d in ds])
     return _style(ax, xlabel="Cohen's d  (gap between levels; 0=no effect)",
                   title="Effect sizes (95% CI)", horizontal=True)
+
+
+def _plot_logodds_forest(evaluation: "Evaluation", *, ax=None):
+    """Per-term log-odds forest for a binary rubric (from the logistic GLMM)."""
+    import matplotlib.pyplot as plt
+
+    log = evaluation.logistic
+    terms = [t for t in (log.terms if log and log.available else []) if t.get("coef") is not None]
+    if not terms:
+        raise ValueError("no logistic effects to plot (binary rubric with no fitted terms)")
+    if ax is None:
+        _, ax = plt.subplots(figsize=(6.5, 0.5 * len(terms) + 1.2))
+
+    for y, t in enumerate(terms):
+        ax.plot(t["coef"], y, "o", color=ACCENT, markersize=8, markeredgecolor="black", zorder=3)
+    ax.axvline(0, color="black", linewidth=0.8, linestyle="--", alpha=0.6)
+    ax.set_yticks(range(len(terms)))
+    ax.set_yticklabels([t["label"] for t in terms])
+    return _style(ax, xlabel="log-odds of a PASS  (+ = more likely; 0 = no effect)",
+                  title="Effect sizes — logistic (log-odds)", horizontal=True)
 
 
 def plot_pareto(evaluation: "Evaluation", *, ax=None):

@@ -48,5 +48,9 @@ def analysis_frame(ratings: "Ratings"):
     agg = df.groupby(key_cols, dropna=False)["verdict"].mean().reset_index()
     scale = getattr(getattr(ratings, "rubric", None), "scale_type", None)
     if scale in (ScaleType.ordinal, ScaleType.binary):
-        agg["verdict"] = agg["verdict"].round().astype(int)
+        # Round-half-up (not numpy's round-half-to-even): a tied binary split (mean 0.5
+        # over an even number of judge reps) must not systematically become 0 (a fail).
+        import numpy as np
+
+        agg["verdict"] = np.floor(agg["verdict"].to_numpy() + 0.5).astype(int)
     return agg

@@ -32,7 +32,7 @@ FAITHFULNESS_1_5 = Rubric(
     instruction="Judge how faithfully the ANSWER is supported by the REFERENCE — penalise unsupported claims.",
 )
 
-# Reference-free helpfulness/relevance (pair with the mtbench_single preset).
+# Reference-free helpfulness/relevance (pair with the single_answer preset).
 RELEVANCE_1_5 = Rubric(
     name="relevance_1_5",
     scale_type=ScaleType.ordinal,
@@ -67,14 +67,30 @@ CORRECT_PASS_FAIL = Rubric(
         Level(0, "fail", "Incorrect, misleading, or unsupported."),
         Level(1, "pass", "Correct and adequately supported."),
     ],
-    instruction="Decide whether the ANSWER is correct and adequately supported.",
+    instruction=("Decide whether the ANSWER is correct and adequately supported. "
+                 "Judge substance, not style or length."),
+)
+
+# A 3-level correctness scale — more discriminating than pass/fail, still cheap for small
+# judges. Ordinal (CLMM), so partial credit is modelled between fail and full correct.
+CORRECTNESS_0_3 = Rubric(
+    name="correctness_0_3",
+    scale_type=ScaleType.ordinal,
+    levels=[
+        Level(0, "incorrect", "Wrong, misleading, or off-topic."),
+        Level(1, "partial", "Partly correct but with a significant error or omission."),
+        Level(2, "mostly", "Correct in substance, with a minor slip."),
+        Level(3, "correct", "Fully correct and adequately supported."),
+    ],
+    instruction=("Rate the correctness of the ANSWER to the QUESTION. Judge substance, not "
+                 "style or length; award partial credit for partially-correct answers."),
 )
 
 #: Everything in the library, by name — handy for listing / a UI dropdown.
 ALL: dict[str, Rubric] = {
     r.name: r
     for r in (ANSWER_QUALITY_1_5, FAITHFULNESS_1_5, RELEVANCE_1_5,
-              HELPFULNESS_0_10, CORRECT_PASS_FAIL)
+              HELPFULNESS_0_10, CORRECTNESS_0_3, CORRECT_PASS_FAIL)
 }
 
 __all__ = [
@@ -82,6 +98,7 @@ __all__ = [
     "FAITHFULNESS_1_5",
     "RELEVANCE_1_5",
     "HELPFULNESS_0_10",
+    "CORRECTNESS_0_3",
     "CORRECT_PASS_FAIL",
     "ALL",
 ]

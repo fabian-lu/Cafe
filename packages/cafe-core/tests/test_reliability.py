@@ -26,6 +26,37 @@ def test_alpha_disagreement_is_negative():
     assert krippendorff_alpha(table, "ordinal") < 0
 
 
+def test_alpha_pinned_to_reference_values():
+    """CAFE's α is pinned to the reference `krippendorff` library's exact values on the
+    cases the AI-review relay wrongly flagged as a bug. The relay used the *asymptotic*
+    Scott's-π normalization (n instead of the small-sample n−1); CAFE's small-sample
+    correction is correct. These values were cross-checked against `krippendorff.alpha`.
+    See review/FINAL_FINDINGS.md §R-1. DO NOT "simplify" the (n−1) factor away."""
+    # 2 raters, nominal — relay claimed 0.3333 (Scott's π); correct α = 0.4444
+    assert krippendorff_alpha({"a": {1: 1, 2: 2, 3: 1}, "b": {1: 1, 2: 2, 3: 2}},
+                              "nominal") == pytest.approx(0.4444, abs=1e-3)
+    # 2 raters, perfect disagreement, interval — relay claimed −1.0; correct α = −0.5
+    assert krippendorff_alpha({"a": {1: 1, 2: 3}, "b": {1: 3, 2: 1}},
+                              "interval") == pytest.approx(-0.5, abs=1e-3)
+    # 3 raters, 8 units, ordinal — relay claimed 0.9238; correct α = 0.9270
+    A = {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 2, 7: 3, 8: 4}
+    B = {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 2, 7: 4, 8: 4}
+    C = {1: 1, 2: 3, 3: 3, 4: 4, 5: 5, 6: 1, 7: 3, 8: 4}
+    assert krippendorff_alpha({"A": A, "B": B, "C": C}, "ordinal") == pytest.approx(0.9270, abs=1e-3)
+
+
+def test_alpha_matches_reference_library_when_installed():
+    """If the reference `krippendorff` lib is installed, cross-check bit-exact (a guard
+    that survives forever). Skipped when the lib isn't present."""
+    np = pytest.importorskip("numpy")
+    kd = pytest.importorskip("krippendorff")
+    mat = np.array([[1, 2, 1, 1], [1, 2, 2, 1]], dtype=float)
+    ref = kd.alpha(reliability_data=mat, level_of_measurement="nominal")
+    ours = krippendorff_alpha({"a": {i: v for i, v in enumerate(mat[0])},
+                               "b": {i: v for i, v in enumerate(mat[1])}}, "nominal")
+    assert ours == pytest.approx(ref, abs=1e-9)
+
+
 def test_human_ratings_validates_columns():
     with pytest.raises(ValueError, match="missing"):
         cafe.human_ratings([{"answer_id": "x", "rater": "ann"}])  # no score

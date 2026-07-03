@@ -65,6 +65,14 @@ class Logistic:
     def significant_factors(self) -> list[str]:
         return sorted({t["factor"] for t in self.terms if t.get("significant") and t.get("factor")})
 
+    def to_df(self):
+        """The fixed-effects table as a tidy DataFrame (term, log-odds, odds_ratio, p,
+        significant) — the data behind :meth:`show`. Needs the ``stats`` extra."""
+        import pandas as pd
+
+        cols = ["label", "factor", "interaction", "coef", "odds_ratio", "p", "significant"]
+        return pd.DataFrame([{c: t.get(c) for c in cols} for t in self.terms])
+
     def show(self) -> str:
         from cafe.stats._format import SIG_LEGEND, sig_code
 

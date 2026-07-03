@@ -37,7 +37,7 @@ class LLMJudge:
         model: str,
         *,
         temperature: float = 0.0,
-        preset: str = "reference_guided",
+        preset: str = "reference_qa",
         system_prompt: str | None = None,
         prompt_template: str | None = None,
         structured: str | bool = "auto",
@@ -54,6 +54,10 @@ class LLMJudge:
         #: {answer} {reference} {scale} {grade} {min} {max}). Wins over the rubric's
         #: template and the preset. Must still elicit a final ``GRADE: <int>`` line.
         self.prompt_template = prompt_template
+        if prompt_template is not None:
+            from cafe.judging.prompts import check_template_placeholders
+
+            check_template_placeholders(prompt_template, where="judge prompt_template")
         #: Ask for a JSON verdict instead of a GRADE: line — ``True``/``False`` to force,
         #: ``"auto"`` to use it where the model supports it (static map, else one probe).
         self.structured = structured

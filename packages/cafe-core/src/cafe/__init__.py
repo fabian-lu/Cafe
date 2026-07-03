@@ -27,7 +27,19 @@ Or define your own::
     results = study.run()
 """
 
-from cafe import datasets, rubrics
+from cafe import (
+    datasets,
+    design,
+    evaluation,
+    execution,
+    judging,
+    llm,
+    rubrics,
+    stats,
+    study,
+    system,
+    techniques,
+)
 from cafe.design import (
     FractionalDesign,
     fractional_factorial,
@@ -92,6 +104,16 @@ __all__ = [
     # ── data ──
     "datasets",
     "rubrics",
+    # ── public submodules (for `cafe.<tab>`, `from cafe import *`, API docs) ──
+    "design",
+    "evaluation",
+    "execution",
+    "judging",
+    "llm",
+    "stats",
+    "study",
+    "system",
+    "techniques",
     # ── define an experiment ──
     "Study",
     "Factor",

@@ -118,20 +118,37 @@ async def run_study(
 
     # Build the full cell list, then drop the ones already done.
     pending: list[tuple[dict[str, Any], Any, str, int]] = []
+    valid_keys: set[str] = set()
     for cfg in configs:
         for idx, item in enumerate(inputs):
             in_id = _input_id(item, idx)
             for rep in range(reps):
                 probe = Observation(config=cfg, input_id=in_id, rep=rep)
+                valid_keys.add(probe.key())
                 if probe.key() not in done:
                     pending.append((cfg, item, in_id, rep))
 
+    # Only carry forward checkpoint rows that belong to the CURRENT design. Resuming an
+    # *edited* study (a dropped level, a changed dataset) must not contaminate the results
+    # with ghost rows from the old design — they would silently enter the statistics.
+    kept = {k: o for k, o in done.items() if k in valid_keys}
+    stale = len(done) - len(kept)
+    if stale:
+        import warnings
+
+        warnings.warn(
+            f"checkpoint {checkpoint_path!r}: dropped {stale} stored observation(s) that are "
+            "no longer in the study's design (the study changed since the checkpoint was "
+            "written); resumed results contain only the current design's cells.",
+            stacklevel=2,
+        )
+
     total = len(configs) * len(inputs) * reps
-    observations: list[Observation] = list(done.values())
+    observations: list[Observation] = list(kept.values())
 
     sem = asyncio.Semaphore(max(1, concurrency))
     write_lock = asyncio.Lock()
-    completed = len(done)
+    completed = len(kept)
 
     from cafe.execution.progress import progress_bar
 

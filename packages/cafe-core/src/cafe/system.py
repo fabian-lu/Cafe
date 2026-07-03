@@ -68,13 +68,34 @@ def as_system(obj: Any) -> System:
     )
 
 
+#: Keys CAFE reads as per-observation metadata from a system's return dict.
+_RESERVED_META_KEYS = frozenset({"cost_usd", "tokens", "latency_s", "trace"})
+
+
 def normalize_output(raw: Any) -> tuple[Any, dict[str, Any]]:
     """Split a system's return value into (output, metadata).
 
     A mapping with an ``"output"`` key is unpacked; its other keys become
     metadata. Anything else is treated as the output with empty metadata.
+
+    If a mapping has **no** ``"output"`` key but *does* carry reserved metadata keys
+    (``cost_usd``/``tokens``/``latency_s``/``trace``), that is almost certainly a
+    mis-shaped envelope — the whole dict would otherwise become the "answer" and the
+    cost/latency would be silently dropped from Pareto/estimates — so we warn.
     """
     if isinstance(raw, dict) and "output" in raw:
         meta = {k: v for k, v in raw.items() if k != "output"}
         return raw["output"], meta
+    if isinstance(raw, dict):
+        stray = _RESERVED_META_KEYS & raw.keys()
+        if stray:
+            import warnings
+
+            warnings.warn(
+                f"system returned a dict without an 'output' key but with metadata "
+                f"key(s) {sorted(stray)}; the whole dict is being treated as the answer "
+                "and that metadata is ignored. Return {'output': <answer>, "
+                f"{', '.join(f'{k!r}: ...' for k in sorted(stray))}}} instead.",
+                stacklevel=2,
+            )
     return raw, {}

@@ -44,7 +44,7 @@ class MySystem:
     async def run(self, config, item):
         return await self.client.answer(item, **config)
 
-study = cafe.Study(name="...", system=MySystem(client), factors=[...], inputs=[...])
+study = cafe.Study(name="...", system=MySystem(client), factors=[...], dataset=[...])
 ```
 
 ## Reading the config

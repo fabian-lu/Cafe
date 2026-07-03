@@ -53,8 +53,9 @@ scales up:
 - **`full_factorial`** — every combination of every factor's levels. No limit on
   the number of factors or levels; the cost is the product of the level counts.
 
-Fractional factorial, screening, and optimal designs (which trade completeness for
-far fewer runs) arrive in later releases.
+**Fractional factorial** designs (which trade completeness for far fewer runs) are
+available now via `design="fractional"` — see `examples/06_fractional_design.ipynb`.
+Screening, optimal, and response-surface designs are on the roadmap.
 
 ## What you get back
 

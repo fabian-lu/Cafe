@@ -17,6 +17,8 @@ venv/
 *.cafe.jsonl
 # Notebook-generated rating sheets (produced by cafe.answer_sheet in the examples)
 examples/answer_sheet.csv
+# AI code-review workspace (briefs, findings, agent scratch) — local-only, not in the repo
+/review/
 
 # Docs build output (MkDocs)
 site/

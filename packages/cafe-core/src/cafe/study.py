@@ -174,6 +174,45 @@ class Study:
                 f"binary rubric with {n_items} inputs — a factor may perfectly separate pass/fail, "
                 "making the logistic model degenerate (odds ratios diverge). More inputs reduce this risk"
             )
+
+        # Design shape: can this study actually compare anything?
+        multi_level = [f for f in self.factors if len(f.levels) >= 2]
+        if len(multi_level) == 0:
+            warns.append(
+                "no factor varies across ≥2 levels — there is nothing to compare; add a factor "
+                "with at least two levels (e.g. an on/off feature to test 'does X help?')"
+            )
+        elif len(multi_level) == 1:
+            warns.append(
+                "only one factor varies — you can estimate its main effect but no interactions "
+                "(you can't ask whether two techniques help *together*); add a second factor for that"
+            )
+
+        # Judge / rubric must both be set to judge; one without the other silently skips judging.
+        if (self.judge is None) != (self.rubric is None):
+            has, missing = ("judge", "rubric") if self.rubric is None else ("rubric", "judge")
+            warns.append(
+                f"a {has} is set but no {missing} — judging is skipped unless BOTH are provided "
+                "(the study will only generate answers)"
+            )
+
+        # Judge replications at temperature 0 measure nothing (a deterministic judge won't vary).
+        temp = getattr(self.judge, "temperature", None)
+        if self.judge_replications >= 2 and temp == 0.0:
+            warns.append(
+                f"judge_replications={self.judge_replications} but the judge temperature is 0.0 — "
+                "a deterministic judge won't vary between repetitions, so this measures no judge "
+                "noise; raise the judge temperature to measure it"
+            )
+
+        # FactorType.continuous is advisory only — the stats layer treats every factor as categorical.
+        continuous = [f.name for f in self.factors if getattr(f.type, "value", None) == "continuous"]
+        if continuous:
+            warns.append(
+                f"factor(s) {continuous} are declared continuous, but the statistics currently treat "
+                "every factor as categorical (each level is a separate group; no trend/slope is fit). "
+                "Numeric-covariate modeling is planned — for now FactorType is advisory"
+            )
         return warns
 
     def __repr__(self) -> str:
@@ -206,9 +245,12 @@ class Study:
         """Run the **complete** evaluation: generate answers, judge them (if a
         rubric + judge are set), and attribute quality to the factors. Returns an
         :class:`cafe.evaluation.Evaluation`."""
-        from cafe.evaluation import evaluate
+        from cafe.evaluation import emit_design_warnings, evaluate
 
-        return self._run_blocking(lambda: evaluate(self, **kwargs))
+        # Emit design-adequacy warnings here — synchronously, before the event loop — so
+        # they point at the caller's code rather than at asyncio internals.
+        emit_design_warnings(self)
+        return self._run_blocking(lambda: evaluate(self, _warn_design=False, **kwargs))
 
     def preflight(self, **kwargs: Any):
         """Quick check before a full run: one input through every configuration,

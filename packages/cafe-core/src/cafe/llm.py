@@ -70,6 +70,10 @@ def set_model_cost(
     if per_1k_tokens is None and per_1k_input is None and per_1k_output is None:
         _model_prices.pop(model, None)
         return
+    for name, val in (("per_1k_tokens", per_1k_tokens), ("per_1k_input", per_1k_input),
+                      ("per_1k_output", per_1k_output)):
+        if val is not None and val < 0:
+            raise ValueError(f"{name} must be non-negative; got {val}")
     inp = per_1k_input if per_1k_input is not None else (per_1k_tokens or 0.0)
     out = per_1k_output if per_1k_output is not None else (per_1k_tokens or 0.0)
     _model_prices[model] = {"input": inp, "output": out}

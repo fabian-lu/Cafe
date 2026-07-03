@@ -55,6 +55,10 @@ class Rubric:
             self.scale_type = ScaleType(self.scale_type)
         if not self.levels:
             raise ValueError("a rubric needs at least two levels")
+        if self.prompt_template is not None:
+            from cafe.judging.prompts import check_template_placeholders
+
+            check_template_placeholders(self.prompt_template, where=f"rubric {self.name!r} prompt_template")
 
     def numeric(self, value: object) -> int | None:
         """Map a raw verdict value onto its integer scale point (or None).
@@ -103,5 +107,7 @@ ANSWER_QUALITY_1_5 = Rubric(
         Level(4, "good", "Correct and helpful, minor issues at most."),
         Level(5, "excellent", "Correct, complete, and clearly helpful."),
     ],
-    instruction="Judge the correctness and helpfulness of the ANSWER to the QUESTION.",
+    instruction=("Judge the correctness and helpfulness of the ANSWER to the QUESTION. "
+                 "Reward substance, not style — do not prefer an answer for being longer, "
+                 "more formatted, or matching the reference's wording."),
 )

@@ -76,6 +76,14 @@ class CLMMResult:
     def significant_factors(self) -> list[str]:
         return sorted({c["factor"] for c in self.coefficients if c.get("significant") and c.get("factor")})
 
+    def to_df(self):
+        """The fixed-effects table as a tidy DataFrame (term, estimate, std_error, z, p,
+        significant) — the data behind :meth:`show`. Needs the ``stats`` extra."""
+        import pandas as pd
+
+        cols = ["label", "term", "estimate", "std_error", "z", "p", "factor", "significant"]
+        return pd.DataFrame([{c: co.get(c) for c in cols} for co in self.coefficients])
+
     def show(self) -> str:
         from cafe.stats._format import SIG_LEGEND, sig_code
 

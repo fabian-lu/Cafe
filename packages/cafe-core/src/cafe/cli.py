@@ -1,17 +1,16 @@
-"""``cafe`` command-line interface.
+"""cafe — a design-of-experiments evaluation engine for compound AI systems.
 
-Slice 1 commands:
+Commands:
+  cafe run example            run the bundled toy study
+  cafe run path/to/study.py   run a study defined in a Python file
+  cafe validate [target]      expand the design and report its size (no execution)
+  cafe doctor                 check optional prerequisites (R for the CLMM & logistic GLMM)
+  cafe version                print the version
 
-- ``cafe run example``          run the bundled toy study
-- ``cafe run path/to/study.py`` run a study defined in a Python file
-- ``cafe validate [target]``    expand the design and report its size (no execution)
-- ``cafe version``
+Flags for `run`: --smoke (preflight), --reps, --concurrency,
+--checkpoint PATH (resumable), --out PATH (write results JSONL).
 
-Flags for ``run``: ``--smoke`` (preflight), ``--reps``, ``--concurrency``,
-``--checkpoint PATH`` (resumable), ``--out PATH`` (write results JSONL).
-
-The CLI is the headless/CI path; it shares the exact engine the library and (later)
-the web platform use.
+The CLI is the headless/CI path; it shares the exact engine the library uses.
 """
 
 from __future__ import annotations
@@ -86,24 +85,28 @@ def _print_results_table(results: Results) -> None:
     for o in results.observations:
         by_config[config_label(o.config)].append(o)
 
+    # Only show sim_q when some observation actually reports it (the toy example does;
+    # real Mode-A systems don't, and an always-"-" column is just clutter).
+    show_simq = any("sim_quality" in (o.metadata or {}) for o in results.observations)
+
     rows: list[tuple[str, ...]] = []
-    header = ("configuration", "n", "err", "lat_s", "cost$", "sim_q")
+    header = ("configuration", "n", "err", "lat_s", "cost$") + (("sim_q",) if show_simq else ())
     for label in sorted(by_config):
         obs = by_config[label]
         n_err = sum(1 for o in obs if not o.ok)
         lat = _mean_meta(obs, "latency_s")
         cost = _mean_meta(obs, "cost_usd")
-        simq = _mean_meta(obs, "sim_quality")
-        rows.append(
-            (
-                label,
-                str(len(obs)),
-                str(n_err),
-                "-" if lat is None else f"{lat:.3f}",
-                "-" if cost is None else f"{cost:.4f}",
-                "-" if simq is None else f"{simq:.3f}",
-            )
+        row = (
+            label,
+            str(len(obs)),
+            str(n_err),
+            "-" if lat is None else f"{lat:.3f}",
+            "-" if cost is None else f"{cost:.4f}",
         )
+        if show_simq:
+            simq = _mean_meta(obs, "sim_quality")
+            row += ("-" if simq is None else f"{simq:.3f}",)
+        rows.append(row)
 
     widths = [max(len(header[i]), *(len(r[i]) for r in rows)) for i in range(len(header))]
     fmt = "  ".join("{:<" + str(w) + "}" for w in widths)
@@ -185,8 +188,18 @@ def _cmd_doctor(_args: argparse.Namespace) -> int:
     return 0 if (clmm_ok and glmm_ok) else 1
 
 
+def _cmd_version(_args: argparse.Namespace) -> int:
+    from cafe import __version__
+
+    print(f"cafe {__version__}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="cafe", description=__doc__)
+    parser = argparse.ArgumentParser(
+        prog="cafe", description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,  # keep the docstring's layout
+    )
     parser.add_argument("--version", action="store_true", help="print version and exit")
     sub = parser.add_subparsers(dest="command")
 
@@ -206,12 +219,12 @@ def main(argv: list[str] | None = None) -> int:
     p_doc = sub.add_parser("doctor", help="check optional prerequisites (R for the CLMM & logistic GLMM)")
     p_doc.set_defaults(func=_cmd_doctor)
 
+    p_ver = sub.add_parser("version", help="print version and exit")
+    p_ver.set_defaults(func=_cmd_version)
+
     args = parser.parse_args(argv)
     if args.version:
-        from cafe import __version__
-
-        print(f"cafe {__version__}")
-        return 0
+        return _cmd_version(args)
     if not getattr(args, "command", None):
         parser.print_help()
         return 0

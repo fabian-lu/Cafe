@@ -110,6 +110,38 @@ class Evaluation:
         return self.attribution.overall_mean if self.attribution is not None else None
 
     @property
+    def marginal_means(self):
+        """Per-factor marginal means as a tidy DataFrame (factor, level, mean, n) — the
+        "which level scores higher" table, ready to drop into a paper. ``None`` if
+        unjudged. (The same data is in ``attribution.factor_marginals``.)"""
+        if self.attribution is None:
+            return None
+        import pandas as pd
+
+        return pd.DataFrame(self.attribution.factor_marginals)
+
+    @property
+    def residuals(self):
+        """Per-answer residuals from the inferential fit (like R's ``residuals(fit)``),
+        or ``None`` if unjudged. Handy for diagnostics (normality, outliers)."""
+        eff = self.effects
+        return list(eff.residuals) if eff is not None and eff.residuals else None
+
+    @property
+    def fitted(self):
+        """Per-answer fitted values from the inferential fit (like R's ``fitted(fit)``),
+        or ``None`` if unjudged."""
+        eff = self.effects
+        return list(eff.fitted) if eff is not None and eff.fitted else None
+
+    @property
+    def variance_components(self):
+        """The mixed model's ``{random_intercept, residual}`` variances (like R's
+        ``VarCorr(fit)``), or ``None`` if unjudged / only a fixed-effects fit was possible."""
+        eff = self.effects
+        return eff.variance_components if eff is not None else None
+
+    @property
     def effects(self):
         """Inferential statistics (mixed model → F/p, partial η², Cohen's d).
 
@@ -198,17 +230,19 @@ class Evaluation:
         return "\n".join(parts)
 
     def rejudge(self, judge: Any, *, rubric: Any = None, repetitions: int = 1,
-                name: str | None = None, concurrency: int = 8, progress: bool = True):
+                name: str | None = None, concurrency: int = 8,
+                checkpoint_path: str | None = None, progress: bool = True):
         """Score the **same answers** again — with a different judge, ``rubric``, or
         number of ``repetitions`` — returning a new ``Evaluation`` (reusing this one's
         questions/references; nothing is regenerated). This is the "generate once, judge
         many ways" path:
 
-            free = result.rejudge(cafe.LLMJudge(model=m, preset="mtbench_single"))
+            free = result.rejudge(cafe.LLMJudge(model=m, preset="single_answer"))
             biny = result.rejudge(judge, rubric=cafe.rubrics.CORRECT_PASS_FAIL)
             noise = result.rejudge(judge, repetitions=3)   # the judge's own spread
 
-        Also handy for judge↔judge reliability —
+        ``checkpoint_path`` makes the judging crash-safe/resumable (verdicts appended as
+        they land). Also handy for judge↔judge reliability —
         ``cafe.reliability(raters={"a": result, "b": result.rejudge(judge_b)})``.
         """
         from cafe._async import run_blocking
@@ -220,7 +254,8 @@ class Evaluation:
             raise ValueError("rejudge needs a rubric — this evaluation wasn't judged")
         ratings = run_blocking(lambda: judge_results(
             self.answers, judge, rubric, repetitions=repetitions, concurrency=concurrency,
-            questions=self.questions, references=self.references, progress=progress,
+            questions=self.questions, references=self.references,
+            checkpoint_path=checkpoint_path, progress=progress,
         ))
         return Evaluation(
             study_name=name or f"{self.study_name} ({getattr(judge, 'model', 'judge')})",
@@ -295,10 +330,19 @@ class Evaluation:
                 f"(mostly {top}) — the design is unbalanced; inspect result.answers.errors"
             )
         if self.ratings is not None and self.ratings.errors:
-            out.append(
-                f"{len(self.ratings.errors)} verdict(s) were unparseable — "
-                "inspect result.ratings.failures()"
-            )
+            errs = self.ratings.errors
+            unjudgeable = [r for r in errs if (r.error or "").startswith("unjudgeable")]
+            unparseable = [r for r in errs if r not in unjudgeable]
+            if unjudgeable:
+                out.append(
+                    f"{len(unjudgeable)} answer(s) produced no output (None) and could not be "
+                    "judged — they are recorded as errors; inspect result.ratings.failures()"
+                )
+            if unparseable:
+                out.append(
+                    f"{len(unparseable)} verdict(s) were unparseable — "
+                    "inspect result.ratings.failures()"
+                )
         return out
 
     def summary(self) -> dict[str, Any]:
@@ -340,6 +384,7 @@ class Preflight:
     answers: Results
     estimate: dict[str, Any]
     warnings: list[str] = field(default_factory=list)   # design-adequacy advisories
+    judge_calls: int = 0                                 # judge calls the full study will make
 
     def show(self) -> str:
         lines = ["preflight — one input through every configuration:"]
@@ -355,6 +400,12 @@ class Preflight:
         cost_s = f"~${cost}" if cost is not None else "n/a (system reports no cost_usd)"
         lines.append("")
         lines.append(f"full study: {e['total_cells']} cells; est. compute {compute_s}, est. cost {cost_s}")
+        # The estimate is answer generation only — the judge phase is not measured here.
+        if self.judge_calls:
+            lines.append(
+                f"  note: this estimate covers answer generation only; the study will also make "
+                f"~{self.judge_calls} judge call(s) (time/cost not included)."
+            )
         if self.warnings:
             lines.append("")
             lines.append("design check — read before spending tokens:")
@@ -379,24 +430,36 @@ def _question_and_reference_maps(study: "Study") -> tuple[dict[str, str], dict[s
     return questions, references
 
 
+def emit_design_warnings(study: "Study") -> None:
+    """Emit the study's design-adequacy advisories via ``warnings.warn``. The sync
+    entry points (``Study.evaluate`` etc.) call this *before* entering the event loop so
+    the warning points at the user's code, not at asyncio internals."""
+    import warnings as _warnings
+
+    for w in study.check():
+        _warnings.warn(f"design check: {w}", stacklevel=3)
+
+
 async def evaluate(
     study: "Study",
     *,
     concurrency: int = 8,
     checkpoint_path: str | None = None,
+    judge_checkpoint_path: str | None = None,
     on_progress: ProgressFn | None = None,
     progress: bool = True,
+    _warn_design: bool = True,
 ) -> Evaluation:
     """Generate answers, judge them, and attribute quality — the whole pipeline.
 
     Shows a progress bar by default (one for answers, one for judging); pass
     ``progress=False`` to silence it, or ``on_progress`` for custom reporting.
+    ``checkpoint_path`` / ``judge_checkpoint_path`` make the answer / judging phases
+    crash-safe and resumable.
     """
-    # Advise on thin designs before spending tokens (once, up front).
-    import warnings as _warnings
-
-    for w in study.check():
-        _warnings.warn(f"design check: {w}", stacklevel=2)
+    # Advise on thin designs before spending tokens (unless the sync wrapper already did).
+    if _warn_design:
+        emit_design_warnings(study)
 
     answers = await run_study(
         study,
@@ -419,6 +482,7 @@ async def evaluate(
             concurrency=concurrency,
             questions=questions,
             references=references,
+            checkpoint_path=judge_checkpoint_path,
             progress=progress,
         )
         attribution = attribute(ratings)
@@ -438,4 +502,8 @@ async def preflight(study: "Study", *, concurrency: int = 8, progress: bool = Fa
     estimate the full study's cost/time."""
     answers = await run_study(study, smoke=True, concurrency=concurrency, progress=progress)
     total_cells = size(study) * max(1, len(study.dataset)) * study.replications
-    return Preflight(answers=answers, estimate=estimate(answers, total_cells), warnings=study.check())
+    plan = study.plan()
+    return Preflight(
+        answers=answers, estimate=estimate(answers, total_cells),
+        warnings=study.check(), judge_calls=plan.get("judge_calls", 0),
+    )

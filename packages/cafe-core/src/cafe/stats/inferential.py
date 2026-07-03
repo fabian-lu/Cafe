@@ -32,10 +32,24 @@ class Effects:
     terms: list[dict[str, Any]] = field(default_factory=list)       # factor, df, F, p, partial_eta_sq, significant
     pairwise_d: list[dict[str, Any]] = field(default_factory=list)  # factor, level_a/b, d, ci_low/high
     warnings: list[str] = field(default_factory=list)
+    #: Random-intercept / residual variance (from the mixed model), or ``None`` when only a
+    #: fixed-effects fit was possible. ``{"random_intercept": σ², "residual": σ²}``.
+    variance_components: dict[str, float] | None = None
+    #: Per-answer residuals / fitted values from the fit, aligned to the analysis frame.
+    residuals: list[float] = field(default_factory=list, repr=False)
+    fitted: list[float] = field(default_factory=list, repr=False)
 
     @property
     def significant_factors(self) -> list[str]:
         return [t["factor"] for t in self.terms if t.get("significant")]
+
+    def to_df(self):
+        """The per-term table as a tidy DataFrame (term, df, F, p, partial η², significant) —
+        the data behind :meth:`show`, ready for a paper table. Needs the ``stats`` extra."""
+        import pandas as pd
+
+        cols = ["factor", "interaction", "df", "F", "p", "partial_eta_sq", "significant"]
+        return pd.DataFrame([{c: t.get(c) for c in cols} for t in self.terms])
 
     def show(self) -> str:
         from cafe.stats._format import SIG_LEGEND, sig_code
@@ -64,6 +78,13 @@ class Effects:
                 val = " n/a" if d["d"] is None else f"{d['d']:+.2f}"
                 ci = "" if d["ci_low"] is None else f"   95% CI [{d['ci_low']:+.2f}, {d['ci_high']:+.2f}]"
                 lines.append(f"  {d['factor']}: {d['level_a']} vs {d['level_b']}   d = {val}{ci}")
+        if self.variance_components:
+            vc = self.variance_components
+            lines.append("")
+            lines.append(
+                f"variance components:  between-question σ² = {vc['random_intercept']:.3f}"
+                f" · residual σ² = {vc['residual']:.3f}"
+            )
         if self.warnings:
             lines.append("")
             for w in self.warnings:
@@ -252,7 +273,14 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
         # (rather than one-way, which would silently lose the interaction terms).
         mixed_ok = True
         try:
-            smf.mixedlm(_formula(1), dfs, groups=dfs["input_id"]).fit(method="lbfgs", reml=False, disp=False)
+            mfit = smf.mixedlm(_formula(1), dfs, groups=dfs["input_id"]).fit(
+                method="lbfgs", reml=False, disp=False)
+            # Random-intercept + residual variance components (paper-reportable).
+            try:
+                re_var = float(mfit.cov_re.iloc[0, 0])
+            except Exception:  # noqa: BLE001
+                re_var = float(np.asarray(mfit.cov_re).ravel()[0])
+            res.variance_components = {"random_intercept": re_var, "residual": float(mfit.scale)}
         except Exception:  # noqa: BLE001
             mixed_ok = False
             res.warnings.append("random intercept not estimable; using fixed-effects ANOVA")
@@ -294,6 +322,12 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
             res.model = "ANOVA failed"
             res.terms = _oneway(df, usable, res.warnings, alpha)
         else:
+            # Per-answer residuals / fitted (aligned to the analysis frame rows).
+            try:
+                res.residuals = [float(x) for x in np.asarray(fit.resid)]
+                res.fitted = [float(x) for x in np.asarray(fit.fittedvalues)]
+            except Exception:  # noqa: BLE001
+                pass
             base = "MixedLM (random intercept: question)" if mixed_ok else "fixed-effects model"
             res.model = (f"{base} + Type-II ANOVA"
                          + (f", up to {order_used}-way" if order_used >= 2 else ""))

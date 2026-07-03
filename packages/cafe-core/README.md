@@ -4,8 +4,12 @@ The CAFE evaluation engine: define a compound AI system as a black box, declare
 the factors to vary, and run a design-of-experiments study over it — headless,
 no web stack, no database required.
 
-> Status: **Slice 1** — the engine (design generation + robust async execution +
-> resumable checkpoints + CLI). Judging and statistics arrive in later slices.
+CAFE generates full and **fractional** factorial designs, runs each configuration
+with replication (resumable checkpoints), scores answers with a configurable
+**LLM judge** and/or human raters, and attributes quality to the factors with
+**mixed-effects models** matched to the rubric's scale (linear · cumulative-link ·
+logistic) plus **inter-rater reliability** (Krippendorff's α). See the `examples/`
+notebooks for the full walkthrough.
 
 ## Install (dev)
 
@@ -37,7 +41,7 @@ study = cafe.Study(
         cafe.Factor("model", ["small", "large"]),
         cafe.Factor("prompt", ["plain", "cot"]),
     ],
-    inputs=["question 1", "question 2"],
+    dataset=["question 1", "question 2"],
     replications=3,
 )
 

@@ -43,7 +43,7 @@ study = cafe.Study(
         cafe.Factor("model", ["small", "large"]),
         cafe.Factor("prompt", ["plain", "cot"]),
     ],
-    inputs=["What is 2+2?", "Summarize relativity."],
+    dataset=["What is 2+2?", "Summarize relativity."],
     replications=3,                       # measure run-to-run nondeterminism
 )
 

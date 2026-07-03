@@ -19,16 +19,17 @@ def test_render_messages_has_system_and_user():
 
 def test_judge_prompt_template_wins_over_rubric_and_preset():
     rubric = cafe.ANSWER_QUALITY_1_5
-    judge = cafe.LLMJudge(model="x", preset="mtbench_single",
-                          prompt_template="JUDGE-TPL {question} :: {answer} :: GRADE: <int {min}-{max}>")
+    judge = cafe.LLMJudge(model="x", preset="single_answer",
+                          prompt_template="JUDGE-TPL {question} :: {answer} :: {scale} :: GRADE: <{grade}>")
     user = judge.render_messages(rubric, "Q?", "A.")[1]["content"]
-    assert user == "JUDGE-TPL Q? :: A. :: GRADE: <int 1-5>"
+    assert user.startswith("JUDGE-TPL Q? :: A. ::")
+    assert "GRADE: <exactly one of: 1, 2, 3, 4, 5>" in user
 
 
 def test_builtin_rubrics_are_valid():
     assert set(cafe.rubrics.ALL) == {
         "answer_quality_1_5", "faithfulness_1_5", "relevance_1_5",
-        "helpfulness_0_10", "correct_pass_fail",
+        "helpfulness_0_10", "correctness_0_3", "correct_pass_fail",
     }
     for r in cafe.rubrics.ALL.values():
         assert len(r.levels) >= 2
@@ -80,7 +81,7 @@ def test_numeric_rubric_prompt_shows_anchors_and_full_range():
 
 
 def test_warns_when_reference_ignored_by_template():
-    j = cafe.LLMJudge(model="m", preset="mtbench_single")  # reference-free: no {reference}
+    j = cafe.LLMJudge(model="m", preset="single_answer")  # reference-free: no {reference}
     with pytest.warns(UserWarning, match="reference is being IGNORED"):
         j.render_messages(cafe.ANSWER_QUALITY_1_5, "Q?", "A.", reference="gold")
 
@@ -93,7 +94,7 @@ def test_no_warning_when_reference_used_or_absent():
         # reference-guided template uses {reference} → reference is honoured, no warning
         cafe.LLMJudge(model="m").render_messages(cafe.ANSWER_QUALITY_1_5, "Q?", "A.", reference="gold")
         # no reference passed → nothing to ignore, no warning
-        cafe.LLMJudge(model="m", preset="mtbench_single").render_messages(
+        cafe.LLMJudge(model="m", preset="single_answer").render_messages(
             cafe.ANSWER_QUALITY_1_5, "Q?", "A.")
 
 

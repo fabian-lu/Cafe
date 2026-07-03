@@ -115,8 +115,10 @@ def human_ratings(records: Any) -> HumanRatings:
     """Build :class:`HumanRatings` from rows of ``{answer_id, rater, score}``.
 
     Accepts a list of dicts, a pandas DataFrame, or a **path to a filled-in CSV**
-    (e.g. the sheet from :func:`answer_sheet`). Rows with a blank ``score`` are skipped,
-    so a partially-rated sheet is fine.
+    (e.g. the sheet from :func:`answer_sheet`). Rows with a blank score are skipped, so a
+    partially-rated sheet is fine; a row whose score can't be read as a number is skipped
+    with a warning (naming the row) rather than aborting the whole import — a stray header
+    row or a typo like ``"5?"`` in one cell shouldn't lose the sheet.
     """
     if isinstance(records, str):  # a CSV path (a filled-in answer sheet)
         import pandas as pd
@@ -132,10 +134,21 @@ def human_ratings(records: Any) -> HumanRatings:
         score = rec["score"]
         if score is None or score == "" or (isinstance(score, float) and score != score):
             continue  # unrated row (blank in the sheet)
+        try:
+            fscore = float(score)
+        except (ValueError, TypeError):
+            import warnings
+
+            warnings.warn(
+                f"human rating row {i} has a non-numeric score {score!r} "
+                f"(answer_id={rec.get('answer_id')!r}, rater={rec.get('rater')!r}) — skipping it.",
+                stacklevel=2,
+            )
+            continue
         out.append({
             "answer_id": rec["answer_id"],
             "rater": str(rec["rater"]),
-            "score": int(score) if float(score).is_integer() else float(score),
+            "score": int(fscore) if fscore.is_integer() else fscore,
         })
     return HumanRatings(records=out)
 
@@ -210,13 +223,20 @@ class Reliability:
 
     def show(self) -> str:
         a0 = "n/a" if self.alpha != self.alpha else f"{self.alpha:.3f}"
+        undefined = self.n_units < 2 or self.alpha != self.alpha
+        interp = "undefined" if undefined else self.interpret(self.alpha)
         lines = [
             f"inter-rater reliability — Krippendorff's α ({self.metric})",
             f"  raters ({len(self.raters)}): {', '.join(self.raters)}"
             f"      answers rated by ≥2: {self.n_units}",
             "",
-            f"  overall α = {a0}   ({self.interpret(self.alpha)})",
+            f"  overall α = {a0}   ({interp})",
         ]
+        if undefined:
+            lines.append(
+                f"  note: α needs ≥2 answers each rated by at least two raters "
+                f"(got {self.n_units}); the raters here don't share enough scored answers."
+            )
         if len(self.pairwise) > 1:  # only interesting with ≥3 raters
             lines.append("")
             lines.append("  pairwise:")
@@ -239,14 +259,23 @@ class Reliability:
 
 
 def _judge_scores(evaluation: "Evaluation", label: str) -> dict[Any, Any]:
-    """Collapse the judge's verdicts to one score per answer (mean over judge reps)."""
+    """Collapse the judge's verdicts to one score per answer (mean over judge reps).
+
+    For an ordinal/binary rubric the mean is rounded back to an integer scale point
+    (round-half-up); for a **numeric** rubric the mean is kept as-is — rounding 7.5→8 would
+    corrupt the interval metric that α uses for numeric scales."""
+    from cafe.judging.rubric import ScaleType
+
     by_answer: dict[Any, list[float]] = defaultdict(list)
     ratings = getattr(evaluation, "ratings", None)
     if ratings is not None:
         for r in ratings.items:
             if r.value_numeric is not None:
                 by_answer[r.obs_key].append(float(r.value_numeric))
-    return {u: round(statistics.fmean(v)) for u, v in by_answer.items()}
+    scale = getattr(getattr(ratings, "rubric", None), "scale_type", None)
+    if scale == ScaleType.numeric:
+        return {u: statistics.fmean(v) for u, v in by_answer.items()}
+    return {u: int(statistics.fmean(v) + 0.5) for u, v in by_answer.items()}  # round-half-up
 
 
 def _metric_for(evaluation: "Evaluation" | None) -> str:
