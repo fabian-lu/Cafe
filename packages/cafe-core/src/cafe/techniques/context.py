@@ -15,10 +15,12 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from cafe import llm
-from cafe.techniques import registry
+
+if TYPE_CHECKING:
+    from cafe.techniques.registry import TechniqueSpec
 
 
 def _cache_key(stage: str, name: str, params: dict, inputs: dict) -> str:
@@ -32,7 +34,9 @@ def _cache_key(stage: str, name: str, params: dict, inputs: dict) -> str:
 class Context:
     """Runs your techniques and records what happened. One per (config, item) run."""
 
-    def __init__(self, config: dict[str, Any]) -> None:
+    def __init__(self, techniques: dict[tuple[str, str], "TechniqueSpec"],
+                 config: dict[str, Any]) -> None:
+        self._techniques = techniques   # this pipeline's registry — NOT a global
         self.config = config
         self.trace: list[dict[str, Any]] = []
         self.total_cost: float = 0.0
@@ -47,21 +51,33 @@ class Context:
 
     async def run(self, stage: str, **inputs: Any) -> Any:
         """Run whichever technique the config selected for ``stage`` and return its output."""
-        if stage not in self.config:
-            raise KeyError(
-                f"the config selects no technique for stage {stage!r} "
-                f"(add a factor named {stage!r} to the study)"
-            )
-        name = self.config[stage]
+        if stage in self.config:
+            name = self.config[stage]
+        else:
+            # No factor picked a technique for this stage. If exactly ONE technique is
+            # registered for it, it's a FIXED stage — just use it (no dummy 1-level factor
+            # needed). Several techniques with no factor is ambiguous → a clear error.
+            here = [n for (s, n) in self._techniques if s == stage]
+            if len(here) == 1:
+                name = here[0]
+            elif not here:
+                raise KeyError(
+                    f"stage {stage!r} has no registered technique and no factor selects one"
+                )
+            else:
+                raise KeyError(
+                    f"stage {stage!r} has {len(here)} techniques {here} but no factor to pick "
+                    f"one — add a factor named {stage!r} to the study"
+                )
 
         # A ``None`` level — cafe.Factor("rerank", ["by_length", None]) — means "skip this
         # stage": pass the sole input straight through. (A technique literally named "none"
-        # is not special — it just runs. Multi-input stages: technique_factor(none="<input>").)
+        # is not special — it just runs. Multi-input stages: pipe.factor(none="<input>").)
         if name is None:
             if len(inputs) != 1:
                 raise KeyError(
                     f"stage {stage!r} is skipped (None level) but got {len(inputs)} inputs "
-                    f"{sorted(inputs)}; use cafe.technique_factor({stage!r}, "
+                    f"{sorted(inputs)}; use pipe.factor({stage!r}, "
                     "none='<input to pass through>') to say which one to keep"
                 )
             self.trace.append({
@@ -70,7 +86,14 @@ class Context:
             })
             return next(iter(inputs.values()))
 
-        spec = registry.get(stage, str(name))
+        try:
+            spec = self._techniques[(stage, str(name))]
+        except KeyError:
+            avail = [n for (s, n) in self._techniques if s == stage]
+            raise KeyError(
+                f"no technique {name!r} registered for stage {stage!r} on this pipeline; "
+                f"have: {avail}"
+            ) from None
 
         params = {
             pname: self.config.get(f"{stage}.{pname}", default)

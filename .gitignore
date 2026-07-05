@@ -52,3 +52,5 @@ apps/landing/dist/
 /paper/
 /stitch_cafe_landing_page_design/
 CLAUDE.md
+# Evaluation notebook cache (sampled questions + KB embeddings — regenerable)
+examples/evaluation/data/

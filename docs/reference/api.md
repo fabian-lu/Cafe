@@ -80,11 +80,9 @@ This page is generated automatically from the docstrings in `cafe-core`.
 
 ## Composed pipelines (techniques)
 
-::: cafe.technique
+::: cafe.Pipeline
 
-::: cafe.composed
-
-::: cafe.technique_factor
+::: cafe.pipeline
 
 ::: cafe.stage_report
 

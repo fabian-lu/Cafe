@@ -51,11 +51,9 @@ from cafe.design import (
 )
 from cafe.techniques import (
     Pipeline,
-    composed,
+    PipelineView,
     pipeline,
     stage_report,
-    technique,
-    technique_factor,
 )
 from cafe.evaluation import Evaluation, Preflight, evaluate, preflight
 from cafe.execution import estimate, run_study
@@ -121,12 +119,10 @@ __all__ = [
     "System",
     "as_system",
     # ── composed pipelines (techniques) ──
-    "technique",
-    "composed",
-    "technique_factor",
+    "Pipeline",
+    "PipelineView",
     "stage_report",
     "pipeline",
-    "Pipeline",
     # ── run it ──
     "evaluate",       # the complete pipeline: answers -> judge -> attribution
     "preflight",      # cheap pre-run check + cost estimate
