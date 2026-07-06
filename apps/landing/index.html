@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CAFE — Compound AI Factorial Evaluation</title>
+  <meta name="description" content="A design-of-experiments platform for evaluating compound AI systems. Stop guessing which config is better. Prove it." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@600;700&family=Material+Symbols+Outlined:wght@400&display=swap" rel="stylesheet" />
+  <script type="module" src="./src/main.js"></script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="/" aria-label="CAFE home">
+        <img src="logo.png" alt="" class="brand-logo" />
+        CAFE
+      </a>
+
+      <div class="nav-right">
+        <div class="nav-links">
+          <a class="nav-link" href="#features">Features</a>
+          <a class="nav-link" href="#how">How it works</a>
+          <a class="nav-link" href="https://fabian-lu.github.io/Cafe" target="_blank" rel="noopener">Docs</a>
+          <a class="nav-link" href="https://github.com/fabian-lu/Cafe" target="_blank" rel="noopener">GitHub</a>
+          <a class="nav-link" href="https://arxiv.org/abs/XXXX.XXXXX" target="_blank" rel="noopener">Paper</a>
+          <a class="nav-link" href="roadmap.html">Roadmap</a>
+        </div>
+
+        <a class="nav-cta" href="https://github.com/fabian-lu/Cafe" target="_blank" rel="noopener">
+          <span class="material-symbols-outlined">star</span>
+          Star
+        </a>
+
+        <button class="mobile-menu-btn material-symbols-outlined" id="menu-btn" aria-label="Toggle menu">menu</button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="mobile-nav" id="mobile-nav">
+    <a href="#features">Features</a>
+    <a href="#how">How it works</a>
+    <a href="https://fabian-lu.github.io/Cafe" target="_blank" rel="noopener">Docs</a>
+    <a href="https://github.com/fabian-lu/Cafe" target="_blank" rel="noopener">GitHub</a>
+    <a href="https://arxiv.org/abs/XXXX.XXXXX" target="_blank" rel="noopener">Paper</a>
+    <a href="roadmap.html">Roadmap</a>
+  </div>
+
+  <header class="hero">
+    <div class="container hero-grid">
+      <div>
+        <div class="hero-pretitle">
+          <span class="material-symbols-outlined" style="font-size:14px;color:var(--primary-container);">science</span>
+          <span>Statistical evaluation for compound AI</span>
+        </div>
+        <h1 class="hero-title">
+          Stop guessing which config is better. <span class="text-amber">Prove it.</span>
+        </h1>
+        <p class="hero-subtitle">
+          <strong>CAFE</strong> is a design-of-experiments platform for RAG, agents, and LLM chains.
+          Declare the factors you want to vary, run them with replication, and attribute quality
+          to the components that actually drive it — with p-values.
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="https://github.com/fabian-lu/Cafe" target="_blank" rel="noopener">
+            <span class="material-symbols-outlined">rocket_launch</span>
+            Get started
+          </a>
+          <a class="btn btn-secondary" href="#demo">
+            <span class="material-symbols-outlined">visibility</span>
+            See results
+          </a>
+        </div>
+      </div>
+
+      <div class="terminal-wrap">
+        <div class="terminal">
+          <div class="terminal-header">
+            <div class="terminal-dots">
+              <span class="dot dot-red"></span>
+              <span class="dot dot-yellow"></span>
+              <span class="dot dot-green"></span>
+            </div>
+            <span class="terminal-title">~/cafe</span>
+            <span></span>
+          </div>
+          <div class="terminal-body" id="terminal-body">
+            <div class="terminal-line" id="typing-line">
+              <span class="terminal-prompt">$</span> <span class="cursor-blink" id="typing-area"></span>
+            </div>
+            <div class="terminal-output" id="terminal-output"></div>
+          </div>
+        </div>
+        <div class="ascii-chart" id="ascii-chart">
+          <pre>[ FACTORIAL ANALYSIS COMPLETE ]
+Score |
+0.95  |          █
+0.78  |       █  █
+0.55  |    █  █  █
+0.30  | █  █  █  █
+      +------------
+      none  dense  dense+
+            rerank
+                    </pre>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section class="stack-strip">
+    <div class="container">
+      <p class="stack-label">Built with</p>
+      <div class="stack-items">
+        <div class="stack-item"><span class="material-symbols-outlined">terminal</span> Python ≥3.11</div>
+        <div class="stack-item"><span class="material-symbols-outlined">chat</span> LiteLLM</div>
+        <div class="stack-item"><span class="material-symbols-outlined">functions</span> R (optional CLMM)</div>
+        <div class="stack-item"><span class="material-symbols-outlined">code</span> Jupyter</div>
+        <div class="stack-item"><span class="material-symbols-outlined">dns</span> FastAPI + React</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section-pad" id="features">
+    <div class="container">
+      <h2 class="section-title">Design. Run. Attribute.</h2>
+      <p class="section-subtitle">
+        CAFE measures compound systems — it does not implement them. You bring your pipeline
+        as a black box; CAFE runs the experiment around it and tells you what matters.
+      </p>
+      <div class="feature-grid">
+        <div class="card-stack">
+          <div class="card-icon"><span class="material-symbols-outlined">architecture</span></div>
+          <div class="card-label">01 // Design</div>
+          <h3 class="card-title">Factorial experiments</h3>
+          <p class="card-body">
+            Declare categorical, ordinal, or continuous factors. CAFE expands full factorial
+            designs automatically, and fractional 2<sup>k-p</sup> designs when the combinatorial
+            cost gets real — with resolution and alias reporting.
+          </p>
+        </div>
+        <div class="card-stack">
+          <div class="card-icon"><span class="material-symbols-outlined">play_arrow</span></div>
+          <div class="card-label">02 // Run</div>
+          <h3 class="card-title">Replicated &amp; resumable</h3>
+          <p class="card-body">
+            Every configuration runs multiple times to separate real effects from LLM noise.
+            Checkpoints write incrementally: crash at hour 5 of 6 and you resume, not restart.
+            Per-item error isolation keeps one bad cell from killing the study.
+          </p>
+        </div>
+        <div class="card-stack">
+          <div class="card-icon"><span class="material-symbols-outlined">biotech</span></div>
+          <div class="card-label">03 // Analyze</div>
+          <h3 class="card-title">Correct models per scale</h3>
+          <p class="card-body">
+            Ordinal rubrics get a cumulative-link mixed model (CLMM). Binary pass/fail gets a
+            logistic GLMM. Numeric gets a Gaussian mixed model. Plus partial η² effect attribution,
+            Cohen's d, Pareto frontiers, and Krippendorff's α for judge↔human reliability.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="how-section" id="how">
+    <div class="container">
+      <h2 class="how-title">The systematic pipeline</h2>
+      <div class="how-grid">
+        <div class="how-line"></div>
+        <div class="how-step">
+          <div class="how-number">01</div>
+          <div>
+            <div class="how-label text-amber">Declare</div>
+            <p class="how-desc">Wrap your system as <code>run(config, item)</code> and list the factors to vary.</p>
+          </div>
+        </div>
+        <div class="how-step">
+          <div class="how-number">02</div>
+          <div>
+            <div class="how-label">Design</div>
+            <p class="how-desc">Choose full or fractional factorial. Preview the plan and cost before spending tokens.</p>
+          </div>
+        </div>
+        <div class="how-step">
+          <div class="how-number">03</div>
+          <div>
+            <div class="how-label">Replicate</div>
+            <p class="how-desc">Run every cell × input × replication. Resume from checkpoints automatically.</p>
+          </div>
+        </div>
+        <div class="how-step">
+          <div class="how-number">04</div>
+          <div>
+            <div class="how-label">Judge</div>
+            <p class="how-desc">LLM judge with transparent prompts, or collect human ratings for calibration.</p>
+          </div>
+        </div>
+        <div class="how-step">
+          <div class="how-number">05</div>
+          <div>
+            <div class="how-label text-amber">Attribute</div>
+            <p class="how-desc">Get per-factor effects, significance, interactions, and a quality/cost Pareto frontier.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section-pad">
+    <div class="container showcase-grid">
+      <div>
+        <h2 class="section-title">Developer native. Scientifically rigorous.</h2>
+        <p class="section-subtitle">
+          Use it from Python, a notebook, the CLI, or the web platform. The same engine everywhere.
+        </p>
+        <ul class="checklist">
+          <li><span class="material-symbols-outlined">check_box</span> pip-installable <code>cafe-core</code> with zero core dependencies</li>
+          <li><span class="material-symbols-outlined">check_box</span> Works with any LLM provider via LiteLLM</li>
+          <li><span class="material-symbols-outlined">check_box</span> Human rating workflow + inter-rater reliability built in</li>
+          <li><span class="material-symbols-outlined">check_box</span> Self-hostable web platform via Docker Compose</li>
+        </ul>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="code-dot"></span>
+          <span class="code-title">study.py</span>
+        </div>
+        <div class="code-body">
+          <pre><span class="code-kw">import</span> cafe
+
+study = cafe.Study(
+    name=<span class="code-str">"rag-reranker"</span>,
+    system=my_rag,
+    factors=[
+        cafe.Factor(<span class="code-str">"retrieve"</span>, [<span class="code-str">"none"</span>, <span class="code-str">"dense"</span>, <span class="code-str">"dense_rerank"</span>]),
+        cafe.Factor(<span class="code-str">"model"</span>, [<span class="code-str">"small"</span>, <span class="code-str">"large"</span>]),
+    ],
+    dataset=questions,
+    rubric=cafe.rubrics.CORRECTNESS_0_3,
+    judge=cafe.LLMJudge(model=<span class="code-str">"ollama_cloud/gpt-oss:20b"</span>),
+    replications=<span class="code-num">3</span>,
+)
+
+result = study.evaluate()  <span class="code-cmt"># answers → judge → attribution</span>
+<span class="code-kw">print</span>(result.report())</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section-pad demo-section" id="demo">
+    <div class="container demo-grid">
+      <div>
+        <h2 class="section-title">Read-only demo snapshot</h2>
+        <p class="section-subtitle">
+          A static slice of what a real CAFE study produces. The live interactive demo is coming once
+          the web platform ships.
+        </p>
+        <ul class="checklist">
+          <li><span class="material-symbols-outlined">check_box</span> Every verdict is auditable: prompt + raw response stored</li>
+          <li><span class="material-symbols-outlined">check_box</span> Effect sizes separate real drivers from noise</li>
+          <li><span class="material-symbols-outlined">check_box</span> Pareto trade-offs show quality vs. cost/latency</li>
+        </ul>
+      </div>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="code-dot"></span>
+          <span class="code-title">factorial_report.csv</span>
+        </div>
+        <div class="code-body" style="padding:0; background:var(--surface-container-lowest);">
+          <table class="demo-table">
+            <thead>
+              <tr>
+                <th>Config</th>
+                <th>Mean</th>
+                <th>η²</th>
+                <th>p</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>dense_rerank · large</td>
+                <td class="best">2.71</td>
+                <td class="sig">0.23</td>
+                <td class="sig">&lt;0.001</td>
+              </tr>
+              <tr>
+                <td>dense · large</td>
+                <td>2.45</td>
+                <td class="sig">0.05</td>
+                <td class="sig">&lt;0.001</td>
+              </tr>
+              <tr>
+                <td>none · large</td>
+                <td>1.98</td>
+                <td>-</td>
+                <td>-</td>
+              </tr>
+              <tr>
+                <td>dense_rerank · small</td>
+                <td>1.62</td>
+                <td>-</td>
+                <td>-</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta-section" id="paper">
+    <div class="container">
+      <h2 class="cta-title">Open source. Self-hostable. Reproducible.</h2>
+      <p class="cta-subtitle">
+        Join researchers and engineers who want their evaluation to be as rigorous as their model training.
+        Star the repo, read the docs, or cite the paper.
+      </p>
+      <div class="cta-actions">
+        <a class="btn btn-primary" href="https://github.com/fabian-lu/Cafe" target="_blank" rel="noopener">
+          <span class="material-symbols-outlined">star</span>
+          Star on GitHub
+        </a>
+        <a class="btn btn-secondary" href="https://fabian-lu.github.io/Cafe" target="_blank" rel="noopener">
+          <span class="material-symbols-outlined">description</span>
+          Read the docs
+        </a>
+        <a class="btn btn-secondary" href="https://arxiv.org/abs/XXXX.XXXXX" target="_blank" rel="noopener">
+          <span class="material-symbols-outlined">school</span>
+          Read the paper (arXiv)
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">CAFE Research</div>
+      <div class="footer-copy">Apache-2.0 · Built for reproducible evaluation of compound AI systems.</div>
+      <div class="footer-links">
+        <a class="footer-link" href="https://github.com/fabian-lu/Cafe" target="_blank" rel="noopener">GitHub</a>
+        <a class="footer-link" href="https://fabian-lu.github.io/Cafe" target="_blank" rel="noopener">Docs</a>
+        <a class="footer-link" href="roadmap.html">Roadmap</a>
+        <a class="footer-link" href="https://arxiv.org/abs/XXXX.XXXXX" target="_blank" rel="noopener">Paper</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

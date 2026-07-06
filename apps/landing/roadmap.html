@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Roadmap — CAFE</title>
+  <meta name="description" content="CAFE project roadmap: shipped features, upcoming milestones, and future research directions." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@600;700&family=Material+Symbols+Outlined:wght@400&display=swap" rel="stylesheet" />
+  <script type="module" src="./src/main.js"></script>
+</head>
+<body class="roadmap-page">
+  <nav class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="/" aria-label="CAFE home">
+        <img src="logo.png" alt="" class="brand-logo" />
+        CAFE
+      </a>
+
+      <div class="nav-right">
+        <div class="nav-links">
+          <a class="nav-link" href="index.html#features">Features</a>
+          <a class="nav-link" href="index.html#how">How it works</a>
+          <a class="nav-link" href="roadmap.html">Roadmap</a>
+          <a class="nav-link" href="https://fabian-lu.github.io/Cafe" target="_blank" rel="noopener">Docs</a>
+          <a class="nav-link" href="https://github.com/fabian-lu/Cafe" target="_blank" rel="noopener">GitHub</a>
+          <a class="nav-link" href="https://arxiv.org/abs/XXXX.XXXXX" target="_blank" rel="noopener">Paper</a>
+        </div>
+
+        <a class="nav-cta" href="https://github.com/fabian-lu/Cafe" target="_blank" rel="noopener">
+          <span class="material-symbols-outlined">star</span>
+          Star
+        </a>
+
+        <button class="mobile-menu-btn material-symbols-outlined" id="menu-btn" aria-label="Toggle menu">menu</button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="mobile-nav" id="mobile-nav">
+    <a href="index.html#features">Features</a>
+    <a href="index.html#how">How it works</a>
+    <a href="roadmap.html">Roadmap</a>
+    <a href="https://fabian-lu.github.io/Cafe" target="_blank" rel="noopener">Docs</a>
+    <a href="https://github.com/fabian-lu/Cafe" target="_blank" rel="noopener">GitHub</a>
+    <a href="https://arxiv.org/abs/XXXX.XXXXX" target="_blank" rel="noopener">Paper</a>
+  </div>
+
+  <header class="page-hero">
+    <div class="container">
+      <div class="breadcrumb">
+        <a href="index.html">Home</a>
+        <span class="sep">/</span>
+        <span class="current">Roadmap</span>
+      </div>
+      <h1 class="page-title">Roadmap</h1>
+      <p class="page-subtitle">
+        CAFE is in active development toward an open-source release and an
+        <strong>EMNLP 2026 System Demonstration</strong>. This page tracks what is shipped, what is
+        being built next, and the research directions on the horizon.
+      </p>
+    </div>
+  </header>
+
+  <section class="section-pad">
+    <div class="container">
+      <h2 class="section-title">Shipped</h2>
+      <div class="timeline">
+        <div class="timeline-item shipped">
+          <div class="timeline-meta">
+            <span class="timeline-status">Shipped</span>
+            <span class="timeline-date">Slice 0–1</span>
+          </div>
+          <div class="timeline-card">
+            <h3 class="timeline-title">cafe-core engine</h3>
+            <p class="timeline-body">
+              The pip-installable evaluation engine: <code>Study</code> / <code>Factor</code>,
+              full-factorial design generation, async resumable executor, checkpointing, and the
+              <code>cafe run</code> CLI. The defining reframe: black-box + declared factors,
+              library-first.
+            </p>
+          </div>
+        </div>
+
+        <div class="timeline-item shipped">
+          <div class="timeline-meta">
+            <span class="timeline-status">Shipped</span>
+            <span class="timeline-date">Slice 2</span>
+          </div>
+          <div class="timeline-card">
+            <h3 class="timeline-title">LLM judge + 3-layer statistics</h3>
+            <p class="timeline-body">
+              Configurable LLM judge with structured-output probing, presets, rubrics, and
+              transparent prompts. Three statistical layers: descriptive marginal means, Gaussian
+              mixed-effects model (F / p / partial η² / Cohen's d), ordinal CLMM via R, and a
+              binary logistic GLMM.
+            </p>
+          </div>
+        </div>
+
+        <div class="timeline-item shipped">
+          <div class="timeline-meta">
+            <span class="timeline-status">Shipped</span>
+            <span class="timeline-date">Slice 3</span>
+          </div>
+          <div class="timeline-card">
+            <h3 class="timeline-title">Fractional designs, Pareto, human ratings &amp; IRR</h3>
+            <p class="timeline-body">
+              Regular 2<sup>k-p</sup> fractional factorial designs with resolution/alias reporting.
+              Cost-quality-latency Pareto frontiers. CSV answer sheets, human rater ingestion,
+              and Krippendorff's α for judge↔human calibration.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <h2 class="section-title">Next</h2>
+      <div class="timeline">
+        <div class="timeline-item next">
+          <div class="timeline-meta">
+            <span class="timeline-status">Next</span>
+            <span class="timeline-date">Slice 4–6</span>
+          </div>
+          <div class="timeline-card">
+            <h3 class="timeline-title">Interactive web platform</h3>
+            <p class="timeline-body">
+              A FastAPI + React platform to define studies over a discovered pipeline, launch runs,
+              watch live SSE progress, explore results, and collect human ratings by name. Ships
+              with a HotpotQA RAG seed system. No auth, self-hostable via Docker Compose.
+            </p>
+          </div>
+        </div>
+
+        <div class="timeline-item next">
+          <div class="timeline-meta">
+            <span class="timeline-status">Next</span>
+            <span class="timeline-date">Paper</span>
+          </div>
+          <div class="timeline-card">
+            <h3 class="timeline-title">EMNLP 2026 System Demonstration submission</h3>
+            <p class="timeline-body">
+              6-page paper + live deployed demo + screencast + real evaluation. Deadline
+              <strong>2026-07-10</strong>. Evaluation plan: recovery experiment, judge↔human
+              reliability, and holdout/CV on public data.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <h2 class="section-title">Future</h2>
+      <div class="timeline">
+        <div class="timeline-item future">
+          <div class="timeline-meta">
+            <span class="timeline-status">Future</span>
+            <span class="timeline-date">Research</span>
+          </div>
+          <div class="timeline-card">
+            <h3 class="timeline-title">Optimize mode</h3>
+            <p class="timeline-body">
+              Sequential / Bayesian-optimization / bandit mode to find the best configuration
+              fastest. Kept conceptually distinct from the Explain/DoE spine — it answers "what
+              is the best config?" rather than "which factor matters?".
+            </p>
+          </div>
+        </div>
+
+        <div class="timeline-item future">
+          <div class="timeline-meta">
+            <span class="timeline-status">Future</span>
+            <span class="timeline-date">Engineering</span>
+          </div>
+          <div class="timeline-card">
+            <h3 class="timeline-title">Computation reuse &amp; caching</h3>
+            <p class="timeline-body">
+              Memoize shared upstream sub-paths across cells so factorial designs only recompute
+              what changed. This is what makes large factorial studies financially survivable,
+              especially paired with split-plot designs.
+            </p>
+          </div>
+        </div>
+
+        <div class="timeline-item future">
+          <div class="timeline-meta">
+            <span class="timeline-status">Future</span>
+            <span class="timeline-date">Methodology</span>
+          </div>
+          <div class="timeline-card">
+            <h3 class="timeline-title">Advanced designs: split-plot, optimal, response surface</h3>
+            <p class="timeline-body">
+              Split-plot designs that exploit hard-to-change factors (e.g., re-indexing a corpus)
+              and cheap-to-change factors (e.g., temperature). D-/I-optimal designs with
+              infeasible-combo constraints. Response-surface methods for continuous knobs.
+            </p>
+          </div>
+        </div>
+
+        <div class="timeline-item future">
+          <div class="timeline-meta">
+            <span class="timeline-status">Future</span>
+            <span class="timeline-date">Platform</span>
+          </div>
+          <div class="timeline-card">
+            <h3 class="timeline-title">Mode C: trace ingestion</h3>
+            <p class="timeline-body">
+              Ingest OpenTelemetry-style traces from an untouched production system and run
+              factorial attribution on observed internals, without surrendering execution.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">CAFE Research</div>
+      <div class="footer-copy">Apache-2.0 · Built for reproducible evaluation of compound AI systems.</div>
+      <div class="footer-links">
+        <a class="footer-link" href="https://github.com/fabian-lu/Cafe" target="_blank" rel="noopener">GitHub</a>
+        <a class="footer-link" href="https://fabian-lu.github.io/Cafe" target="_blank" rel="noopener">Docs</a>
+        <a class="footer-link" href="roadmap.html">Roadmap</a>
+        <a class="footer-link" href="https://arxiv.org/abs/XXXX.XXXXX" target="_blank" rel="noopener">Paper</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
