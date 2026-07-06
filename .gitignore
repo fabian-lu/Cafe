@@ -65,6 +65,7 @@ examples/evaluation/data/
 # Web app build/runtime artifacts
 apps/web-app/frontend/node_modules/
 apps/web-app/frontend/dist/
+apps/web-app/frontend/.vite/
 apps/web-app/frontend/package-lock.json
 apps/web-app/.env
 .playwright-mcp/
