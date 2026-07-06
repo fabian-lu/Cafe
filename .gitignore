@@ -54,6 +54,8 @@ apps/landing/dist/
 /design/
 # agent instructions (internal)
 CLAUDE.md
+# internal TODO / scratch notes (not for the public repo)
+/goals_problems.md
 # Paper: keep the LaTeX working tree local, but ship the built PDF.
 /paper/*
 !/paper/cafe.pdf
