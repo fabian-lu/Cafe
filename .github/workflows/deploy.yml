@@ -1,0 +1,42 @@
+name: Deploy site
+
+# Rebuilds the public site (landing + read-only demo) on the server whenever the relevant source
+# changes on main. The server pulls the repo and rebuilds the cafe-web container; the shared nginx
+# proxy + TLS (ionos_christoph_server) are untouched.
+#
+# Requires three repository secrets:
+#   SERVER_HOST      the server IP / hostname (e.g. 213.165.65.186)
+#   SERVER_USER      ssh user (e.g. root)
+#   SERVER_SSH_KEY   a private SSH key whose public half is in the server's ~/.ssh/authorized_keys
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/landing/**"
+      - "apps/web-app/frontend/**"
+      - "deploy/**"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-site
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            set -e
+            cd ~/Cafe
+            git pull --ff-only
+            cd deploy
+            docker compose up -d --build
+            docker image prune -f
