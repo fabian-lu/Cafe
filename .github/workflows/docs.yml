@@ -1,0 +1,63 @@
+name: Docs
+
+# Build the MkDocs site and publish it to GitHub Pages.
+# The tutorial notebooks live in examples/ (the single source of truth); this workflow copies them
+# into docs/notebooks/ before building, so nothing is duplicated in git.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "examples/**"
+      - "mkdocs.yml"
+      - "packages/cafe-core/**"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch: {}
+
+# Permissions the official Pages deployment needs.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one Pages deploy at a time; don't cancel an in-progress one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install docs dependencies
+        # Install cafe-core (+ stats/llm so mkdocstrings can import every module for the API reference)
+        # and the docs toolchain (mkdocs-material, mkdocstrings, mkdocs-jupyter).
+        run: pip install -e "packages/cafe-core[docs,stats,llm]"
+
+      - name: Sync tutorial notebooks into docs/
+        run: python scripts/sync_notebooks.py
+
+      - name: Build the site
+        run: mkdocs build --strict --site-dir _site
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
