@@ -7,7 +7,9 @@ name: Deploy site
 # Requires three repository secrets:
 #   SERVER_HOST      the server IP / hostname (e.g. 213.165.65.186)
 #   SERVER_USER      ssh user (e.g. root)
-#   SERVER_SSH_KEY   a private SSH key whose public half is in the server's ~/.ssh/authorized_keys
+#   SERVER_SSH_KEY   the deploy private key, BASE64-ENCODED to a single line (base64 -w0 key),
+#                    whose public half is in the server's ~/.ssh/authorized_keys. Base64 avoids the
+#                    line-break mangling that breaks a raw multi-line PEM pasted into a GitHub secret.
 
 on:
   push:
@@ -28,15 +30,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          script: |
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          echo "$SERVER_SSH_KEY" | base64 -d > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$SERVER_USER@$SERVER_HOST" '
             set -e
-            cd ~/Cafe
-            git pull --ff-only
-            cd deploy
-            docker compose up -d --build
-            docker image prune -f
+            cd ~/Cafe && git pull --ff-only
+            cd deploy && docker compose up -d --build && docker image prune -f
+          '
