@@ -15,11 +15,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import FRONTEND_ORIGIN, missing_llm_keys
 from app.db import init_db
 from app.routers import crud, judge, pipeline, raters, runs
+from app.seed import seed_if_empty
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()   # create tables if missing
+    await init_db()        # create tables if missing
+    await seed_if_empty()  # first-boot only: load the bundled demo study into an empty DB
     yield
 
 
