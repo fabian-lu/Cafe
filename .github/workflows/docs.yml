@@ -37,6 +37,11 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      # Enables GitHub Pages for the repo (and sets its source to Actions) if it isn't already,
+      # so the deploy step doesn't fail on the very first run.
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
       - name: Install docs dependencies
         # Install cafe-core (+ stats/llm so mkdocstrings can import every module for the API reference)
         # and the docs toolchain (mkdocs-material, mkdocstrings, mkdocs-jupyter).
