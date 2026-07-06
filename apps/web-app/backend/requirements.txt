@@ -1,0 +1,14 @@
+# CAFE platform backend. cafe-core is installed from the monorepo (see Dockerfile).
+fastapi>=0.110
+uvicorn[standard]>=0.29
+sqlalchemy[asyncio]>=2.0
+asyncpg>=0.29        # Postgres (docker/production)
+aiosqlite>=0.20     # SQLite (local dev, zero-setup)
+alembic>=1.13
+pydantic>=2.0
+# cafe-core extras the platform relies on (LLM calls + stats). Installed via the local package.
+litellm>=1.50
+pandas>=2.0
+numpy>=1.24
+statsmodels>=0.14
+scipy>=1.10

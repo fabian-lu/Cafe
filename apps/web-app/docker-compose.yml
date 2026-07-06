@@ -1,0 +1,54 @@
+# CAFE platform — clone the repo, set apps/web-app/.env, then: `docker compose up`.
+# Build context is the repo root (../../) so the backend image can install the local cafe-core.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: cafe
+      POSTGRES_PASSWORD: cafe
+      POSTGRES_DB: cafe
+    volumes:
+      - cafe-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cafe"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: ../..
+      dockerfile: apps/web-app/backend/Dockerfile
+    # Mount the code + --reload so backend edits hot-reload without an image rebuild.
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      DATABASE_URL: postgresql+asyncpg://cafe:cafe@db:5432/cafe
+      FRONTEND_ORIGIN: http://localhost:5173
+      CAFE_TECHNIQUES_DIR: /techniques
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    volumes:
+      - ../../techniques:/techniques:ro       # edits picked up on reload
+      - ./backend/app:/app/app                # backend code, hot-reloaded
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    environment:
+      BACKEND_URL: http://backend:8000   # reach the backend by its service name (not localhost)
+    command: sh -c "npm install && npm run dev -- --host"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules   # keep node_modules inside the container (don't write root-owned files to host)
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  cafe-db:
