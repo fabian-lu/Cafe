@@ -17,11 +17,13 @@ venv/
 *.cafe.jsonl
 # Notebook-generated rating sheets (produced by cafe.answer_sheet in the examples)
 examples/answer_sheet.csv
-# AI code-review workspace (briefs, findings, agent scratch) — local-only, not in the repo
-/review/
 
-# Docs build output (MkDocs)
+# Docs build output (MkDocs) + tooling cache
 site/
+.cache/
+# Notebooks rendered into the docs are COPIED from examples/ at build time — not committed
+# (examples/ is the single source of truth). The docs CI regenerates docs/notebooks/.
+docs/notebooks/
 
 # Node / frontend
 node_modules/
@@ -48,9 +50,19 @@ apps/landing/dist/
 # Anchored to the repo root so they don't also match the source package
 # `packages/cafe-core/src/cafe/design/` (an unanchored `design/` ignored it).
 .claude/
+# internal platform-design + decision logs (kept private for now)
 /design/
-/paper/
-/stitch_cafe_landing_page_design/
+# agent instructions (internal)
 CLAUDE.md
+# Paper: keep the LaTeX working tree local, but ship the built PDF.
+/paper/*
+!/paper/cafe.pdf
 # Evaluation notebook cache (sampled questions + KB embeddings — regenerable)
 examples/evaluation/data/
+
+# Web app build/runtime artifacts
+apps/web-app/frontend/node_modules/
+apps/web-app/frontend/dist/
+apps/web-app/frontend/package-lock.json
+apps/web-app/.env
+.playwright-mcp/

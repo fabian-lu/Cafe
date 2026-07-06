@@ -42,10 +42,20 @@ nav:
   - Concepts: concepts.md
   - Guides:
       - Define your system: guides/define-a-system.md
+  - Notebooks:
+      - Quickstart: notebooks/01_quickstart.ipynb
+      - Composed pipelines: notebooks/02_technique_mode.ipynb
+      - Human ratings & IRR: notebooks/03_human_and_irr.ipynb
+      - Judging modes: notebooks/04_judging_modes.ipynb
+      - Cost vs quality: notebooks/05_cost_quality.ipynb
+      - Fractional designs: notebooks/06_fractional_design.ipynb
+      - HotpotQA evaluation: notebooks/evaluation/evaluation.ipynb
   - API reference: reference/api.md
 
 plugins:
   - search
+  - mkdocs-jupyter:
+      include_source: true
   - mkdocstrings:
       handlers:
         python:
