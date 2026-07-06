@@ -339,6 +339,29 @@ input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .infotip-card .mono { color: var(--amber-soft); }
 .infotip:hover .infotip-card, .infotip:focus .infotip-card { visibility: visible; opacity: 1; }
 
+/* Read-only demo: corner badge + mutation toast */
+.demo-badge {
+  position: fixed; top: 14px; right: 16px; z-index: 80;
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 12px; border-radius: 999px; text-decoration: none;
+  background: var(--surface-container-highest); border: 1px solid var(--amber-dim);
+  color: var(--amber-soft); font-family: var(--font-mono); font-size: 12px;
+  box-shadow: 0 6px 20px -8px #000; transition: border-color 0.15s, color 0.15s;
+}
+.demo-badge:hover { border-color: var(--amber); color: var(--amber); }
+.demo-badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber);
+  box-shadow: 0 0 8px var(--amber); animation: demo-pulse 2s ease-in-out infinite; }
+@keyframes demo-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+.demo-toast {
+  position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 20px);
+  z-index: 90; padding: 11px 18px; border-radius: 10px; pointer-events: none;
+  background: var(--surface-container-highest); border: 1px solid var(--outline-variant);
+  color: var(--on-surface); font-size: 13px; box-shadow: 0 12px 32px -10px #000;
+  opacity: 0; transition: opacity 0.18s, transform 0.18s;
+}
+.demo-toast.show { opacity: 1; transform: translate(-50%, 0); }
+
 /* Chart hover tooltip (fixed to the cursor; immune to container overflow) */
 .chart-tip {
   position: fixed; z-index: 70; pointer-events: none; padding: 8px 10px; border-radius: 8px;

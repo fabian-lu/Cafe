@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from "react-router-dom";
+import { DEMO } from "./lib/demo.js";
 import Sidebar from "./components/Sidebar.jsx";
 import Techniques from "./pages/Techniques.jsx";
 import Studies from "./pages/Studies.jsx";
@@ -14,6 +15,11 @@ import Raters from "./pages/Raters.jsx";
 export default function App() {
   return (
     <div className="shell">
+      {DEMO && (
+        <a className="demo-badge" href="https://github.com/fabian-lu/Cafe" target="_blank" rel="noreferrer">
+          <span className="dot" /> read-only demo · view on GitHub
+        </a>
+      )}
       <Sidebar />
       <main className="content">
         <div className="content-inner">

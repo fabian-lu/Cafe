@@ -5,7 +5,11 @@ import react from "@vitejs/plugin-react";
 // reaches the backend by its service name (BACKEND_URL=http://backend:8000).
 const BACKEND = process.env.BACKEND_URL || "http://localhost:8000";
 
+// The read-only demo build is served under /demo on the public site.
+const base = process.env.VITE_DEMO ? "/demo/" : "/";
+
 export default defineConfig({
+  base,
   plugins: [react()],
   server: {
     host: true,

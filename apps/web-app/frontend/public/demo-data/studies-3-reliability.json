@@ -1,0 +1,1 @@
+{"metric": "ordinal", "n_human_raters": 2, "human_ceiling": {"alpha": 0.847, "n_units": 30, "raters": ["bob", "alice"], "interpret": "reliable"}, "judge_vs_human": {"alpha": 0.899, "n_units": 30, "raters": ["judge", "bob", "alice"], "interpret": "reliable"}}
