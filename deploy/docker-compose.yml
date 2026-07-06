@@ -1,0 +1,29 @@
+# Public deployment of CAFE's landing + read-only demo, behind the host's shared nginx proxy.
+# The proxy + TLS live in the separate `ionos_christoph_server` repo; this only serves static files
+# and joins its `proxy-net` network.
+#
+#   docker compose up -d --build      # from Cafe/deploy/ on the server
+#
+# Requires the proxy stack to be running first (it creates the `proxy-net` network).
+
+services:
+  cafe-web:
+    build:
+      context: ..                 # repo root — the Dockerfile builds apps/landing + apps/web-app/frontend
+      dockerfile: deploy/Dockerfile
+    image: cafe-web
+    container_name: cafe-web
+    restart: unless-stopped
+    expose:
+      - "80"                      # nginx inside the container; the proxy forwards here
+    environment:
+      VIRTUAL_HOST: cafe-ai.de,www.cafe-ai.de
+      LETSENCRYPT_HOST: cafe-ai.de,www.cafe-ai.de
+      LETSENCRYPT_EMAIL: fabian.lukassen@googlemail.com
+    networks:
+      - proxy-net
+
+networks:
+  proxy-net:
+    external: true
+    name: proxy-net
