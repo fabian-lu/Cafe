@@ -4,7 +4,7 @@ Commands:
   cafe run example            run the bundled toy study
   cafe run path/to/study.py   run a study defined in a Python file
   cafe validate [target]      expand the design and report its size (no execution)
-  cafe doctor                 check optional prerequisites (R for the CLMM & logistic GLMM)
+  cafe doctor                 check the environment (Python, R stats engine, LLM access)
   cafe version                print the version
 
 Flags for `run`: --smoke (preflight), --reps, --concurrency,
@@ -167,25 +167,75 @@ def _cmd_validate(args: argparse.Namespace) -> int:
 
 
 def _cmd_doctor(_args: argparse.Namespace) -> int:
-    """Check optional runtime prerequisites (R for the ordinal CLMM and binary GLMM)."""
+    """Check the CAFE environment: Python, the R statistics engine, and LLM access."""
+    import os
+    import shutil
+    import subprocess
+
+    from cafe import __version__
     from cafe.stats import check_glmer, check_r
 
-    print("cafe doctor — optional capability checks\n")
-    clmm_ok, clmm_msg = check_r()
-    glmm_ok, glmm_msg = check_glmer()
-    for label, ok, msg in (
-        ("ordinal CLMM (R + 'ordinal')", clmm_ok, clmm_msg),
-        ("binary logistic GLMM (R + 'lme4')", glmm_ok, glmm_msg),
-    ):
-        print(f"  [{'✓' if ok else '✗'}] {label}")
-        print(f"      {msg}")
+    def mark(ok: bool) -> str:
+        return "✓" if ok else "✗"
+
+    issues = 0
+    print("cafe doctor — environment check\n")
+
+    # --- Runtime -------------------------------------------------------------
+    py = sys.version_info
+    py_ok = py >= (3, 11)
+    if not py_ok:
+        issues += 1
+    print("Runtime")
+    print(f"  {mark(py_ok)}  Python {py.major}.{py.minor}.{py.micro}   (>= 3.11 required)")
+    print(f"  ✓  cafe {__version__}")
     print()
-    if clmm_ok and glmm_ok:
-        print("All set — the ordinal CLMM and binary GLMM layers are available.")
+
+    # --- Statistics engine (R) -----------------------------------------------
+    print("Statistics engine  (required — the mixed-effects models run in R)")
+    if shutil.which("Rscript") is None:
+        print("  ✗  R not found")
+        print("       fix →  install R (e.g. `sudo apt install r-base` or `brew install r`),")
+        print("              then:  Rscript -e 'install.packages(c(\"ordinal\", \"lme4\"))'")
+        issues += 1
     else:
-        print("CAFE still works without these — each falls back to a self-contained model "
-              "(Gaussian for ordinal, statsmodels logistic for binary).")
-    return 0 if (clmm_ok and glmm_ok) else 1
+        try:
+            proc = subprocess.run(["Rscript", "-e", "cat(R.version.string)"],
+                                  capture_output=True, text=True, timeout=30)
+            ver = proc.stdout.strip() or "R (version unknown)"
+        except Exception:  # noqa: BLE001
+            ver = "R (version unknown)"
+        print(f"  ✓  {ver}   (Rscript on PATH)")
+        for pkg, (ok, _msg), label in (
+            ("ordinal", check_r(), "ordinal CLMM"),
+            ("lme4", check_glmer(), "binary logistic GLMM"),
+        ):
+            print(f"  {mark(ok)}  {pkg:<9}{label}")
+            if not ok:
+                print(f"       fix →  Rscript -e 'install.packages(\"{pkg}\")'")
+                issues += 1
+    print()
+
+    # --- LLM access ----------------------------------------------------------
+    print("LLM access  (required for real studies; the bundled example needs none)")
+    keys = ("OPENAI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY",
+            "GEMINI_API_KEY", "OLLAMA_API_KEY")
+    any_key = False
+    for k in keys:
+        present = bool(os.environ.get(k))
+        any_key = any_key or present
+        print(f"  {'✓' if present else '–'}  {k}{'' if present else '   not set'}")
+    if not any_key:
+        print("       set at least one to run studies with a live judge")
+    print()
+
+    # --- Summary -------------------------------------------------------------
+    if issues == 0:
+        print("All set — CAFE's statistics and execution layers are ready.")
+        return 0
+    word = "issue" if issues == 1 else "issues"
+    print(f"{issues} {word} — install the items marked ✗ above.")
+    return 1
 
 
 def _cmd_version(_args: argparse.Namespace) -> int:
@@ -216,7 +266,7 @@ def main(argv: list[str] | None = None) -> int:
     p_val.add_argument("target", nargs="?", default="example", help="'example' or a .py study file")
     p_val.set_defaults(func=_cmd_validate)
 
-    p_doc = sub.add_parser("doctor", help="check optional prerequisites (R for the CLMM & logistic GLMM)")
+    p_doc = sub.add_parser("doctor", help="check the environment (Python, R stats engine, LLM access)")
     p_doc.set_defaults(func=_cmd_doctor)
 
     p_ver = sub.add_parser("version", help="print version and exit")

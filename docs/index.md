@@ -18,13 +18,13 @@ verifiers. CAFE answers what aggregate benchmarks can't:
 - **Is the difference real**, or just LLM run-to-run noise?
 
 CAFE treats each pipeline knob as an experimental **factor**, generates factorial
-designs, executes configurations with **replication**, collects ordinal quality
-judgments (LLM judge + human experts), and attributes variance with mixed-effects
-and ordinal models.
+designs, executes configurations with **replication**, collects quality judgments
+(LLM judge + humans), and attributes the variance with mixed-effects models matched
+to the rubric's scale.
 
-!!! note "CAFE measures; it does not implement"
-    You bring your system as a **black box** — `run(config, item) -> output`. CAFE
-    runs the experiment around it. It never needs to know your pipeline's topology,
+!!! note "CAFE measures; it does not build"
+    Bring your system as a **black box** — `run(config, item) -> output` — or compose it
+    inside CAFE from your own techniques. Either way CAFE runs the experiment around it,
     which is why it works for *any* compound system: RAG, routing, cascades, agents.
 
 ## Where to go next

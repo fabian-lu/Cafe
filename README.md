@@ -61,39 +61,71 @@ the experiment around it.
 
 ### The library
 
-Requires **Python ≥ 3.11**.
+Requires **Python ≥ 3.11** and **R** — the mixed-effects models (ordinal CLMM, logistic GLMM) run in R.
 
 ```bash
 git clone https://github.com/fabian-lu/Cafe.git
 cd Cafe
 pip install -e "packages/cafe-core[stats]"
 
+# R + the model packages  (Debian/Ubuntu shown; macOS: `brew install r`)
+sudo apt install r-base
+Rscript -e 'install.packages(c("ordinal", "lme4"))'
+
+cafe doctor           # verify the environment: Python, R engine, LLM access
 cafe run example      # runs a bundled toy study — no API keys needed
 ```
 
-A minimal real study:
+Or a **complete, runnable example** — no API keys, copy-paste and go. A two-technique QA system
+(built with CAFE's decorators) judged by a keyless toy judge:
 
 ```python
-import cafe
+import cafe, random
+random.seed(0)
+
+# A tiny compound system built with CAFE's decorators: one "answer" stage, two techniques.
+pipe = cafe.Pipeline()
+KNOWN = {"dune": "Frank Herbert", "1984": "George Orwell",
+         "the hobbit": "J.R.R. Tolkien", "it": "Stephen King"}
+
+@pipe.technique("answer", "lookup")          # a reliable table
+async def lookup(ctx, query):
+    return KNOWN.get(query.lower(), "unknown")
+
+@pipe.technique("answer", "guess")           # a noisy baseline
+async def guess(ctx, query):
+    return random.choice(["Isaac Asimov", "Arthur C. Clarke", "Frank Herbert", "no idea"])
+
+@pipe.compose                                # wire the stages into a runnable system
+async def run(config, item, ctx):
+    return await ctx.run("answer", query=item["text"])
+
+# A keyless toy judge: score 3 if the reference shows up in the answer, else 0.
+class KeywordJudge:
+    model = "keyword-match"
+    async def score(self, rubric, question, answer, reference=None):
+        v = 3 if reference and reference.lower() in str(answer).lower() else 0
+        return cafe.JudgeOutput(value=v, value_numeric=v, reasoning="",
+                                prompt="", raw_response=str(v))
 
 study = cafe.Study(
-    name="rag-eval",
-    system=pipe,                                 # your compound system as a black box
-    factors=[
-        pipe.factor("retrieve"),                 # e.g. none · dense · dense+rerank
-        cafe.Factor("generate.model", ["small", "large"]),
-    ],
-    dataset=[{"text": "Who wrote Dune?", "reference": "Frank Herbert"}],
-    rubric=cafe.rubrics.CORRECTNESS_0_3,         # a built-in ordinal rubric
-    judge=cafe.LLMJudge(model="openai/gpt-4o-mini", preset="reference_qa"),
+    name="toy",
+    system=pipe,
+    factors=[pipe.factor("answer")],         # levels come from the decorators: lookup, guess
+    dataset=[{"text": t, "reference": r} for t, r in {
+        "Dune": "Herbert", "1984": "Orwell", "The Hobbit": "Tolkien",
+        "It": "King", "Neuromancer": "Gibson", "Foundation": "Asimov",
+    }.items()],
+    rubric=cafe.rubrics.CORRECTNESS_0_3,
+    judge=KeywordJudge(),
+    replications=3,
 )
-
-result = study.evaluate()      # generate answers → judge → attribute
-print(result.report())         # significance, effect sizes, best config, the ordinal model
+print(study.evaluate().report())             # means, significance, effect sizes, CLMM
 ```
-
-See the [notebooks](examples/) and the [documentation](https://fabian-lu.github.io/Cafe) for defining a
-system, custom rubrics/judges, human ratings, and fractional designs.
+For a real study, swap the technique bodies for model calls (`cafe.complete(...)`) and `KeywordJudge`
+for `cafe.LLMJudge(model="ollama_cloud/gpt-oss:20b")`. The [notebooks](examples/) and
+[docs](https://fabian-lu.github.io/Cafe) cover systems, custom rubrics/judges, human ratings, and
+fractional designs.
 
 ### The platform (web app)
 

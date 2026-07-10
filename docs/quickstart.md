@@ -2,10 +2,22 @@
 
 ## Install
 
-CAFE's engine has no third-party runtime dependencies, so it installs instantly:
+Requires **Python ≥ 3.11** and **R** — the mixed-effects models (ordinal CLMM, logistic GLMM) run in R.
 
 ```bash
-uv venv && uv pip install -e "packages/cafe-core[dev]"
+git clone https://github.com/fabian-lu/Cafe.git
+cd Cafe
+pip install -e "packages/cafe-core[stats]"
+
+# R + the model packages  (Debian/Ubuntu shown; macOS: `brew install r`)
+sudo apt install r-base
+Rscript -e 'install.packages(c("ordinal", "lme4"))'
+```
+
+Verify the environment before your first run:
+
+```bash
+cafe doctor    # checks Python, the R stats engine, and LLM access
 ```
 
 ## Run the bundled example (no API keys)
