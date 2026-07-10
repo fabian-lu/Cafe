@@ -246,6 +246,8 @@ def _cmd_version(_args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from cafe._env import load_env
+    load_env()  # load the nearest .env so `doctor` / `run` see the same keys a study does
     parser = argparse.ArgumentParser(
         prog="cafe", description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,  # keep the docstring's layout
