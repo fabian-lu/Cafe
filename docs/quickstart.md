@@ -7,7 +7,7 @@ Requires **Python ≥ 3.11** and **R** — the mixed-effects models (ordinal CLM
 ```bash
 git clone https://github.com/fabian-lu/Cafe.git
 cd Cafe
-pip install -e "packages/cafe-core[stats]"
+pip install -e "packages/cafe-core[all]"    # library + LLM judge + datasets + notebooks
 
 # R + the model packages  (Debian/Ubuntu shown; macOS: `brew install r`)
 sudo apt install r-base

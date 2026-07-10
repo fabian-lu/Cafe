@@ -17,6 +17,14 @@ datasets = ["datasets>=2.0"]
 stats = ["pandas>=2.0", "numpy>=1.24", "statsmodels>=0.14", "scipy>=1.10", "matplotlib>=3.7"]
 docs = ["mkdocs-material>=9.5", "mkdocstrings[python]>=0.26", "mkdocs-jupyter>=0.24"]
 notebooks = ["jupyterlab>=4.0", "pandas>=2.0", "tqdm>=4.66", "ipywidgets>=8.0"]
+# Everything a user needs to run the library, LLM judging, datasets, and the notebooks
+# (= the union of stats + llm + datasets + notebooks; inlined so it never depends on
+# self-referential-extra support in the installer).
+all = [
+    "litellm>=1.50", "tqdm>=4.66", "datasets>=2.0",
+    "pandas>=2.0", "numpy>=1.24", "statsmodels>=0.14", "scipy>=1.10", "matplotlib>=3.7",
+    "jupyterlab>=4.0", "ipywidgets>=8.0",
+]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.6", "krippendorff>=0.6"]
 
 [project.scripts]
