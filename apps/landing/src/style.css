@@ -125,18 +125,30 @@ section { position: relative; z-index: 1; }
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 22px;
-  color: var(--primary-container);
-  letter-spacing: -0.02em;
-  text-transform: uppercase;
+  gap: 11px;
+  text-decoration: none;
   white-space: nowrap;
   flex-shrink: 0;
 }
-
-.brand-logo { width: 44px; height: 44px; flex-shrink: 0; object-fit: contain; }
+.brand-mark { width: 50px; height: 50px; flex-shrink: 0; }
+.brand-text { display: flex; flex-direction: column; }
+.brand-word {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 21px;
+  letter-spacing: 0.01em;
+  color: var(--on-surface);
+  line-height: 1;
+}
+.brand-word .brand-dot { color: var(--primary-container); }
+.brand-tag {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--outline);
+  margin-top: 3px;
+}
 
 .nav-right {
   display: flex;
@@ -899,6 +911,15 @@ section { position: relative; z-index: 1; }
   justify-content: center;
   flex-wrap: wrap;
   gap: 16px;
+}
+
+.cta-note {
+  margin: 28px auto 0;
+  max-width: 560px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--on-surface-variant);
 }
 
 /* ── Footer ───────────────────────────────────────────────────────────────────── */

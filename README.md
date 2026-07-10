@@ -29,15 +29,16 @@ reranking, context assembly, prompting, one or more model calls, tools, routers,
 output improves, *which part actually helped?* Aggregate benchmarks can't say.
 
 **CAFE treats every pipeline knob as an experimental factor.** It generates factorial designs, runs each
-configuration as a black box with replication, collects ordinal quality judgments from a configurable
-LLM judge (and human experts), and attributes the variance in quality with mixed-effects and ordinal
-models. You get a direct, statistically grounded answer to:
+configuration as a black box with replication, collects quality judgments from a configurable LLM judge
+(and humans), and attributes the variance in quality with mixed-effects models matched to your rubric's
+scale. You get a direct, statistically grounded answer to:
 
 > **which technique drives quality, by how much, what the best configuration is — and whether the
 > difference is real** given LLM run-to-run nondeterminism.
 
-CAFE *measures* compound AI systems; it doesn't implement them. You bring the system as a black box —
-CAFE runs the experiment.
+CAFE *measures* compound AI systems; it doesn't build them. Bring your system as a black box — a
+`run(config, item)` function — or compose it inside CAFE from your own techniques. Either way, CAFE runs
+the experiment around it.
 
 <p align="center">
   <img src="assets/results.png" alt="CAFE Results dashboard: factor attribution, effect sizes, the ordinal model" width="900">
@@ -49,13 +50,12 @@ CAFE runs the experiment.
   moves quality and by how much, holding the others fixed.
 - **Statistically honest** — a linear mixed-effects model with a per-question random effect, plus the
   **scale-correct model** for your rubric (ordinal → cumulative-link mixed model, binary → logistic).
-- **Built for LLM nondeterminism** — replication + significance testing separate real effects from
-  run-to-run noise; a permutation-null keeps the false-positive rate honest.
+- **Built for LLM nondeterminism** — replication and significance testing separate real effects from
+  run-to-run noise.
 - **Cost / quality trade-offs** — an automatic Pareto frontier over quality vs. cost, latency, tokens.
 - **Human + LLM judges** — measure judge↔human agreement with Krippendorff's α (inter-rater reliability).
 - **Efficient designs** — full and fractional factorial designs when the configuration space is large.
-- **Beautiful, self-hostable UI** — a "Factorial Mono" web platform over the same engine; no data leaves
-  your machine.
+- **Self-hostable web UI** — the same engine in the browser; no data leaves your machine.
 
 ## Quick start
 
@@ -69,7 +69,6 @@ cd Cafe
 pip install -e "packages/cafe-core[stats]"
 
 cafe run example      # runs a bundled toy study — no API keys needed
-cafe doctor           # checks optional prerequisites (R, for the ordinal/logistic models)
 ```
 
 A minimal real study:
@@ -103,7 +102,7 @@ progress, and explore the full analytics in the browser.
 
 ```bash
 cd apps/web-app
-cp .env.example .env      # add your LLM keys (never commit .env)
+cp .env.example .env      # add your LLM keys
 docker compose up
 ```
 
@@ -122,15 +121,21 @@ docs/                 documentation source (MkDocs)
 
 ## How it works
 
-1. **Declare factors.** Each pipeline technique or parameter you want to compare becomes a factor with a
-   set of levels (retrieval ∈ {none, dense, rerank}; model ∈ {small, large}; …).
-2. **Generate a design.** CAFE expands the full (or fractional) factorial — every combination to run.
-3. **Execute as a black box.** Each configuration runs over your dataset with replication; execution is
-   concurrent and crash-safe (resumable checkpoints).
-4. **Judge.** A configurable LLM judge scores each answer on your rubric (reference-guided or
-   reference-free); optionally collect human ratings too.
-5. **Attribute.** Mixed-effects + scale-matched models give per-factor significance, effect sizes,
-   variance explained, the best configuration, and the cost/quality frontier.
+<p align="center">
+  <img src="assets/figure1.png" alt="CAFE architecture: the web app and Python library drive factorial studies over your compound system" width="620">
+</p>
+
+1. **Declare factors** — each technique or parameter you compare becomes a factor with levels
+   (retrieval ∈ {none, dense, rerank}; model ∈ {small, large}; …).
+2. **Generate the design** — CAFE expands the full (or fractional) factorial: every combination to run.
+3. **Execute as a black box** — each configuration runs over your dataset with replication; concurrent
+   and crash-safe (resumable checkpoints).
+4. **Judge** — a configurable LLM judge (and/or humans) scores each answer on your rubric.
+5. **Attribute** — scale-matched mixed-effects models give per-factor significance, effect sizes, and
+   the best configuration.
+
+Full walkthrough — models, rubrics, judges, human ratings, fractional designs — in the
+[documentation](https://fabian-lu.github.io/Cafe).
 
 ## Documentation
 
@@ -142,11 +147,13 @@ Full docs — guides, API reference, and runnable tutorials — at
 If you use CAFE in your research, please cite:
 
 ```bibtex
-@inproceedings{cafe2026,
-  title     = {CAFE: A Design-of-Experiments Platform for Evaluating Compound AI Systems},
-  author    = {Lukassen, Fabian and others},
-  booktitle = {Proceedings of EMNLP 2026: System Demonstrations},
-  year      = {2026}
+@misc{lukassen2026cafe,
+  title         = {{CAFE}: A Compound-AI Factorial Evaluation Framework},
+  author        = {Lukassen, Fabian and Weisser, Christoph and Kneib, Thomas and Silbersdorff, Alexander},
+  year          = {2026},
+  eprint        = {XXXX.XXXXX},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CL}
 }
 ```
 
