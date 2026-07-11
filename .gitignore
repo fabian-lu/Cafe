@@ -56,6 +56,10 @@ apps/landing/dist/
 CLAUDE.md
 # internal TODO / scratch notes (not for the public repo)
 /goals_problems.md
+# Screencast working files (planning notes + raw/edited clips — not for the public repo)
+/screencast/
+/story.md
+/trimming.md
 # Paper: keep the LaTeX working tree local, but ship the built PDF.
 /paper/*
 !/paper/cafe.pdf
