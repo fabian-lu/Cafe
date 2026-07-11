@@ -1,4 +1,4 @@
-# CAFE platform — clone the repo, set apps/web-app/.env, then: `docker compose up`.
+# CAFE platform — clone the repo, set the repo-root .env (the same one the library uses), then: `docker compose up`.
 # Build context is the repo root (../../) so the backend image can install the local cafe-core.
 services:
   db:
@@ -21,12 +21,12 @@ services:
       dockerfile: apps/web-app/backend/Dockerfile
     # Mount the code + --reload so backend edits hot-reload without an image rebuild.
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    env_file:
+      - ../../.env            # LLM keys come from the ONE repo-root .env (same file the library uses)
     environment:
       DATABASE_URL: postgresql+asyncpg://cafe:cafe@db:5432/cafe
       FRONTEND_ORIGIN: http://localhost:5173
       CAFE_TECHNIQUES_DIR: /techniques
-      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
     volumes:
       - ../../techniques:/techniques:ro       # edits picked up on reload
       - ./backend/app:/app/app                # backend code, hot-reloaded

@@ -4,8 +4,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# System deps: R is optional (only for the ordinal CLMM / logistic GLMM layers). Skipped here to
-# keep the image lean — the linear mixed model + descriptive/pareto/reliability all work without it.
+# R + the model packages for the ordinal CLMM and binary logistic GLMM layers, so studies run in the
+# app compute the same statistics the library does. (Debian prebuilt packages — no compilation.)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        r-base-core r-cran-ordinal r-cran-lme4 \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN pip install --no-cache-dir --upgrade pip
 
 # Install the local cafe-core library first (its deps come via the extras).

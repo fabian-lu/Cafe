@@ -166,8 +166,11 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_doctor(_args: argparse.Namespace) -> int:
-    """Check the CAFE environment: Python, the R statistics engine, and LLM access."""
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    """Check the CAFE environment: Python, the R statistics engine, and LLM access.
+
+    With ``--app``, also checks the web-app prerequisites (Docker + Docker Compose).
+    """
     import os
     import shutil
     import subprocess
@@ -229,6 +232,37 @@ def _cmd_doctor(_args: argparse.Namespace) -> int:
         print("       set at least one to run studies with a live judge")
     print()
 
+    # --- Containers (web app) — only with --app ------------------------------
+    if getattr(args, "app", False):
+        print("Containers  (for the self-hostable web app: `docker compose up`)")
+        if shutil.which("docker") is None:
+            print("  ✗  docker not found   — install Docker Engine / Docker Desktop")
+            issues += 1
+        else:
+            try:
+                proc = subprocess.run(["docker", "version", "--format", "{{.Server.Version}}"],
+                                      capture_output=True, text=True, timeout=10)
+                if proc.returncode == 0 and proc.stdout.strip():
+                    print(f"  ✓  docker {proc.stdout.strip()}   (daemon running)")
+                else:
+                    print("  ✗  docker installed but the daemon isn't responding   — start Docker")
+                    issues += 1
+            except Exception:  # noqa: BLE001
+                print("  ✗  docker present but not responding")
+                issues += 1
+            try:
+                proc = subprocess.run(["docker", "compose", "version", "--short"],
+                                      capture_output=True, text=True, timeout=10)
+                if proc.returncode == 0 and proc.stdout.strip():
+                    print(f"  ✓  docker compose {proc.stdout.strip()}")
+                else:
+                    print("  ✗  'docker compose' (v2) not available   — update Docker")
+                    issues += 1
+            except Exception:  # noqa: BLE001
+                print("  ✗  'docker compose' (v2) not available")
+                issues += 1
+        print()
+
     # --- Summary -------------------------------------------------------------
     if issues == 0:
         print("All set — CAFE's statistics and execution layers are ready.")
@@ -269,6 +303,8 @@ def main(argv: list[str] | None = None) -> int:
     p_val.set_defaults(func=_cmd_validate)
 
     p_doc = sub.add_parser("doctor", help="check the environment (Python, R stats engine, LLM access)")
+    p_doc.add_argument("--app", action="store_true",
+                       help="also check the web-app prerequisites (Docker + Docker Compose)")
     p_doc.set_defaults(func=_cmd_doctor)
 
     p_ver = sub.add_parser("version", help="print version and exit")
