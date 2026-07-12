@@ -40,9 +40,7 @@ CAFE *measures* compound AI systems; it doesn't build them. Bring your system as
 `run(config, item)` function — or compose it inside CAFE from your own techniques. Either way, CAFE runs
 the experiment around it.
 
-<p align="center">
-  <img src="assets/results.png" alt="CAFE Results dashboard: factor attribution, effect sizes, the ordinal model" width="900">
-</p>
+https://github.com/user-attachments/assets/3fe9c7d5-9264-4f1c-a94f-4a0b8a97f27f
 
 ## Why CAFE
 
