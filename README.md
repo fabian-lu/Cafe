@@ -40,7 +40,7 @@ CAFE *measures* compound AI systems; it doesn't build them. Bring your system as
 `run(config, item)` function — or compose it inside CAFE from your own techniques. Either way, CAFE runs
 the experiment around it.
 
-https://github.com/user-attachments/assets/3fe9c7d5-9264-4f1c-a94f-4a0b8a97f27f
+https://github.com/user-attachments/assets/f637191d-05f7-4e8f-b1c7-b146f3f0a87c
 
 ## Why CAFE
 
