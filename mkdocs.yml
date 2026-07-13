@@ -43,6 +43,9 @@ nav:
   - Interpreting results: interpreting-results.md
   - Guides:
       - Define your system: guides/define-a-system.md
+      - Judging: guides/judging.md
+      - Human ratings & reliability: guides/human-ratings.md
+      - The web app: guides/web-app.md
   - Notebooks:
       - Quickstart: notebooks/01_quickstart.ipynb
       - Composed pipelines: notebooks/02_technique_mode.ipynb
