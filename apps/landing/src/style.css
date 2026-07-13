@@ -840,6 +840,17 @@ section { position: relative; z-index: 1; }
   color: var(--on-surface-variant);
 }
 
+/* Roadmap status tags (forward-only, theme-grouped roadmap) */
+.timeline-item.planned .timeline-status {
+  background: var(--primary-container);
+  color: var(--on-primary);
+}
+
+.timeline-item.exploring .timeline-status {
+  background: var(--surface-container-highest);
+  color: var(--on-surface-variant);
+}
+
 .timeline-date {
   font-family: var(--font-mono);
   font-size: 12px;

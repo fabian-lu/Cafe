@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Roadmap — CAFE</title>
-  <meta name="description" content="CAFE project roadmap: shipped features, upcoming milestones, and future research directions." />
+  <meta name="description" content="CAFE roadmap: where the open-source project is headed across statistics, judging, experimental design, and the platform." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@600;700&family=Material+Symbols+Outlined:wght@400&display=swap" rel="stylesheet" />
@@ -14,18 +14,28 @@
   <nav class="nav">
     <div class="container nav-inner">
       <a class="brand" href="/" aria-label="CAFE home">
-        <img src="logo.png" alt="" class="brand-logo" />
-        CAFE
+        <svg class="brand-mark" width="34" height="34" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M20 25c0-5 4-6 4-11M24 25c0-4 3-5 6-7M20 25c0-4-2-5-5-6" stroke="#e5e2e1" stroke-width="2" stroke-linecap="round" fill="none" />
+          <path d="M13 24h18v6a9 9 0 0 1-9 9h0a9 9 0 0 1-9-9v-6Z" stroke="#e5e2e1" stroke-width="2.2" stroke-linejoin="round" fill="none" />
+          <path d="M31 26h3a4 4 0 0 1 0 8h-3" stroke="#e5e2e1" stroke-width="2.2" stroke-linecap="round" fill="none" />
+          <circle cx="24" cy="12" r="3.4" fill="#ffbf00" />
+          <circle cx="31" cy="17" r="3" fill="#ffbf00" />
+          <circle cx="14.5" cy="18" r="3" fill="#ffbf00" />
+          <circle cx="22" cy="31" r="5.5" fill="#131313" stroke="#e5e2e1" stroke-width="1.6" />
+          <path d="M19.6 31.2l1.7 1.7 3-3.4" stroke="#ffbf00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+        </svg>
+        <span class="brand-text">
+          <span class="brand-word">CAFE<span class="brand-dot">.</span></span>
+          <span class="brand-tag">Factorial Eval</span>
+        </span>
       </a>
 
       <div class="nav-right">
         <div class="nav-links">
-          <a class="nav-link" href="index.html#features">Features</a>
-          <a class="nav-link" href="index.html#how">How it works</a>
           <a class="nav-link" href="roadmap.html">Roadmap</a>
-          <a class="nav-link" href="https://fabian-lu.github.io/Cafe" target="_blank" rel="noopener">Docs</a>
-          <a class="nav-link" href="https://github.com/fabian-lu/Cafe" target="_blank" rel="noopener">GitHub</a>
           <a class="nav-link" href="https://arxiv.org/abs/XXXX.XXXXX" target="_blank" rel="noopener">Paper</a>
+          <a class="nav-link" href="https://fabian-lu.github.io/Cafe" target="_blank" rel="noopener">Docs</a>
+          <a class="nav-link" href="/demo/">Demo</a>
         </div>
 
         <a class="nav-cta" href="https://github.com/fabian-lu/Cafe" target="_blank" rel="noopener">
@@ -39,12 +49,10 @@
   </nav>
 
   <div class="mobile-nav" id="mobile-nav">
-    <a href="index.html#features">Features</a>
-    <a href="index.html#how">How it works</a>
     <a href="roadmap.html">Roadmap</a>
-    <a href="https://fabian-lu.github.io/Cafe" target="_blank" rel="noopener">Docs</a>
-    <a href="https://github.com/fabian-lu/Cafe" target="_blank" rel="noopener">GitHub</a>
     <a href="https://arxiv.org/abs/XXXX.XXXXX" target="_blank" rel="noopener">Paper</a>
+    <a href="https://fabian-lu.github.io/Cafe" target="_blank" rel="noopener">Docs</a>
+    <a href="/demo/">Demo</a>
   </div>
 
   <header class="page-hero">
@@ -56,155 +64,243 @@
       </div>
       <h1 class="page-title">Roadmap</h1>
       <p class="page-subtitle">
-        CAFE is in active development toward an open-source release and an
-        <strong>EMNLP 2026 System Demonstration</strong>. This page tracks what is shipped, what is
-        being built next, and the research directions on the horizon.
+        CAFE is open-source and under active development. This page tracks where we are taking it &mdash;
+        the capabilities we are building next across statistics, judging, experimental design, and the
+        platform.
       </p>
     </div>
   </header>
 
   <section class="section-pad">
     <div class="container">
-      <h2 class="section-title">Shipped</h2>
+      <h2 class="section-title">Statistics &amp; attribution</h2>
+      <p class="section-subtitle">
+        Deepening the part that makes CAFE more than a leaderboard: honest, scale-correct variance
+        attribution.
+      </p>
       <div class="timeline">
-        <div class="timeline-item shipped">
+        <div class="timeline-item planned">
           <div class="timeline-meta">
-            <span class="timeline-status">Shipped</span>
-            <span class="timeline-date">Slice 0–1</span>
+            <span class="timeline-status">Planned</span>
           </div>
           <div class="timeline-card">
-            <h3 class="timeline-title">cafe-core engine</h3>
+            <h3 class="timeline-title">Order-independent deviance partition</h3>
             <p class="timeline-body">
-              The pip-installable evaluation engine: <code>Study</code> / <code>Factor</code>,
-              full-factorial design generation, async resumable executor, checkpointing, and the
-              <code>cafe run</code> CLI. The defining reframe: black-box + declared factors,
-              library-first.
+              A fair credit-split across factors that works for the ordinal model and for
+              unbalanced or fractional designs — exactly where a single-model partial η² is weakest.
             </p>
           </div>
         </div>
 
-        <div class="timeline-item shipped">
+        <div class="timeline-item exploring">
           <div class="timeline-meta">
-            <span class="timeline-status">Shipped</span>
-            <span class="timeline-date">Slice 2</span>
+            <span class="timeline-status">Exploring</span>
           </div>
           <div class="timeline-card">
-            <h3 class="timeline-title">LLM judge + 3-layer statistics</h3>
+            <h3 class="timeline-title">Hierarchical rater modeling</h3>
             <p class="timeline-body">
-              Configurable LLM judge with structured-output probing, presets, rubrics, and
-              transparent prompts. Three statistical layers: descriptive marginal means, Gaussian
-              mixed-effects model (F / p / partial η² / Cohen's d), ordinal CLMM via R, and a
-              binary logistic GLMM.
+              Treat each human rater as a random effect, then nest raters within their group or
+              organization — revealing how different expert pools systematically score the same
+              system, and separating that rater-side variation from the factor effect you are
+              actually measuring.
             </p>
           </div>
         </div>
 
-        <div class="timeline-item shipped">
+        <div class="timeline-item exploring">
           <div class="timeline-meta">
-            <span class="timeline-status">Shipped</span>
-            <span class="timeline-date">Slice 3</span>
+            <span class="timeline-status">Exploring</span>
           </div>
           <div class="timeline-card">
-            <h3 class="timeline-title">Fractional designs, Pareto, human ratings &amp; IRR</h3>
+            <h3 class="timeline-title">Bayesian mixed models</h3>
             <p class="timeline-body">
-              Regular 2<sup>k-p</sup> fractional factorial designs with resolution/alias reporting.
-              Cost-quality-latency Pareto frontiers. CSV answer sheets, human rater ingestion,
-              and Krippendorff's α for judge↔human calibration.
+              Full posterior effect sizes and credible intervals, not just point estimates and
+              p-values.
+            </p>
+          </div>
+        </div>
+
+        <div class="timeline-item exploring">
+          <div class="timeline-meta">
+            <span class="timeline-status">Exploring</span>
+          </div>
+          <div class="timeline-card">
+            <h3 class="timeline-title">Prediction-powered inference</h3>
+            <p class="timeline-body">
+              Use a handful of human labels to <em>debias</em> the LLM judge's effect estimates,
+              with statistical guarantees.
+            </p>
+          </div>
+        </div>
+
+        <div class="timeline-item planned">
+          <div class="timeline-meta">
+            <span class="timeline-status">Planned</span>
+          </div>
+          <div class="timeline-card">
+            <h3 class="timeline-title">Power &amp; sample-size advice</h3>
+            <p class="timeline-body">
+              Turn "not significant" into "underpowered — add N questions to detect a gap this
+              size."
             </p>
           </div>
         </div>
       </div>
 
-      <h2 class="section-title">Next</h2>
+      <h2 class="section-title">Judging</h2>
+      <p class="section-subtitle">
+        More ways to turn answers into trustworthy scores.
+      </p>
       <div class="timeline">
-        <div class="timeline-item next">
+        <div class="timeline-item planned">
           <div class="timeline-meta">
-            <span class="timeline-status">Next</span>
-            <span class="timeline-date">Slice 4–6</span>
+            <span class="timeline-status">Planned</span>
           </div>
           <div class="timeline-card">
-            <h3 class="timeline-title">Interactive web platform</h3>
+            <h3 class="timeline-title">Pairwise / comparative judging</h3>
             <p class="timeline-body">
-              A FastAPI + React platform to define studies over a discovered pipeline, launch runs,
-              watch live SSE progress, explore results, and collect human ratings by name. Ships
-              with a HotpotQA RAG seed system. No auth, self-hostable via Docker Compose.
+              "Is A better than B?" per item (Bradley–Terry / Elo), alongside the existing
+              absolute-rubric mode.
             </p>
           </div>
         </div>
 
-        <div class="timeline-item next">
+        <div class="timeline-item planned">
           <div class="timeline-meta">
-            <span class="timeline-status">Next</span>
-            <span class="timeline-date">Paper</span>
+            <span class="timeline-status">Planned</span>
           </div>
           <div class="timeline-card">
-            <h3 class="timeline-title">EMNLP 2026 System Demonstration submission</h3>
+            <h3 class="timeline-title">Multi-criteria scoring</h3>
             <p class="timeline-body">
-              6-page paper + live deployed demo + screencast + real evaluation. Deadline
-              <strong>2026-07-10</strong>. Evaluation plan: recovery experiment, judge↔human
-              reliability, and holdout/CV on public data.
+              Several named scores per answer — e.g. correctness, faithfulness, tone — each with
+              its own attribution.
+            </p>
+          </div>
+        </div>
+
+        <div class="timeline-item exploring">
+          <div class="timeline-meta">
+            <span class="timeline-status">Exploring</span>
+          </div>
+          <div class="timeline-card">
+            <h3 class="timeline-title">Multi-judge ensembles</h3>
+            <p class="timeline-body">
+              Run a panel of judges and aggregate their verdicts to reduce single-judge bias.
+            </p>
+          </div>
+        </div>
+
+        <div class="timeline-item exploring">
+          <div class="timeline-meta">
+            <span class="timeline-status">Exploring</span>
+          </div>
+          <div class="timeline-card">
+            <h3 class="timeline-title">Judge-bias audits</h3>
+            <p class="timeline-body">
+              Surface position, verbosity, and self-preference checks as a first-class result, not
+              just a reliability number.
             </p>
           </div>
         </div>
       </div>
 
-      <h2 class="section-title">Future</h2>
+      <h2 class="section-title">Designs &amp; efficiency</h2>
+      <p class="section-subtitle">
+        Making large factorial studies affordable — and even smarter.
+      </p>
       <div class="timeline">
-        <div class="timeline-item future">
+        <div class="timeline-item planned">
           <div class="timeline-meta">
-            <span class="timeline-status">Future</span>
-            <span class="timeline-date">Research</span>
-          </div>
-          <div class="timeline-card">
-            <h3 class="timeline-title">Optimize mode</h3>
-            <p class="timeline-body">
-              Sequential / Bayesian-optimization / bandit mode to find the best configuration
-              fastest. Kept conceptually distinct from the Explain/DoE spine — it answers "what
-              is the best config?" rather than "which factor matters?".
-            </p>
-          </div>
-        </div>
-
-        <div class="timeline-item future">
-          <div class="timeline-meta">
-            <span class="timeline-status">Future</span>
-            <span class="timeline-date">Engineering</span>
+            <span class="timeline-status">Planned</span>
           </div>
           <div class="timeline-card">
             <h3 class="timeline-title">Computation reuse &amp; caching</h3>
             <p class="timeline-body">
-              Memoize shared upstream sub-paths across cells so factorial designs only recompute
-              what changed. This is what makes large factorial studies financially survivable,
-              especially paired with split-plot designs.
+              Memoize shared sub-paths across configurations so a factorial only recomputes what
+              changed — the lever that makes big studies financially survivable.
             </p>
           </div>
         </div>
 
-        <div class="timeline-item future">
+        <div class="timeline-item exploring">
           <div class="timeline-meta">
-            <span class="timeline-status">Future</span>
-            <span class="timeline-date">Methodology</span>
+            <span class="timeline-status">Exploring</span>
           </div>
           <div class="timeline-card">
-            <h3 class="timeline-title">Advanced designs: split-plot, optimal, response surface</h3>
+            <h3 class="timeline-title">Split-plot &amp; advanced designs</h3>
             <p class="timeline-body">
-              Split-plot designs that exploit hard-to-change factors (e.g., re-indexing a corpus)
-              and cheap-to-change factors (e.g., temperature). D-/I-optimal designs with
-              infeasible-combo constraints. Response-surface methods for continuous knobs.
+              Cost-aware designs that exploit hard-to-change versus cheap-to-change factors, plus
+              D-optimal and response-surface methods for continuous knobs.
             </p>
           </div>
         </div>
 
-        <div class="timeline-item future">
+        <div class="timeline-item exploring">
           <div class="timeline-meta">
-            <span class="timeline-status">Future</span>
-            <span class="timeline-date">Platform</span>
+            <span class="timeline-status">Exploring</span>
           </div>
           <div class="timeline-card">
-            <h3 class="timeline-title">Mode C: trace ingestion</h3>
+            <h3 class="timeline-title">Optimize mode</h3>
             <p class="timeline-body">
-              Ingest OpenTelemetry-style traces from an untouched production system and run
-              factorial attribution on observed internals, without surrendering execution.
+              Bayesian optimization and bandits to reach the best configuration fastest —
+              complementing the "which factor matters?" spine rather than replacing it.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <h2 class="section-title">Platform &amp; workflow</h2>
+      <p class="section-subtitle">
+        Lowering the barrier from "write Python" to "click and read the verdict."
+      </p>
+      <div class="timeline">
+        <div class="timeline-item planned">
+          <div class="timeline-meta">
+            <span class="timeline-status">Planned</span>
+          </div>
+          <div class="timeline-card">
+            <h3 class="timeline-title">"Does capability X actually help?"</h3>
+            <p class="timeline-body">
+              An add/remove-a-component wizard that returns a one-line verdict:
+              <em>"web search: +0.4, d = 0.6, p = 0.03 — worth it."</em>
+            </p>
+          </div>
+        </div>
+
+        <div class="timeline-item planned">
+          <div class="timeline-meta">
+            <span class="timeline-status">Planned</span>
+          </div>
+          <div class="timeline-card">
+            <h3 class="timeline-title">System-vs-system comparison</h3>
+            <p class="timeline-body">
+              A/B two structurally different pipelines head-to-head, not just levels within one
+              system.
+            </p>
+          </div>
+        </div>
+
+        <div class="timeline-item planned">
+          <div class="timeline-meta">
+            <span class="timeline-status">Planned</span>
+          </div>
+          <div class="timeline-card">
+            <h3 class="timeline-title">One-click report export</h3>
+            <p class="timeline-body">
+              The effects table, forest plot, and comparison table as paper-ready LaTeX and figures.
+            </p>
+          </div>
+        </div>
+
+        <div class="timeline-item exploring">
+          <div class="timeline-meta">
+            <span class="timeline-status">Exploring</span>
+          </div>
+          <div class="timeline-card">
+            <h3 class="timeline-title">Bundled datasets &amp; trace ingestion</h3>
+            <p class="timeline-body">
+              Ship public benchmarks out of the box, and evaluate an untouched production system
+              straight from its OpenTelemetry traces.
             </p>
           </div>
         </div>
