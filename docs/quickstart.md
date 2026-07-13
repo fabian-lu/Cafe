@@ -69,6 +69,33 @@ for obs in results:
 like any normal value. The optional `checkpoint_path` makes a long run
 **crash-safe**: if it dies halfway, re-running **resumes** instead of restarting.
 
+## From answers to attribution
+
+`run()` gives you the raw answers. To get the actual payoff — *which factor drives
+quality, and is the difference real* — add a **rubric** and a **judge**, then call
+`evaluate()` instead:
+
+```python
+study = cafe.Study(
+    name="my-first-study",
+    system=my_system,
+    factors=[cafe.Factor("model", ["small", "large"]),
+             cafe.Factor("prompt", ["plain", "cot"])],
+    dataset=["What is 2+2?", "Summarize relativity."],
+    rubric=cafe.rubrics.CORRECTNESS_0_3,                 # the scale to grade on
+    judge=cafe.LLMJudge(model="ollama_cloud/gpt-oss:20b"),
+    replications=3,
+)
+
+result = study.evaluate()        # answers → judge → attribution
+print(result.report())           # descriptive means, significance, effect sizes, the CLMM
+```
+
+`report()` prints per-factor significance (F-tests, p-values, partial η²), effect
+sizes, the best configuration, and — for ordinal rubrics — the cumulative-link mixed
+model. **[Interpreting results](interpreting-results.md)** walks through that output
+line by line.
+
 ## Headless / CI
 
 The same study runs from a Python file via the CLI:

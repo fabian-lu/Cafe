@@ -2,8 +2,8 @@
 
 CAFE *measures* compound AI systems; it does not implement them. You provide a
 black box ``run(config, item) -> output`` and declare the factors to vary; CAFE
-generates the design, executes every configuration with replication, and (in
-later slices) judges and attributes the results.
+generates the design, executes every configuration with replication, and judges
+and attributes the results.
 
 Quick start (no API keys needed)::
 
@@ -22,7 +22,7 @@ Or define your own::
         name="my-study",
         system=my_system,
         factors=[cafe.Factor("model", ["a", "b"])],
-        inputs=["question 1", "question 2"],
+        dataset=["question 1", "question 2"],
     )
     results = study.run()
 """

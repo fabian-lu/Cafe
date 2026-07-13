@@ -40,6 +40,7 @@ nav:
   - Home: index.md
   - Quickstart: quickstart.md
   - Concepts: concepts.md
+  - Interpreting results: interpreting-results.md
   - Guides:
       - Define your system: guides/define-a-system.md
   - Notebooks:

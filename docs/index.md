@@ -36,6 +36,7 @@ to the rubric's scale.
 
 ## Status
 
-CAFE is in active development toward an open-source release and an EMNLP 2026
-System Demonstration. The evaluation engine (`cafe-core`) is the first component;
-judging, statistics, the web platform, and the docs are landing incrementally.
+CAFE is open-source and under active development. The Python library (`cafe-core`),
+the LLM judge and mixed-effects statistics layers, and the self-hostable web platform
+are all shipped. See the [roadmap](https://cafe-ai.de/roadmap.html) for what is coming
+next.
