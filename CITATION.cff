@@ -1,0 +1,35 @@
+cff-version: 1.2.0
+message: "If you use CAFE in your research, please cite the paper below."
+title: "CAFE: A Compound-AI Factorial Evaluation Framework"
+authors:
+  - family-names: Lukassen
+    given-names: Fabian
+  - family-names: Weisser
+    given-names: Christoph
+  - family-names: Kneib
+    given-names: Thomas
+  - family-names: Silbersdorff
+    given-names: Alexander
+repository-code: "https://github.com/fabian-lu/Cafe"
+url: "https://cafe-ai.de"
+license: Apache-2.0
+version: "0.0.1"
+preferred-citation:
+  type: article
+  title: "CAFE: A Compound-AI Factorial Evaluation Framework"
+  authors:
+    - family-names: Lukassen
+      given-names: Fabian
+    - family-names: Weisser
+      given-names: Christoph
+    - family-names: Kneib
+      given-names: Thomas
+    - family-names: Silbersdorff
+      given-names: Alexander
+  year: 2026
+  month: 7
+  url: "https://arxiv.org/abs/2607.10380"
+  identifiers:
+    - type: other
+      value: "arXiv:2607.10380"
+      description: "arXiv preprint identifier."

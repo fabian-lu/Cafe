@@ -12,7 +12,7 @@
   <img alt="License" src="https://img.shields.io/badge/license-Apache%202.0-blue.svg">
   <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-blue.svg">
   <a href="https://fabian-lu.github.io/Cafe"><img alt="Docs" src="https://img.shields.io/badge/docs-online-success.svg"></a>
-  <a href="https://arxiv.org/"><img alt="Paper" src="https://img.shields.io/badge/paper-arXiv-b31b1b.svg"></a>
+  <a href="https://arxiv.org/abs/2607.10380"><img alt="Paper" src="https://img.shields.io/badge/paper-arXiv-b31b1b.svg"></a>
 </p>
 
 <p align="center">
@@ -181,7 +181,7 @@ If you use CAFE in your research, please cite:
   title         = {{CAFE}: A Compound-AI Factorial Evaluation Framework},
   author        = {Lukassen, Fabian and Weisser, Christoph and Kneib, Thomas and Silbersdorff, Alexander},
   year          = {2026},
-  eprint        = {XXXX.XXXXX},
+  eprint        = {2607.10380},
   archivePrefix = {arXiv},
   primaryClass  = {cs.CL}
 }
