@@ -86,7 +86,10 @@ JUDGE_PRESETS: dict[str, str] = {
 }
 
 # Greedy: capture the LAST marker, so grades mentioned mid-reasoning don't fool us.
-_GRADE_RE = re.compile(r"(?is)GRADE\s*:\s*\[?\s*([0-9]+)")
+# Accepts the `<...>` / `[...]` delimiters the templates themselves display
+# (`GRADE: <{grade}>`), and captures a fractional part so `GRADE: 4.5` is rejected
+# as off-scale instead of silently truncated to 4.
+_GRADE_RE = re.compile(r"(?is)GRADE\s*:\s*[<\[]*\s*(-?[0-9]+(?:\.[0-9]+)?)")
 _BRACKET_RE = re.compile(r"\[\[\s*([0-9]+)\s*\]\]")
 
 #: Placeholders a custom judge ``prompt_template`` must contain to be a valid grading prompt.
@@ -156,7 +159,8 @@ def parse_verdict(raw: str, rubric: Rubric) -> tuple[Any, int | None, str | None
     if not matches:
         return None, None, f"no GRADE marker in judge output: {raw[:120]!r}"
     last = matches[-1]
-    value = int(last.group(1))
+    fv = float(last.group(1))
+    value: Any = int(fv) if fv.is_integer() else fv  # 4.0 → 4; 4.5 stays fractional (off-scale)
     reasoning = raw[: last.start()].strip() or None  # the prose before the verdict
     numeric = rubric.numeric(value)
     if numeric is None:

@@ -65,11 +65,15 @@ class Rubric:
 
         For ``numeric`` scales any integer within ``[min_value, max_value]`` is valid
         (the levels are just anchors); for ordinal/binary the value must match a defined
-        level exactly."""
+        level exactly. Fractional values (e.g. a judge's 4.5) are rejected as off-scale,
+        never silently truncated."""
         try:
-            iv = int(value)  # type: ignore[arg-type]
+            fv = float(value)  # type: ignore[arg-type]
         except (TypeError, ValueError):
             return None
+        if not fv.is_integer():
+            return None
+        iv = int(fv)
         if self.scale_type == ScaleType.numeric:
             return iv if self.min_value <= iv <= self.max_value else None
         return iv if any(lvl.value == iv for lvl in self.levels) else None
