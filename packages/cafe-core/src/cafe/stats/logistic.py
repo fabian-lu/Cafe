@@ -190,7 +190,16 @@ def _fit_glmer(
 
     res = Logistic(alpha=alpha, available=True, n_obs=payload.get("n_obs", len(df)))
     res.model = "logistic GLMM (binomial, logit link; random intercept: question) [R lme4::glmer]"
-    res.formula = _display_formula(factors, order)
+    # Display what R actually FIT: when the interaction model doesn't converge, R
+    # silently refits main effects (used_order) — showing the requested-order formula
+    # would make missing interaction rows read as "estimated, coefficient absent".
+    used_order = payload.get("used_order") or order
+    res.formula = payload.get("formula") or _display_formula(factors, used_order)
+    if used_order < order:
+        res.warnings.append(
+            "interactions not estimable on this data (glmer did not converge) — "
+            "main effects only"
+        )
     for c in payload.get("coefficients", []):
         term = str(c.get("term", ""))
         est = c.get("estimate")

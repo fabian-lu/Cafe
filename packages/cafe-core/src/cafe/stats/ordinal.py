@@ -203,6 +203,12 @@ def fit_clmm(
     res.available = True
     res.n_obs = payload.get("n_obs")
     res.formula = payload.get("formula")
+    used_order = payload.get("used_order")
+    if used_order is not None and used_order < order:
+        res.warnings.append(
+            "interactions not estimable on this data (clmm did not converge) — "
+            "main effects only"
+        )
     res.log_lik = payload.get("logLik")
     res.thresholds = payload.get("thresholds", [])
     coeffs = payload.get("coefficients", [])
