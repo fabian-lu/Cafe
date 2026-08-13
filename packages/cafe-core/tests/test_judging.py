@@ -142,3 +142,33 @@ def test_preview_shows_both_messages():
     assert "[SYSTEM]" in preview and "[USER]" in preview
     assert "You are a strict evaluator." in preview
     assert "Can water turn into wine?" in preview
+
+
+def test_parse_verdict_accepts_the_delimiters_the_prompt_displays():
+    from cafe.judging.prompts import parse_verdict
+
+    r = cafe.ANSWER_QUALITY_1_5
+    # the templates literally show `GRADE: <...>` — a judge mimicking them must parse
+    assert parse_verdict("Correct answer.\nGRADE: <4>", r)[:2] == (4, 4)
+    assert parse_verdict("ok\nGRADE: [4]", r)[:2] == (4, 4)      # bracket form still works
+    assert parse_verdict("ok\nGRADE: 4", r)[:2] == (4, 4)        # bare form still works
+
+
+def test_parse_verdict_rejects_fractional_grades():
+    from cafe.judging.prompts import parse_verdict
+
+    v, n, why = parse_verdict("hmm\nGRADE: 4.5", cafe.ANSWER_QUALITY_1_5)
+    assert v == 4.5 and n is None                # off-scale error, not a silent floor to 4
+    assert "not on scale" in why
+
+
+def test_rubric_numeric_rejects_fractional_values():
+    assert cafe.rubrics.HELPFULNESS_0_10.numeric(4.9) is None    # never truncated to 4
+    assert cafe.rubrics.HELPFULNESS_0_10.numeric(4.0) == 4       # integer-valued float ok
+    assert cafe.ANSWER_QUALITY_1_5.numeric(4.5) is None
+
+
+def test_parse_json_verdict_survives_trailing_prose_with_braces():
+    r = cafe.ANSWER_QUALITY_1_5
+    raw = '{"reasoning": "ok", "grade": 4} Note: the {grade} key is set.'
+    assert st.parse_json_verdict(raw, r) == (4, 4, "ok")

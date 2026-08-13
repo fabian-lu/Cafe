@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 from typing import Any
 
 from cafe.judging.rubric import Rubric
@@ -76,14 +75,24 @@ async def _probe(model: str) -> bool:
 
 
 def _loads(raw: str) -> Any:
-    """Parse JSON, tolerating code fences / surrounding prose by grabbing the outer braces."""
+    """Parse JSON, tolerating code fences / surrounding prose around the object.
+
+    Decodes the first *balanced* ``{...}`` object rather than greedily spanning from the
+    first ``{`` to the last ``}`` — trailing prose that happens to contain braces (chatty
+    models appending commentary) must not break a perfectly valid verdict object."""
+    text = raw or ""
     try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", raw or "", re.S)
-        if match:
-            return json.loads(match.group(0))
-        raise
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        decoder = json.JSONDecoder()
+        idx = text.find("{")
+        while idx != -1:
+            try:
+                obj, _ = decoder.raw_decode(text, idx)
+                return obj
+            except json.JSONDecodeError:
+                idx = text.find("{", idx + 1)
+        raise exc
 
 
 def parse_json_verdict(raw: str, rubric: Rubric) -> tuple[Any, int | None, str | None]:
