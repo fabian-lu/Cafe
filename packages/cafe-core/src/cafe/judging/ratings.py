@@ -61,6 +61,18 @@ class Ratings:
     #: holds the user message, so the full judge input is ``judge_system_prompt + prompt``.
     judge_system_prompt: str | None = None
 
+    def __post_init__(self) -> None:
+        clashes = [f for f in self.factors if f in self._RESERVED]
+        if clashes:
+            # The stats layer looks columns up by factor name; a reserved name would
+            # resolve to the bookkeeping column instead — crashing analysis_frame or
+            # silently grouping/averaging on the wrong column. Factor.__post_init__
+            # rejects these too; this guards Ratings built directly (library mode).
+            raise ValueError(
+                f"factor name(s) {clashes!r} are reserved for bookkeeping columns "
+                f"{self._RESERVED}; rename the factor(s)"
+            )
+
     def __len__(self) -> int:
         return len(self.items)
 
