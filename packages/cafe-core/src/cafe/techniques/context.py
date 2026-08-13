@@ -13,6 +13,7 @@ loops — so the topology is entirely yours; CAFE only watches the calls.
 
 from __future__ import annotations
 
+import contextvars
 import json
 import time
 from typing import TYPE_CHECKING, Any
@@ -21,6 +22,14 @@ from cafe import llm
 
 if TYPE_CHECKING:
     from cafe.techniques.registry import TechniqueSpec
+
+#: Per-step sink for ``ctx.add_cost`` — a ContextVar (like ``llm._usage_sink``) so
+#: concurrently running steps (``asyncio.gather`` of ``ctx.run`` calls) each accrue
+#: their own costs. A shared instance attribute would be reset/read across overlapping
+#: steps, losing or double-counting dollars.
+_manual_sink: contextvars.ContextVar[list[float] | None] = contextvars.ContextVar(
+    "cafe_manual_cost_sink", default=None
+)
 
 
 def _cache_key(stage: str, name: str, params: dict, inputs: dict) -> str:
@@ -42,12 +51,19 @@ class Context:
         self.total_cost: float = 0.0
         self.total_tokens: int = 0
         self._cache: dict[str, Any] = {}
-        self._manual_cost: float = 0.0  # accrued via add_cost() during the current step
 
     def add_cost(self, usd: float) -> None:
         """Charge an extra cost to the current stage — for a variable, non-LLM price
-        the technique computes itself (e.g. ``ctx.add_cost(0.001 * len(hits))``)."""
-        self._manual_cost += float(usd)
+        the technique computes itself (e.g. ``ctx.add_cost(0.001 * len(hits))``).
+
+        Inside a technique the cost is attributed to that step; called from the
+        compose function itself (outside any ``ctx.run``) it is charged to the run's
+        ``total_cost`` directly, so the dollars are never dropped."""
+        sink = _manual_sink.get()
+        if sink is None:
+            self.total_cost = round(self.total_cost + float(usd), 6)
+        else:
+            sink.append(float(usd))
 
     async def run(self, stage: str, **inputs: Any) -> Any:
         """Run whichever technique the config selected for ``stage`` and return its output."""
@@ -109,13 +125,15 @@ class Context:
         # Collect any LLM usage made *inside* this technique so we attribute
         # tokens + cost to this stage automatically (the user just calls complete).
         sink: list[dict[str, Any]] = []
+        manual: list[float] = []
         token = llm._usage_sink.set(sink)
-        self._manual_cost = 0.0
+        mtoken = _manual_sink.set(manual)
         t0 = time.monotonic()
         try:
             raw = await spec.fn(self, **inputs, **params)
         finally:
             llm._usage_sink.reset(token)
+            _manual_sink.reset(mtoken)
         elapsed = round(time.monotonic() - t0, 5)
 
         auto_tokens = sum(u["tokens"] for u in sink)
@@ -129,7 +147,7 @@ class Context:
             declared_cost = float(raw.get("cost_usd", 0.0) or 0.0)
         # Total = LLM cost + the technique's fixed cost_usd + anything via ctx.add_cost()
         # + an explicit cost in the return dict.
-        cost = round(auto_cost + spec.cost_usd + self._manual_cost + declared_cost, 6)
+        cost = round(auto_cost + spec.cost_usd + sum(manual) + declared_cost, 6)
 
         meta = {
             "stage": stage,
