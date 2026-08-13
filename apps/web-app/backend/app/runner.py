@@ -297,6 +297,21 @@ async def run_study_task(study_id: int) -> None:
                 res.payload = payload
             await db.commit()
         PROGRESS[study_id].update({"phase": "done", "status": "done"})
+    except asyncio.CancelledError:
+        # Graceful shutdown/reload cancels the task; CancelledError is a BaseException,
+        # so the handler below never sees it. Best-effort mark the study failed (the
+        # startup reconciliation covers the cases where this write doesn't land).
+        PROGRESS[study_id] = {"phase": "error", "status": "failed",
+                              "error": "run cancelled (server shutdown or restart)"}
+        try:
+            async with SessionLocal() as db:
+                s = await db.get(models.Study, study_id)
+                if s:
+                    s.status = "failed"
+                    await db.commit()
+        except Exception:  # noqa: BLE001 — shutting down; don't mask the cancellation
+            pass
+        raise
     except Exception as exc:  # noqa: BLE001
         PROGRESS[study_id] = {"phase": "error", "status": "failed", "error": str(exc)}
         traceback.print_exc()
@@ -307,6 +322,14 @@ async def run_study_task(study_id: int) -> None:
                 await db.commit()
 
 
+# Strong references to in-flight run tasks: the event loop keeps only WEAK refs, so a
+# fire-and-forget task can be garbage-collected mid-run — the run silently vanishes and
+# the study sticks at "running" (see asyncio.create_task docs).
+_TASKS: set[asyncio.Task] = set()
+
+
 def launch(study_id: int) -> None:
-    """Fire-and-forget the background task."""
-    asyncio.create_task(run_study_task(study_id))
+    """Start the background run task, holding a reference until it finishes."""
+    task = asyncio.create_task(run_study_task(study_id))
+    _TASKS.add(task)
+    task.add_done_callback(_TASKS.discard)
