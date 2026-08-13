@@ -93,10 +93,30 @@ _BRACKET_RE = re.compile(r"\[\[\s*([0-9]+)\s*\]\]")
 REQUIRED_PLACEHOLDERS = ("{question}", "{answer}", "{scale}", "{grade}")
 
 
+#: Every placeholder ``build_judge_prompt`` supplies — used for the render check below.
+_ALL_PLACEHOLDER_ARGS = dict(
+    instruction="", question="", answer="", reference="", scale="", grade="", min=0, max=0
+)
+
+_BRACES_HINT = (
+    "a literal brace (e.g. a JSON example in the prompt) must be escaped by doubling "
+    "it: '{{' and '}}'. Supported placeholders: {instruction} {question} {answer} "
+    "{reference} {scale} {grade} {min} {max}."
+)
+
+
 def check_template_placeholders(template: str, *, where: str = "prompt_template") -> None:
-    """Warn if a custom judge ``template`` is missing a placeholder needed for a valid
-    grading prompt — e.g. a template with no ``{answer}`` would ask the judge to grade
-    nothing. Called once when the template is set (on the Rubric or the LLMJudge)."""
+    """Validate a custom judge ``template`` when it is set (on the Rubric or LLMJudge).
+
+    Raises ``ValueError`` if the template cannot be rendered at all — an unknown
+    placeholder or an unescaped literal brace would otherwise crash *mid-run*, at the
+    first judge call, after the (possibly expensive) answer phase already ran. Warns
+    if a placeholder needed for a valid grading prompt is missing — e.g. a template
+    with no ``{answer}`` would ask the judge to grade nothing."""
+    try:
+        template.format(**_ALL_PLACEHOLDER_ARGS)
+    except (KeyError, IndexError, ValueError) as exc:
+        raise ValueError(f"{where} cannot be rendered ({exc!r}) — " + _BRACES_HINT) from exc
     missing = [p for p in REQUIRED_PLACEHOLDERS if p not in template]
     if missing:
         import warnings
@@ -136,16 +156,21 @@ def build_judge_prompt(
             "(reference_qa / criterion) or add {reference} to your template.",
             stacklevel=2,
         )
-    return chosen.format(
-        instruction=rubric.instruction,
-        question=question,
-        answer=answer,
-        reference=reference if reference else "(no reference provided)",
-        scale=rubric.scale_text(),
-        grade=rubric.grade_hint(),   # scale-aware: range for numeric, exact values for ordinal/binary
-        min=rubric.min_value,
-        max=rubric.max_value,
-    )
+    try:
+        return chosen.format(
+            instruction=rubric.instruction,
+            question=question,
+            answer=answer,
+            reference=reference if reference else "(no reference provided)",
+            scale=rubric.scale_text(),
+            grade=rubric.grade_hint(),   # scale-aware: range for numeric, exact values for ordinal/binary
+            min=rubric.min_value,
+            max=rubric.max_value,
+        )
+    except (KeyError, IndexError, ValueError) as exc:
+        # Belt-and-braces for templates that bypassed check_template_placeholders —
+        # a bare KeyError here would abort the whole judging run with no explanation.
+        raise ValueError(f"judge prompt template cannot be rendered ({exc!r}) — " + _BRACES_HINT) from exc
 
 
 def parse_verdict(raw: str, rubric: Rubric) -> tuple[Any, int | None, str | None]:

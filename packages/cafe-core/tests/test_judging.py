@@ -142,3 +142,23 @@ def test_preview_shows_both_messages():
     assert "[SYSTEM]" in preview and "[USER]" in preview
     assert "You are a strict evaluator." in preview
     assert "Can water turn into wine?" in preview
+
+
+def test_unrenderable_template_rejected_at_construction():
+    """A JSON example with unescaped braces used to pass validation and then abort the
+    entire judging run with a KeyError at the first score() call."""
+    bad = 'Q: {question} A: {answer} S: {scale} Reply as JSON like {"grade": {grade}}'
+    with pytest.raises(ValueError, match="escaped"):
+        cafe.LLMJudge(model="m", prompt_template=bad)
+    with pytest.raises(ValueError, match="escaped"):
+        cafe.Rubric(name="r", levels=cafe.ANSWER_QUALITY_1_5.levels, prompt_template=bad)
+    with pytest.raises(ValueError, match="escaped"):   # typo'd placeholder, same failure mode
+        cafe.LLMJudge(model="m", prompt_template="{questions} {answer} {scale} {grade}")
+
+
+def test_escaped_braces_template_renders():
+    tpl = ('Q: {question} A: {answer} S: {scale} '
+           'Reply as JSON like {{"grade": {grade}}}')
+    j = cafe.LLMJudge(model="m", prompt_template=tpl)
+    user = j.render_messages(cafe.ANSWER_QUALITY_1_5, "Q?", "A.")[1]["content"]
+    assert 'like {"grade": exactly one of: 1, 2, 3, 4, 5}' in user
