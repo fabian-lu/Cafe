@@ -390,7 +390,8 @@ class Preflight:
         lines = ["preflight — one input through every configuration:"]
         for o in self.answers.observations:
             cfg = "·".join(f"{k}={o.config[k]}" for k in sorted(o.config))
-            body = (o.output or o.error or "").replace("\n", " ")
+            # Outputs may be any JSON-able value (dict, list, int, …), not just str.
+            body = str(o.output if o.output is not None else (o.error or "")).replace("\n", " ")
             lines.append(f"  [{cfg}] {body[:80]}")
         e = self.estimate
         compute = e.get("est_total_compute_s")

@@ -191,7 +191,7 @@ def estimate(results: Results, total_cells: int) -> dict[str, Any]:
     return {
         "sampled_cells": len(oks),
         "total_cells": total_cells,
-        "est_total_compute_s": round(mean_t * total_cells, 2) if mean_t else None,
-        "est_total_cost_usd": round(mean_c * total_cells, 4) if mean_c else None,
+        "est_total_compute_s": round(mean_t * total_cells, 2) if mean_t is not None else None,
+        "est_total_cost_usd": round(mean_c * total_cells, 4) if mean_c is not None else None,
         "labels": [config_label(o.config) for o in oks[:1]],
     }
