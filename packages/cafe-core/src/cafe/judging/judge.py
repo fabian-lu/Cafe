@@ -139,6 +139,14 @@ class LLMJudge:
         except LLMError:
             return None
         value, numeric, reasoning = parse_json_verdict(raw, rubric)
-        if numeric is None:  # valid call but not JSON-with-grade → try the GRADE regex on it
+        # Fall back to the GRADE regex ONLY when the response wasn't usable JSON at all
+        # (the (None, None, None) sentinel). A parsed-but-off-scale grade must stay an
+        # off-scale verdict: re-running the regex over the raw JSON could match a
+        # "grade: N" inside the reasoning string and fabricate an in-scale verdict.
+        if value is None and numeric is None and reasoning is None:
             value, numeric, reasoning = parse_verdict(raw, rubric)
+        elif numeric is None:
+            reasoning = (f"verdict {value!r} not on scale "
+                         f"{rubric.min_value}-{rubric.max_value}"
+                         + (f"; judge reasoning: {reasoning}" if reasoning else ""))
         return JudgeOutput(value, numeric, reasoning, json_prompt, raw)

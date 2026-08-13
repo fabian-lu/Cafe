@@ -142,3 +142,34 @@ def test_preview_shows_both_messages():
     assert "[SYSTEM]" in preview and "[USER]" in preview
     assert "You are a strict evaluator." in preview
     assert "Can water turn into wine?" in preview
+
+
+def test_structured_offscale_grade_is_not_replaced_by_regex_fallback(monkeypatch):
+    """A parsed-but-off-scale JSON grade must stay an off-scale error — re-running the
+    GRADE regex over the raw JSON could match 'grade: N' inside the reasoning string
+    and fabricate an in-scale verdict."""
+    from cafe.judging import judge as judge_mod
+
+    raw = '{"reasoning": "strictly I would give grade: 3, but overall", "grade": 7}'
+
+    async def fake_complete(model, messages, **kwargs):
+        return raw
+
+    monkeypatch.setattr(judge_mod, "complete", fake_complete)
+    j = cafe.LLMJudge("fake-model", structured=True)
+    out = asyncio.run(j.score(cafe.ANSWER_QUALITY_1_5, "Q?", "A."))
+    assert out.value == 7                      # the judge's actual grade, kept for audit
+    assert out.value_numeric is None           # off-scale → error rating, NOT a verdict of 3
+    assert "not on scale" in out.reasoning
+
+
+def test_structured_non_json_still_falls_back_to_grade_regex(monkeypatch):
+    from cafe.judging import judge as judge_mod
+
+    async def fake_complete(model, messages, **kwargs):
+        return "Some prose evaluation.\nGRADE: [4]"
+
+    monkeypatch.setattr(judge_mod, "complete", fake_complete)
+    j = cafe.LLMJudge("fake-model", structured=True)
+    out = asyncio.run(j.score(cafe.ANSWER_QUALITY_1_5, "Q?", "A."))
+    assert (out.value, out.value_numeric) == (4, 4)
