@@ -316,3 +316,18 @@ def test_judge_reps_averaged_system_reps_kept():
     attr = attribute(r)
     assert attr.n_ratings == 4   # raw ratings recorded
     assert attr.n_usable == 2    # answers actually entering the stats
+
+
+def test_design_rank_deficient_survives_missing_statsmodels(monkeypatch):
+    """fit_clmm/fit_logistic support pandas-without-statsmodels environments; the
+    aliasing check they share must degrade gracefully there, not raise ImportError."""
+    import sys
+
+    import pandas as pd
+
+    from cafe.stats.inferential import _design_rank_deficient
+
+    monkeypatch.setitem(sys.modules, "statsmodels.formula.api", None)  # import -> ImportError
+    df = pd.DataFrame({"verdict": [1.0, 2.0, 3.0, 4.0],
+                       "a": ["x", "x", "y", "y"], "b": ["p", "q", "p", "q"]})
+    assert _design_rank_deficient(df, ["a", "b"], order=2) is False
