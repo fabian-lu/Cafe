@@ -63,6 +63,23 @@ async def judge_results(
     def _key(obs_key: str, judge_rep: int) -> str:
         return f"{obs_key}::jr{judge_rep}"
 
+    # Only carry forward checkpoint rows that belong to the CURRENT judging request —
+    # the same guarantee run_study gives the answer phase. Resuming after the study (or
+    # ``repetitions``) changed must not merge ghost verdicts into the statistics.
+    valid = {_key(o.key(), jr) for o in targets for jr in range(repetitions)}
+    stale = sum(1 for k in prior if k not in valid)
+    if stale:
+        import warnings
+
+        warnings.warn(
+            f"ratings checkpoint {checkpoint_path!r}: dropped {stale} stored verdict(s) that "
+            "no longer match the answers/repetitions being judged (the study or judge "
+            "settings changed since the checkpoint was written); resumed ratings contain "
+            "only the current request's verdicts.",
+            stacklevel=2,
+        )
+        prior = {k: r for k, r in prior.items() if k in valid}
+
     todo = [(o, jr) for o in targets for jr in range(repetitions)
             if _key(o.key(), jr) not in prior]
     total = len(targets) * repetitions

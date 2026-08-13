@@ -136,3 +136,29 @@ def test_rstyle_accessors_present():
     assert list(ev.effects.to_df().columns)[:2] == ["factor", "interaction"]
     assert set(ev.marginal_means["level"]) == {"good", "bad"}
     assert ev.residuals is not None and len(ev.residuals) == 16
+
+
+# ── judging resume must not merge stale/excess checkpoint rows (issue #11) ──
+async def test_judging_resume_drops_stale_and_excess_checkpoint_rows(tmp_path):
+    ckpt = str(tmp_path / "judge.jsonl")
+    results = _results(["one", "two", "three"])
+    r1 = await judge_results(results, _FixedJudge(), cafe.ANSWER_QUALITY_1_5,
+                             repetitions=2, checkpoint_path=ckpt)
+    assert len(r1.items) == 6
+
+    # fewer repetitions than checkpointed → the extra judge_rep=1 rows must be dropped
+    with pytest.warns(UserWarning, match="no longer match"):
+        r2 = await judge_results(results, _FixedJudge(), cafe.ANSWER_QUALITY_1_5,
+                                 repetitions=1, checkpoint_path=ckpt)
+    assert len(r2.items) == 3
+    assert {r.judge_rep for r in r2.items} == {0}
+
+    # a different Results against the same checkpoint → old configs must not leak in
+    other = Results(study_name="t", factors=["m"],
+                    observations=[Observation(config={"m": "ZZZ"}, input_id="q9",
+                                              rep=0, output="new")])
+    with pytest.warns(UserWarning, match="no longer match"):
+        r3 = await judge_results(other, _FixedJudge(), cafe.ANSWER_QUALITY_1_5,
+                                 repetitions=1, checkpoint_path=ckpt)
+    assert len(r3.items) == 1
+    assert r3.items[0].config == {"m": "ZZZ"}
