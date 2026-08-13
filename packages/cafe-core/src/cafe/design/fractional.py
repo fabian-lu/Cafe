@@ -85,6 +85,53 @@ class FractionalDesign:
         )
 
 
+def _aberration_key(subsets: tuple[tuple[int, ...], ...], b: int) -> tuple[int, ...]:
+    """Word-length counts of the full defining relation spanned by these generator
+    subsets — ``counts[L]`` = number of defining words of length ``L+1``. Comparing
+    keys lexicographically implements **minimum aberration**: fewer short words first,
+    which in particular maximizes the resolution (the shortest word length)."""
+    p = len(subsets)
+    words = []
+    for t, sub in enumerate(subsets):
+        m = 1 << (b + t)  # the added factor's own letter ...
+        for i in sub:
+            m |= 1 << i   # ... times its generator's basic letters
+        words.append(m)
+    counts = [0] * (b + p + 1)
+    vals = [0] * (1 << p)
+    for m in range(1, 1 << p):  # XOR-closure via gray-code order
+        lb = m & -m
+        v = vals[m ^ lb] ^ words[lb.bit_length() - 1]
+        vals[m] = v
+        counts[v.bit_count() - 1] += 1
+    return tuple(counts)
+
+
+def _choose_generators(b: int, p: int, pool: list[tuple[int, ...]]) -> list[tuple[int, ...]]:
+    """Pick ``p`` generator subsets of the ``b`` basic columns.
+
+    The word-length pattern depends only on the *set* of subsets (not which added
+    factor gets which), so:
+
+    - when the search space is small enough, exhaustively minimize aberration —
+      the guaranteed maximum-resolution design;
+    - otherwise use only odd-size subsets (≥ 3) when possible: every defining word
+      (an odd subset + one added letter, or XORs thereof) then has even length ≥ 4,
+      the classical guaranteed resolution-IV construction;
+    - only a heavily saturated design (more added factors than odd subsets) falls
+      back to largest-subsets-first, where resolution III is unavoidable anyway.
+    """
+    if math.comb(len(pool), p) * (1 << p) <= 600_000:
+        chosen = list(min(itertools.combinations(pool, p),
+                          key=lambda c: _aberration_key(c, b)))
+    else:
+        odd = sorted((s for s in pool if len(s) >= 3 and len(s) % 2 == 1),
+                     key=lambda s: (-len(s), s))
+        chosen = odd[:p] if p <= len(odd) else sorted(pool, key=lambda s: (-len(s), s))[:p]
+    chosen.sort(key=lambda s: (-len(s), s))
+    return chosen
+
+
 def _full_relation(words: list[frozenset[int]]) -> set[frozenset[int]]:
     """Every non-empty XOR-combination of the generator words (the defining relation)."""
     full: set[frozenset[int]] = set()
@@ -138,8 +185,10 @@ def fractional_factorial_design(
     names = [f.name for f in factors]
     basic, added = names[:b], names[b:]
 
-    # Assign each added factor a generator (a subset of basic factors), largest first
-    # to push the defining words as long as possible (higher resolution).
+    # Assign each added factor a generator (a subset of basic factors), chosen to
+    # maximize resolution — see _choose_generators. (Greedy largest-first is NOT
+    # enough: mixing one size-b generator with size-(b-1) ones creates short words
+    # via XOR, e.g. resolution III for 2^(8-4) where the standard design is IV.)
     if generators is None:
         pool = [
             combo for size in range(b, 1, -1)
@@ -147,7 +196,8 @@ def fractional_factorial_design(
         ]
         if len(added) > len(pool):
             raise ValueError(f"cannot place {k} factors in {runs} runs; increase runs")
-        gen_idx = {added[t]: pool[t] for t in range(len(added))}
+        chosen = _choose_generators(b, len(added), pool)
+        gen_idx = {added[t]: chosen[t] for t in range(len(added))}
     else:
         name_to_basic = {n: i for i, n in enumerate(basic)}
         gen_idx = {}

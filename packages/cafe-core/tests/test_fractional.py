@@ -62,3 +62,21 @@ def test_study_fractional_with_options():
         design_options={"runs": 16},
     )
     assert cafe.size(study) == 16
+
+
+def test_auto_generators_reach_textbook_resolution():
+    """Greedy largest-first generator picking produced resolution III for designs
+    where resolution IV/V exists (e.g. 2^(8-4)); the chooser must match the
+    standard maximum-resolution tables."""
+    expected = {
+        (5, 16): 5,   # 2^(5-1)_V
+        (6, 16): 4,   # 2^(6-2)_IV
+        (7, 16): 4,   # 2^(7-3)_IV
+        (8, 16): 4,   # 2^(8-4)_IV  (the default runs for k=8)
+        (9, 32): 4,   # 2^(9-4)_IV  (heuristic tier)
+        (8, 64): 5,   # 2^(8-2)_V
+    }
+    for (k, runs), want in expected.items():
+        d = fractional_factorial_design(_factors("ABCDEFGHI"[:k]), runs=runs)
+        assert d.resolution == want, f"k={k}, runs={runs}: res {d.resolution}, want {want}"
+        assert len({tuple(sorted(c.items())) for c in d.configs}) == runs
