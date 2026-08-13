@@ -53,7 +53,7 @@ class Rubric:
     def __post_init__(self) -> None:
         if isinstance(self.scale_type, str):
             self.scale_type = ScaleType(self.scale_type)
-        if not self.levels:
+        if len(self.levels) < 2:
             raise ValueError("a rubric needs at least two levels")
         if self.prompt_template is not None:
             from cafe.judging.prompts import check_template_placeholders

@@ -142,3 +142,11 @@ def test_preview_shows_both_messages():
     assert "[SYSTEM]" in preview and "[USER]" in preview
     assert "You are a strict evaluator." in preview
     assert "Can water turn into wine?" in preview
+
+
+def test_rubric_rejects_fewer_than_two_levels():
+    # the validator's message always said "at least two levels"; enforce it
+    with pytest.raises(ValueError, match="at least two levels"):
+        cafe.Rubric(name="one", levels=[cafe.Level(1, "only", "the single level")])
+    with pytest.raises(ValueError, match="at least two levels"):
+        cafe.Rubric(name="none", levels=[])
