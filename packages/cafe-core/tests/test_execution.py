@@ -102,3 +102,28 @@ async def test_sync_run_inside_event_loop():
     results = study.run()
     assert len(results) == 8
     assert results.summary()["n_errors"] == 0
+
+
+def test_estimate_keeps_zero_cost_and_time():
+    # a 0.0 mean cost/time is a real report (free/cached model), not "unavailable"
+    from cafe.execution.results import Observation, Results
+    from cafe.execution.runner import estimate
+
+    obs = [Observation(config={"m": "a"}, input_id="q0", rep=0, output="x",
+                       elapsed_s=0.0, metadata={"cost_usd": 0.0})]
+    est = estimate(Results(study_name="t", factors=["m"], observations=obs), total_cells=10)
+    assert est["est_total_cost_usd"] == 0.0
+    assert est["est_total_compute_s"] == 0.0
+
+
+def test_preflight_show_handles_non_string_output():
+    # systems may return any JSON-able value ("The output can be a plain value")
+    from cafe.evaluation import Preflight
+    from cafe.execution.results import Observation, Results
+    from cafe.execution.runner import estimate
+
+    obs = [Observation(config={"m": "a"}, input_id="q0", rep=0,
+                       output={"answer": 42}, metadata={"cost_usd": 0.01})]
+    results = Results(study_name="t", factors=["m"], observations=obs)
+    text = Preflight(answers=results, estimate=estimate(results, total_cells=4)).show()
+    assert "answer" in text and "42" in text
