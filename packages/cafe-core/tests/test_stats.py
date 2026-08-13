@@ -316,3 +316,33 @@ def test_judge_reps_averaged_system_reps_kept():
     attr = attribute(r)
     assert attr.n_ratings == 4   # raw ratings recorded
     assert attr.n_usable == 2    # answers actually entering the stats
+
+
+def test_term_factor_uses_longest_prefix():
+    """First-prefix matching misattributed retrieve.top_k's significance to retrieve."""
+    from cafe.stats.ordinal import _term_factor
+
+    fs = ["retrieve", "retrieve.top_k"]
+    assert _term_factor("retrieve.top_k2", fs) == "retrieve.top_k"
+    assert _term_factor("retrievekeyword", fs) == "retrieve"
+    assert _term_factor("unrelated", fs) is None
+
+
+def test_colon_in_level_is_not_an_interaction():
+    """Ollama-style levels (model='llama3:8b') produce R terms like 'modelllama3:8b';
+    the ':' is part of the level, not an interaction separator."""
+    from cafe.stats.logistic import _parse_statsmodels_term
+    from cafe.stats.ordinal import _readable_term, _split_r_term
+
+    fs = ["model", "prompt"]
+    assert _split_r_term("modelllama3:8b", fs) == ["modelllama3:8b"]
+    assert _split_r_term("modelllama3:promptfew", fs) == ["modelllama3", "promptfew"]
+    assert _readable_term("modelllama3:8b", fs) == "model=llama3:8b"
+    assert _readable_term("modelllama3:promptfew", fs) == "model=llama3 × prompt=few"
+
+    back = {"cafe_f0": "model", "cafe_f1": "prompt"}
+    label, factor, inter = _parse_statsmodels_term("C(Q('cafe_f0'))[T.llama3:8b]", back)
+    assert (label, factor, inter) == ("model=llama3:8b", "model", False)
+    label, factor, inter = _parse_statsmodels_term(
+        "C(Q('cafe_f0'))[T.a]:C(Q('cafe_f1'))[T.b]", back)
+    assert (label, factor, inter) == ("model=a × prompt=b", "model", True)
