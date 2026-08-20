@@ -13,6 +13,7 @@ estimate.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -45,6 +46,9 @@ class Evaluation:
     attribution: Attribution | None = None
     questions: dict[str, str] = field(default_factory=dict)    # input_id -> question text
     references: dict[str, str] = field(default_factory=dict)   # input_id -> gold answer
+    #: Wall-clock seconds for the whole evaluation (answer generation + judging).
+    #: ``answers.wall_clock_s`` is the answer-generation phase alone.
+    wall_clock_s: float | None = None
 
     _effects_cache: Any = field(default=None, repr=False, compare=False)
 
@@ -461,6 +465,7 @@ async def evaluate(
     if _warn_design:
         emit_design_warnings(study)
 
+    wall_t0 = time.monotonic()
     answers = await run_study(
         study,
         replications=study.replications,
@@ -494,6 +499,7 @@ async def evaluate(
         attribution=attribution,
         questions=questions,
         references=references,
+        wall_clock_s=round(time.monotonic() - wall_t0, 3),
     )
 
 

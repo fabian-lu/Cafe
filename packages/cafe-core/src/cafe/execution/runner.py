@@ -95,6 +95,7 @@ async def run_study(
     reps = study.replications if replications is None else replications
     if reps < 1:
         raise ValueError("replications must be >= 1")
+    wall_t0 = time.monotonic()
 
     configs = design.generate(study)
     inputs = list(study.dataset)
@@ -174,6 +175,7 @@ async def run_study(
         study_name=study.name,
         factors=[f.name for f in study.factors],
         observations=observations,
+        wall_clock_s=round(time.monotonic() - wall_t0, 3),
     )
 
 

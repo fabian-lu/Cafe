@@ -76,6 +76,10 @@ class Results:
     study_name: str
     factors: list[str]
     observations: list[Observation] = field(default_factory=list)
+    #: Wall-clock seconds for the run that produced these observations (real elapsed
+    #: time, which is < the sum of per-cell times when running concurrently). ``None``
+    #: if not measured (e.g. reconstructed from a checkpoint).
+    wall_clock_s: float | None = None
 
     def __len__(self) -> int:
         return len(self.observations)
@@ -99,6 +103,7 @@ class Results:
             "n_inputs": len(inputs),
             "n_errors": len(self.errors),
             "total_compute_s": round(sum(timed), 4) if timed else 0.0,
+            "wall_clock_s": self.wall_clock_s,
             "mean_cell_s": round(sum(timed) / len(timed), 4) if timed else None,
         }
 
