@@ -1,0 +1,35 @@
+# Publish cafe-core to PyPI on a GitHub Release, via PyPI Trusted Publishing (OIDC).
+# No API token is stored anywhere — PyPI verifies this workflow's identity directly.
+#
+# One-time PyPI setup (see below): add a "pending publisher" pointing at
+#   owner=fabian-lu · repo=Cafe · workflow=publish.yml · environment=(blank)
+#
+# To release: bump the version in packages/cafe-core/pyproject.toml, then publish a
+# GitHub Release tagged e.g. v0.0.1. This workflow builds the package and uploads it.
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write        # required for Trusted Publishing (OIDC)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build sdist + wheel
+        run: |
+          python -m pip install --upgrade build
+          python -m build packages/cafe-core
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/cafe-core/dist

@@ -6,8 +6,23 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
 license-files = ["LICENSE"]
-authors = [{ name = "CAFE authors" }]
+authors = [
+    { name = "Fabian Lukassen", email = "fabian.lukassen@uni-goettingen.de" },
+    { name = "Christoph Weisser" },
+    { name = "Thomas Kneib" },
+    { name = "Alexander Silbersdorff" },
+]
 keywords = ["evaluation", "llm", "design-of-experiments", "compound-ai"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Testing",
+]
 dependencies = []
 
 [project.optional-dependencies]
@@ -29,6 +44,12 @@ dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.6", "krippendorff>=0.6"]
 
 [project.scripts]
 cafe = "cafe.cli:main"
+
+[project.urls]
+Homepage = "https://cafe-ai.de"
+Documentation = "https://fabian-lu.github.io/Cafe"
+Repository = "https://github.com/fabian-lu/Cafe"
+Issues = "https://github.com/fabian-lu/Cafe/issues"
 
 [build-system]
 requires = ["hatchling"]
