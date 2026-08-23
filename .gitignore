@@ -60,6 +60,8 @@ CLAUDE.md
 /screencast/
 /story.md
 /trimming.md
+# Marketing / LinkedIn promo assets (captions + carousels — local-only, not for the public repo)
+/advertisements/
 # Paper: keep the LaTeX working tree local, but ship the built PDF.
 /paper/*
 !/paper/cafe.pdf
