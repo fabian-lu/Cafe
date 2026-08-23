@@ -58,8 +58,11 @@ class Evaluation:
 
     def records(self) -> list[dict[str, Any]]:
         """One row per judge verdict, joining **everything** for inspection/export:
-        question, reference, the factor levels, the answer, per-answer cost/latency, the
-        full judge prompt (system + user), the raw judge response, and the parsed verdict.
+        question, reference, the factor levels, the model ``output``, per-answer cost/latency,
+        the full judge prompt (system + user), the raw judge response, and the parsed verdict.
+
+        The model's reply is under ``"output"`` (not ``"answer"``) so it never collides with a
+        factor named ``answer`` (a stage called ``answer`` stays a real column).
 
         This is the "give me everything" view — ``import pandas as pd;
         pd.DataFrame(ev.records())`` and slice however you like. With no judge it falls
@@ -76,7 +79,7 @@ class Evaluation:
                     "input_id": o.input_id,
                     "question": self.questions.get(o.input_id),
                     "reference": self.references.get(o.input_id),
-                    **o.config, "rep": o.rep, "answer": o.output,
+                    **o.config, "rep": o.rep, "output": o.output,
                     "elapsed_s": o.elapsed_s,
                     "cost_usd": meta.get("cost_usd"), "tokens": meta.get("tokens"),
                     "error": o.error,
@@ -93,7 +96,7 @@ class Evaluation:
                 **r.config,
                 "rep": r.rep,
                 "judge_rep": r.judge_rep,
-                "answer": obs.output if obs else None,
+                "output": obs.output if obs else None,
                 "elapsed_s": obs.elapsed_s if obs else None,
                 "cost_usd": meta.get("cost_usd"),
                 "tokens": meta.get("tokens"),
@@ -512,4 +515,107 @@ async def preflight(study: "Study", *, concurrency: int = 8, progress: bool = Fa
     return Preflight(
         answers=answers, estimate=estimate(answers, total_cells),
         warnings=study.check(), judge_calls=plan.get("judge_calls", 0),
+    )
+
+
+def save_evaluation(evaluation: "Evaluation", path: str) -> None:
+    """Serialize a completed :class:`Evaluation` to a JSON file so it can be **reloaded or
+    shared without re-running** the study (e.g. imported into the web app). Captures the
+    answers, the judge ratings, the rubric, the question/reference maps, and timing — i.e.
+    everything :meth:`Evaluation.report` and the stats layers are derived from.
+    """
+    import json
+
+    ans = evaluation.answers
+    data: dict[str, Any] = {
+        "study_name": evaluation.study_name,
+        "wall_clock_s": evaluation.wall_clock_s,
+        "questions": evaluation.questions,
+        "references": evaluation.references,
+        "answers": {
+            "study_name": ans.study_name,
+            "factors": list(ans.factors),
+            "wall_clock_s": ans.wall_clock_s,
+            "observations": [o.to_dict() for o in ans.observations],
+        },
+        "ratings": None,
+    }
+    if evaluation.ratings is not None:
+        rb = evaluation.ratings.rubric
+        data["ratings"] = {
+            "judge_model": evaluation.ratings.judge_model,
+            "factors": list(evaluation.ratings.factors),
+            "judge_system_prompt": evaluation.ratings.judge_system_prompt,
+            "rubric": {
+                "name": rb.name,
+                "scale_type": rb.scale_type.value,
+                "instruction": rb.instruction,
+                "prompt_template": rb.prompt_template,
+                "levels": [{"value": lv.value, "label": lv.label, "description": lv.description}
+                           for lv in rb.levels],
+            },
+            "items": [r.to_dict() for r in evaluation.ratings.items],
+        }
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, default=str)
+
+
+def load_evaluation(source: "str | dict[str, Any]") -> "Evaluation":
+    """Rebuild an :class:`Evaluation` saved by :func:`save_evaluation`. ``source`` is a path
+    to the JSON file or an already-parsed dict. Attribution is recomputed from the ratings, so
+    the returned Evaluation behaves exactly like a freshly-run one (``report``, ``effects``,
+    ``clmm`` all work) — no LLM calls are made.
+    """
+    import json
+
+    from cafe.execution.results import Observation, Results
+    from cafe.judging.ratings import Rating, Ratings
+    from cafe.judging.rubric import Level, Rubric, ScaleType
+    from cafe.stats import attribute
+
+    data = source
+    if isinstance(source, str):
+        with open(source, encoding="utf-8") as fh:
+            data = json.load(fh)
+
+    a = data["answers"]
+    answers = Results(
+        study_name=a.get("study_name", data.get("study_name", "")),
+        factors=list(a.get("factors", [])),
+        observations=[Observation.from_dict(o) for o in a.get("observations", [])],
+        wall_clock_s=a.get("wall_clock_s"),
+    )
+
+    ratings = None
+    attribution = None
+    r = data.get("ratings")
+    if r is not None:
+        rbd = r["rubric"]
+        rubric = Rubric(
+            name=rbd["name"],
+            levels=[Level(**lv) for lv in rbd["levels"]],
+            scale_type=ScaleType(rbd.get("scale_type", "ordinal")),
+            instruction=rbd.get("instruction", Rubric.instruction),
+            prompt_template=rbd.get("prompt_template"),
+        )
+        rating_fields = set(Rating.__dataclass_fields__)  # type: ignore[attr-defined]
+        items = [Rating(**{k: v for k, v in it.items() if k in rating_fields})
+                 for it in r.get("items", [])]
+        ratings = Ratings(
+            rubric=rubric,
+            judge_model=r.get("judge_model", ""),
+            factors=list(r.get("factors", [])),
+            items=items,
+            judge_system_prompt=r.get("judge_system_prompt"),
+        )
+        attribution = attribute(ratings)
+
+    return Evaluation(
+        study_name=data.get("study_name", ""),
+        answers=answers,
+        ratings=ratings,
+        attribution=attribution,
+        questions=data.get("questions") or {},
+        references=data.get("references") or {},
+        wall_clock_s=data.get("wall_clock_s"),
     )

@@ -104,7 +104,7 @@ def _results_payload(ev) -> dict[str, Any]:
     }
     try:
         out["records"] = [
-            {k: r.get(k) for k in ("input_id", "question", "reference", "answer", "verdict",
+            {k: r.get(k) for k in ("input_id", "question", "reference", "output", "verdict",
                                    "reasoning", "cost_usd", "tokens", "elapsed_s", *(_factor_keys(ev)))}
             for r in ev.records()
         ]

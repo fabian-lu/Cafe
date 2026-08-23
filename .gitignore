@@ -65,6 +65,9 @@ CLAUDE.md
 !/paper/cafe.pdf
 # Evaluation notebook cache (sampled questions + KB embeddings — regenerable)
 examples/evaluation/data/
+# Case studies: keep the notebooks, ignore generated data artifacts (exported study bundles, etc.)
+examples/case_studies/*
+!examples/case_studies/*.ipynb
 
 # Web app build/runtime artifacts
 apps/web-app/frontend/node_modules/

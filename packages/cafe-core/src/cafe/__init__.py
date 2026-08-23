@@ -55,7 +55,14 @@ from cafe.techniques import (
     pipeline,
     stage_report,
 )
-from cafe.evaluation import Evaluation, Preflight, evaluate, preflight
+from cafe.evaluation import (
+    Evaluation,
+    Preflight,
+    evaluate,
+    load_evaluation,
+    preflight,
+    save_evaluation,
+)
 from cafe.execution import estimate, run_study
 from cafe.judging import (
     JUDGE_PRESETS,
@@ -126,6 +133,8 @@ __all__ = [
     # ── run it ──
     "evaluate",       # the complete pipeline: answers -> judge -> attribution
     "preflight",      # cheap pre-run check + cost estimate
+    "save_evaluation",  # serialize a finished Evaluation to JSON (reload/share without re-running)
+    "load_evaluation",  # rebuild an Evaluation from save_evaluation's JSON
     "run_study",      # lower-level: answers only
     "Evaluation",
     "Preflight",

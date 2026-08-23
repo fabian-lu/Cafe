@@ -22,6 +22,7 @@ NOTEBOOKS = [
     "05_cost_quality.ipynb",
     "06_fractional_design.ipynb",
     "evaluation/evaluation.ipynb",
+    "case_studies/01_support_chatbot_quality.ipynb",
 ]
 
 

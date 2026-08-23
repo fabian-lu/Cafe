@@ -54,7 +54,10 @@ nav:
       - Cost vs quality: notebooks/05_cost_quality.ipynb
       - Fractional designs: notebooks/06_fractional_design.ipynb
       - HotpotQA evaluation: notebooks/evaluation/evaluation.ipynb
+  - Case studies:
+      - Support chatbot cost vs quality: notebooks/case_studies/01_support_chatbot_quality.ipynb
   - API reference: reference/api.md
+  - Releasing: releasing.md
 
 plugins:
   - search

@@ -41,7 +41,7 @@ def test_records_join_everything():
     r0 = next(r for r in _evaluation().records() if r["input_id"] == "q0")
     assert r0["question"] == "Capital of France?"
     assert r0["reference"] == "Paris"
-    assert r0["answer"] == "Paris"
+    assert r0["output"] == "Paris"
     assert r0["model"] == "m"          # factor flattened into the row
     assert r0["verdict"] == 5
     assert (r0["cost_usd"], r0["tokens"]) == (0.01, 50)
@@ -69,5 +69,5 @@ def test_records_without_judge_falls_back_to_answers():
     ev = _evaluation()
     ev.ratings = None
     rows = ev.records()
-    assert {r["answer"] for r in rows} == {"Paris", "banana"}
+    assert {r["output"] for r in rows} == {"Paris", "banana"}
     assert all("verdict" not in r for r in rows)

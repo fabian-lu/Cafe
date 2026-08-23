@@ -62,6 +62,7 @@ export const api = {
   studies: (archived = false) => get(`/studies${archived ? "?archived=true" : ""}`),
   study: (id) => get(`/studies/${id}`),
   createStudy: (b) => post("/studies", b),
+  importStudy: (bundle) => post("/studies/import", bundle),   // a cafe.save_evaluation bundle
   archiveStudy: (id) => post(`/studies/${id}/archive`, {}),
   restoreStudy: (id) => post(`/studies/${id}/restore`, {}),
   deleteStudy: (id) => del(`/studies/${id}`),

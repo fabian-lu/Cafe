@@ -7,14 +7,16 @@ WORKDIR /app
 # R + the model packages for the ordinal CLMM and binary logistic GLMM layers, so studies run in the
 # app compute the same statistics the library does. (Debian prebuilt packages — no compilation.)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        r-base-core r-cran-ordinal r-cran-lme4 \
+        r-base-core r-cran-ordinal r-cran-lme4 r-cran-jsonlite \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir --upgrade pip
 
 # Install the local cafe-core library first (its deps come via the extras).
 COPY packages/cafe-core /src/cafe-core
-RUN pip install --no-cache-dir "/src/cafe-core"
+# Editable install: the image still bundles the code (COPY above), so it stays self-contained for
+# prod; editable also lets the dev compose override mount live cafe-core source over /src/cafe-core.
+RUN pip install --no-cache-dir -e "/src/cafe-core"
 
 # Backend deps.
 COPY apps/web-app/backend/requirements.txt /app/requirements.txt

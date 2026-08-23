@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+import json
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import delete as sql_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -118,6 +120,76 @@ async def archive_study(id_: int, db: AsyncSession = Depends(get_session)):
 async def restore_study(id_: int, db: AsyncSession = Depends(get_session)):
     study = await _get_or_404(db, models.Study, id_)
     study.archived = False
+    await db.commit()
+    await db.refresh(study)
+    return study
+
+
+@router.post("/studies/import", response_model=schemas.StudyOut, status_code=201)
+async def import_study(request: Request, db: AsyncSession = Depends(get_session)):
+    """Import a study saved with ``cafe.save_evaluation`` (a notebook / offline run) so it shows
+    up in the Results dashboard exactly like an in-app run — no re-running, no pipeline required.
+
+    The request body is the evaluation bundle as JSON (no multipart, so no extra dependency).
+    Reconstructs the ``Evaluation``, reuses the normal results-payload builder, and inserts the
+    same Rubric + Dataset + Study + StudyResult rows a live run creates.
+    """
+    import cafe
+
+    from app.runner import _results_payload
+
+    raw = await request.body()
+    try:
+        ev = cafe.load_evaluation(json.loads(raw))
+    except Exception as exc:  # noqa: BLE001 — surface a clean 400 for a bad upload
+        raise HTTPException(400, f"not a valid cafe evaluation bundle: {exc}")
+    if ev.ratings is None:
+        raise HTTPException(400, "this evaluation has no judge ratings — nothing to attribute")
+
+    payload = _results_payload(ev)  # the Results-view blob, via the same path a live run uses
+
+    # Rubric — note the judge's system prompt lives on the ratings, not the cafe Rubric.
+    rb = ev.ratings.rubric
+    rubric = models.Rubric(
+        name=rb.name,
+        scale_type=rb.scale_type.value,
+        levels=[{"value": lv.value, "label": lv.label, "description": lv.description} for lv in rb.levels],
+        instruction=rb.instruction,
+        prompt_template=rb.prompt_template,
+        system_prompt=ev.ratings.judge_system_prompt,
+        preset="reference_qa",
+    )
+    # Dataset — rebuild the questions + reference answers as items.
+    ids = list(ev.questions) or sorted({o.input_id for o in ev.answers.observations})
+    dataset = models.Dataset(
+        name=f"{ev.study_name or 'imported'} (imported)",
+        items=[{"id": i, "text": ev.questions.get(i, ""), "reference": ev.references.get(i)} for i in ids],
+    )
+    db.add_all([rubric, dataset])
+    await db.flush()  # assign ids
+
+    # Factors + their observed levels, read off the answer configs (order preserved).
+    names = list(ev.ratings.factors) or list(
+        ev.answers.observations[0].config if ev.answers.observations else {})
+    factors = []
+    for name in names:
+        levels: list = []
+        for o in ev.answers.observations:
+            v = o.config.get(name)
+            if v not in levels:
+                levels.append(v)
+        factors.append({"name": name, "levels": levels})
+    reps = max((o.rep for o in ev.answers.observations), default=0) + 1
+
+    study = models.Study(
+        name=ev.study_name or "imported study",
+        description="Imported from a notebook / offline run.",
+        pipeline="(imported)", factors=factors, dataset_id=dataset.id, rubric_id=rubric.id,
+        judge_model=ev.ratings.judge_model, replications=reps, status="done", progress=100,
+    )
+    db.add(study)
+    await db.flush()
+    db.add(models.StudyResult(study_id=study.id, payload=payload))
     await db.commit()
     await db.refresh(study)
     return study

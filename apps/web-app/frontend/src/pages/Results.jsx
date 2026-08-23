@@ -436,7 +436,7 @@ function Records({ records, factors }) {
               <td title={r.question || r.input_id} style={{ maxWidth: 220 }}>{(r.question || r.input_id || "").slice(0, 110)}</td>
               <td className="muted mono" style={{ fontSize: 11 }} title={factors.map((f) => `${f}=${r[f]}`).join(" ")}>{factors.map((f) => `${f}=${r[f]}`).join(" ")}</td>
               <td style={{ maxWidth: 300 }}>
-                <div title={r.answer || ""}>{(r.answer || "").slice(0, 160)}</div>
+                <div title={r.output || ""}>{(r.output || "").slice(0, 160)}</div>
                 {r.reasoning && <div className="hint" title={r.reasoning} style={{ marginTop: 4, fontStyle: "italic" }}>{r.reasoning.slice(0, 160)}</div>}
               </td>
               <td className="mono" style={{ color: "var(--amber-soft)", fontSize: 15 }}>{r.verdict ?? "—"}</td>

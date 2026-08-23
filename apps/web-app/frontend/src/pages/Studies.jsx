@@ -218,6 +218,26 @@ export default function Studies() {
   const [showArchived, setShowArchived] = useState(false);
   const [creating, setCreating] = useState(false);
   const [err, setErr] = useState(null);
+  const fileRef = useRef(null);
+  const [importing, setImporting] = useState(false);
+
+  // Import a study saved with cafe.save_evaluation (a notebook / offline run): read the JSON,
+  // POST it, and jump to its Results — it renders exactly like an in-app run.
+  const onImportFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";                 // allow re-picking the same file
+    if (!file) return;
+    setErr(null);
+    setImporting(true);
+    try {
+      const study = await api.importStudy(JSON.parse(await file.text()));
+      nav(`/results?study=${study.id}`);
+    } catch (e2) {
+      setErr(`Import failed: ${e2.message}`);
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const loadStudies = () => {
     api.studies().then(setStudies).catch((e) => setErr(e.message));
@@ -240,8 +260,15 @@ export default function Studies() {
           <p className="page-sub">Define a factorial study over one of your pipelines, launch it, and
             explore the results. Each factor is a stage's techniques or a tunable parameter.</p>
         </div>
-        {canCreate && <button className="btn primary" onClick={() => setCreating(!creating)}>
-          {creating ? "Close" : "+ New study"}</button>}
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input ref={fileRef} type="file" accept=".json,application/json"
+            style={{ display: "none" }} onChange={onImportFile} />
+          <button className="btn" disabled={importing} onClick={() => fileRef.current?.click()}
+            title="Import a study saved with cafe.save_evaluation (a notebook / offline run)">
+            {importing ? "Importing…" : "Import study"}</button>
+          {canCreate && <button className="btn primary" onClick={() => setCreating(!creating)}>
+            {creating ? "Close" : "+ New study"}</button>}
+        </div>
       </div>
 
       {err && <div className="banner">{err}</div>}

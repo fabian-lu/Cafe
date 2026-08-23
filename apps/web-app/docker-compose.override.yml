@@ -1,0 +1,10 @@
+# Dev-only overrides. Docker Compose auto-merges this on a bare `docker compose up`, so these
+# apply to LOCAL development only. A prod/CI build of a clean, self-contained image runs with an
+# explicit single file — `docker compose -f docker-compose.yml up` — which ignores this override.
+services:
+  backend:
+    volumes:
+      # Mount the live cafe-core source over the image's copy (paired with `pip install -e` in the
+      # Dockerfile) so engine edits show up without an image rebuild. After a cafe-core change:
+      #   docker compose restart backend      # ~seconds — no rebuild
+      - ../../packages/cafe-core:/src/cafe-core
