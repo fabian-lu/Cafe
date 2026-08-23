@@ -65,9 +65,15 @@ CLAUDE.md
 !/paper/cafe.pdf
 # Evaluation notebook cache (sampled questions + KB embeddings — regenerable)
 examples/evaluation/data/
-# Case studies: keep the notebooks, ignore generated data artifacts (exported study bundles, etc.)
-examples/case_studies/*
-!examples/case_studies/*.ipynb
+# Case studies: keep the notebooks; ignore only generated data artifacts (exported study
+# bundles, embeddings, etc.). Listing artifact types (rather than `dir/*` + a re-include)
+# keeps the directory itself un-ignored so IDEs (PyCharm) still surface the notebooks.
+examples/case_studies/*.json
+examples/case_studies/*.jsonl
+examples/case_studies/*.csv
+examples/case_studies/*.parquet
+examples/case_studies/data/
+examples/case_studies/.ipynb_checkpoints/
 
 # Web app build/runtime artifacts
 apps/web-app/frontend/node_modules/
