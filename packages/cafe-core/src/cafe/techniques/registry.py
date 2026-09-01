@@ -21,3 +21,7 @@ class TechniqueSpec:
     params: dict[str, Any]      # tunable parameter -> default
     description: str = ""
     cost_usd: float = 0.0       # fixed cost charged each time this technique runs
+    # Energy is strictly opt-in: None means "not declared" — no energy is computed or
+    # reported for runs of this technique (0.0 would mean "declared to be free").
+    energy_wh: float | None = None                # fixed Wh charged per run
+    energy_wh_per_1k_tokens: float | None = None  # Wh per 1k tokens used inside the run

@@ -125,32 +125,10 @@ async def restore_study(id_: int, db: AsyncSession = Depends(get_session)):
     return study
 
 
-@router.post("/studies/import", response_model=schemas.StudyOut, status_code=201)
-async def import_study(request: Request, db: AsyncSession = Depends(get_session)):
-    """Import a study saved with ``cafe.save_evaluation`` (a notebook / offline run) so it shows
-    up in the Results dashboard exactly like an in-app run — no re-running, no pipeline required.
-
-    The request body is the evaluation bundle as JSON (no multipart, so no extra dependency).
-    Reconstructs the ``Evaluation``, reuses the normal results-payload builder, and inserts the
-    same Rubric + Dataset + Study + StudyResult rows a live run creates.
-    """
-    import cafe
-
-    from app.runner import _results_payload
-
-    raw = await request.body()
-    try:
-        ev = cafe.load_evaluation(json.loads(raw))
-    except Exception as exc:  # noqa: BLE001 — surface a clean 400 for a bad upload
-        raise HTTPException(400, f"not a valid cafe evaluation bundle: {exc}")
-    if ev.ratings is None:
-        raise HTTPException(400, "this evaluation has no judge ratings — nothing to attribute")
-
-    payload = _results_payload(ev)  # the Results-view blob, via the same path a live run uses
-
-    # Rubric — note the judge's system prompt lives on the ratings, not the cafe Rubric.
+def _rubric_row(ev) -> models.Rubric:
+    """A Rubric row from an Evaluation's ratings (judge system prompt lives on the ratings)."""
     rb = ev.ratings.rubric
-    rubric = models.Rubric(
+    return models.Rubric(
         name=rb.name,
         scale_type=rb.scale_type.value,
         levels=[{"value": lv.value, "label": lv.label, "description": lv.description} for lv in rb.levels],
@@ -159,37 +137,115 @@ async def import_study(request: Request, db: AsyncSession = Depends(get_session)
         system_prompt=ev.ratings.judge_system_prompt,
         preset="reference_qa",
     )
-    # Dataset — rebuild the questions + reference answers as items.
-    ids = list(ev.questions) or sorted({o.input_id for o in ev.answers.observations})
+
+
+async def _attach_dimension(db: AsyncSession, study: models.Study, ev, payload) -> None:
+    """Add one Evaluation as an additional dimension (Rubric + StudyResult row) of ``study``."""
+    rb_name = ev.ratings.rubric.name
+    dupe = (await db.execute(select(models.StudyResult).where(
+        models.StudyResult.study_id == study.id,
+        models.StudyResult.dimension == rb_name))).scalars().first()
+    if dupe is not None:
+        raise HTTPException(409, f"study {study.id} already has a dimension {rb_name!r} — "
+                                 "rename the rubric or delete that dimension first")
+    rubric = _rubric_row(ev)
+    db.add(rubric)
+    await db.flush()
+    study.rubric_ids = [*(study.rubric_ids or ([study.rubric_id] if study.rubric_id else [])),
+                        rubric.id]
+    db.add(models.StudyResult(study_id=study.id, dimension=rb_name, payload=payload))
+
+
+@router.post("/studies/import", response_model=schemas.StudyOut, status_code=201)
+async def import_study(request: Request, attach_to: int | None = None,
+                       db: AsyncSession = Depends(get_session)):
+    """Import a WHOLE study from a notebook / offline run — no re-running, no pipeline required.
+
+    The JSON body is either a single ``cafe.save_evaluation`` bundle, or a **multi-dimension
+    bundle** ``{"cafe_multi_dimension_bundle": 1, "name": ..., "dimensions": {<name>: <bundle>}}``
+    (the same answers judged on several rubrics, e.g. via ``result.rejudge``). One POST creates
+    the study with ALL its dimensions; the Results page then offers a dimension selector.
+
+    ``?attach_to=<study_id>`` adds the bundle's dimension(s) to an existing study instead of
+    creating a new one (rarely needed — e.g. re-judging an old study on a new rubric later).
+    """
+    import cafe
+
+    from app.runner import _results_payload
+
+    raw_body = await request.body()
+    try:
+        raw = json.loads(raw_body)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(400, f"not valid JSON: {exc}")
+
+    name_override = None
+    if isinstance(raw, dict) and isinstance(raw.get("dimensions"), dict) and raw["dimensions"]:
+        name_override = raw.get("name")
+        bundles = list(raw["dimensions"].values())
+    else:
+        bundles = [raw]
+
+    evs = []
+    for b in bundles:
+        try:
+            ev = cafe.load_evaluation(b)
+        except Exception as exc:  # noqa: BLE001 — surface a clean 400 for a bad upload
+            raise HTTPException(400, f"not a valid cafe evaluation bundle: {exc}")
+        if ev.ratings is None:
+            raise HTTPException(400, "an evaluation in this bundle has no judge ratings — "
+                                     "nothing to attribute")
+        evs.append(ev)
+    payloads = [_results_payload(ev) for ev in evs]
+
+    if attach_to is not None:
+        study = await db.get(models.Study, attach_to)
+        if study is None:
+            raise HTTPException(404, f"study {attach_to} not found")
+        for ev, payload in zip(evs, payloads):
+            await _attach_dimension(db, study, ev, payload)
+        await db.commit()
+        await db.refresh(study)
+        return study
+
+    # Create the study from the FIRST dimension; the rest attach to it.
+    first, first_payload = evs[0], payloads[0]
+    rubric = _rubric_row(first)
+    ids = list(first.questions) or sorted({o.input_id for o in first.answers.observations})
     dataset = models.Dataset(
-        name=f"{ev.study_name or 'imported'} (imported)",
-        items=[{"id": i, "text": ev.questions.get(i, ""), "reference": ev.references.get(i)} for i in ids],
+        name=f"{name_override or first.study_name or 'imported'} (imported)",
+        items=[{"id": i, "text": first.questions.get(i, ""), "reference": first.references.get(i)}
+               for i in ids],
     )
     db.add_all([rubric, dataset])
     await db.flush()  # assign ids
 
     # Factors + their observed levels, read off the answer configs (order preserved).
-    names = list(ev.ratings.factors) or list(
-        ev.answers.observations[0].config if ev.answers.observations else {})
+    names = list(first.ratings.factors) or list(
+        first.answers.observations[0].config if first.answers.observations else {})
     factors = []
     for name in names:
         levels: list = []
-        for o in ev.answers.observations:
+        for o in first.answers.observations:
             v = o.config.get(name)
             if v not in levels:
                 levels.append(v)
         factors.append({"name": name, "levels": levels})
-    reps = max((o.rep for o in ev.answers.observations), default=0) + 1
+    reps = max((o.rep for o in first.answers.observations), default=0) + 1
 
     study = models.Study(
-        name=ev.study_name or "imported study",
+        name=name_override or first.study_name or "imported study",
         description="Imported from a notebook / offline run.",
         pipeline="(imported)", factors=factors, dataset_id=dataset.id, rubric_id=rubric.id,
-        judge_model=ev.ratings.judge_model, replications=reps, status="done", progress=100,
+        rubric_ids=[rubric.id],
+        judge_model=first.ratings.judge_model, replications=reps, status="done", progress=100,
     )
     db.add(study)
     await db.flush()
-    db.add(models.StudyResult(study_id=study.id, payload=payload))
+    db.add(models.StudyResult(study_id=study.id, dimension=first.ratings.rubric.name,
+                              payload=first_payload))
+    for ev, payload in zip(evs[1:], payloads[1:]):
+        await _attach_dimension(db, study, ev, payload)
     await db.commit()
     await db.refresh(study)
     return study

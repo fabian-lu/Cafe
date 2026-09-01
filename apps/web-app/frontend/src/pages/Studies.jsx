@@ -66,6 +66,7 @@ function CreateStudy({ pipelines, datasets, rubrics, onCreated }) {
   const [pipeName, setPipeName] = useState(pipelines[0]?.name || "");
   const [datasetId, setDatasetId] = useState("");
   const [rubricId, setRubricId] = useState("");
+  const [extraRubrics, setExtraRubrics] = useState({});  // additional dimensions: {rubricId: true}
   const [judge, setJudge] = useState("ollama_cloud/deepseek-v4-pro");
   const [reps, setReps] = useState(1);
   const [conc, setConc] = useState(8);
@@ -114,10 +115,14 @@ function CreateStudy({ pipelines, datasets, rubrics, onCreated }) {
   const submit = async () => {
     setErr(null);
     try {
+      const primary = rubricId ? Number(rubricId) : null;
+      const extras = Object.keys(extraRubrics).filter((k) => extraRubrics[k]).map(Number)
+        .filter((id) => id !== primary);
       const study = await api.createStudy({
         name, description, pipeline: pipeName, factors,
         dataset_id: datasetId ? Number(datasetId) : null,
-        rubric_id: rubricId ? Number(rubricId) : null,
+        rubric_id: primary,
+        rubric_ids: primary ? [primary, ...extras] : [],
         judge_model: judge, replications: Number(reps), concurrency: Number(conc),
       });
       onCreated(study);
@@ -181,12 +186,26 @@ function CreateStudy({ pipelines, datasets, rubrics, onCreated }) {
             <option value="">— select —</option>
             {datasets.map((d) => <option key={d.id} value={d.id}>{d.name} ({d.items.length})</option>)}
           </select></div>
-        <div className="field" style={{ flex: 1, minWidth: 180 }}><label>Rubric</label>
+        <div className="field" style={{ flex: 1, minWidth: 180 }}><label>Rubric <span className="muted">— primary dimension</span></label>
           <select className="select" value={rubricId} onChange={(e) => setRubricId(e.target.value)}>
             <option value="">— select —</option>
             {rubrics.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select></div>
       </div>
+      {rubricId && rubrics.length > 1 && (
+        <div className="field">
+          <label>Additional dimensions <span className="muted">— the same answers judged on more rubrics (one judging pass each)</span></label>
+          <div>
+            {rubrics.filter((r) => String(r.id) !== String(rubricId)).map((r) => (
+              <label key={r.id} className={"check" + (extraRubrics[r.id] ? " on" : "")}>
+                <input type="checkbox" checked={!!extraRubrics[r.id]}
+                  onChange={() => setExtraRubrics((s) => ({ ...s, [r.id]: !s[r.id] }))} />
+                {r.name}
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="row-between" style={{ gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
         <div className="field" style={{ flex: 1, minWidth: 220 }}><label>Judge model</label>
           <JudgeModelField value={judge} onChange={setJudge} /></div>
@@ -221,8 +240,8 @@ export default function Studies() {
   const fileRef = useRef(null);
   const [importing, setImporting] = useState(false);
 
-  // Import a study saved with cafe.save_evaluation (a notebook / offline run): read the JSON,
-  // POST it, and jump to its Results — it renders exactly like an in-app run.
+  // Import a WHOLE study from a notebook / offline run: a single cafe.save_evaluation bundle,
+  // or a multi-dimension bundle (all rubrics in one file). POST it, jump to its Results.
   const onImportFile = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = "";                 // allow re-picking the same file
@@ -264,7 +283,7 @@ export default function Studies() {
           <input ref={fileRef} type="file" accept=".json,application/json"
             style={{ display: "none" }} onChange={onImportFile} />
           <button className="btn" disabled={importing} onClick={() => fileRef.current?.click()}
-            title="Import a study saved with cafe.save_evaluation (a notebook / offline run)">
+            title="Import a study from a notebook / offline run — a cafe.save_evaluation bundle, or a multi-dimension bundle (all rubrics in one file)">
             {importing ? "Importing…" : "Import study"}</button>
           {canCreate && <button className="btn primary" onClick={() => setCreating(!creating)}>
             {creating ? "Close" : "+ New study"}</button>}

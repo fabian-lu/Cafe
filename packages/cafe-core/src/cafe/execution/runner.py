@@ -69,6 +69,7 @@ async def run_study(
     concurrency: int = 8,
     checkpoint_path: str | None = None,
     resume: bool = True,
+    retry_errors: bool = True,
     smoke: bool = False,
     on_progress: ProgressFn | None = None,
     progress: bool = False,
@@ -85,6 +86,10 @@ async def run_study(
     checkpoint_path:
         If given, observations are appended here as they complete and a resumed
         run skips already-done cells. If ``None``, the run is in-memory only.
+    retry_errors:
+        On resume, re-run checkpointed cells that ended in an error (transient
+        provider failures heal on the next run; a permanent error just fails
+        again and stays an error). ``False`` treats errored cells as done.
     smoke:
         Preflight: one input through every config, a single replication, no
         judging — to confirm configs execute and to estimate cost before
@@ -126,14 +131,24 @@ async def run_study(
             for rep in range(reps):
                 probe = Observation(config=cfg, input_id=in_id, rep=rep)
                 valid_keys.add(probe.key())
-                if probe.key() not in done:
+                prev = done.get(probe.key())
+                if prev is None or (retry_errors and prev.error is not None):
                     pending.append((cfg, item, in_id, rep))
 
     # Only carry forward checkpoint rows that belong to the CURRENT design. Resuming an
     # *edited* study (a dropped level, a changed dataset) must not contaminate the results
     # with ghost rows from the old design — they would silently enter the statistics.
-    kept = {k: o for k, o in done.items() if k in valid_keys}
-    stale = len(done) - len(kept)
+    # Errored rows being retried are dropped too — their retry outcome replaces them
+    # (the checkpoint stays append-only; load() is last-wins per key).
+    kept = {
+        k: o for k, o in done.items()
+        if k in valid_keys and not (retry_errors and o.error is not None)
+    }
+    retried = sum(
+        1 for k, o in done.items()
+        if k in valid_keys and retry_errors and o.error is not None
+    )
+    stale = len(done) - len(kept) - retried
     if stale:
         import warnings
 

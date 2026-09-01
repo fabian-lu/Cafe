@@ -20,7 +20,7 @@ services:
       context: ../..
       dockerfile: apps/web-app/backend/Dockerfile
     # Mount the code + --reload so backend edits hot-reload without an image rebuild.
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app --reload-dir /src/cafe-core/src/cafe
     env_file:
       - ../../.env            # LLM keys come from the ONE repo-root .env (same file the library uses)
     environment:
@@ -30,6 +30,7 @@ services:
     volumes:
       - ../../techniques:/techniques:ro       # edits picked up on reload
       - ./backend/app:/app/app                # backend code, hot-reloaded
+      - ../../packages/cafe-core/src/cafe:/src/cafe-core/src/cafe  # cafe-core source, hot-reloaded (editable install resolves here)
     ports:
       - "8000:8000"
     depends_on:

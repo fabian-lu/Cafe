@@ -20,7 +20,7 @@ def stage_report(results: Any) -> list[dict[str, Any]]:
     from collections import defaultdict
 
     agg: dict[tuple[str, str], dict[str, float]] = defaultdict(
-        lambda: {"elapsed": 0.0, "cost": 0.0, "tokens": 0.0, "n": 0}
+        lambda: {"elapsed": 0.0, "cost": 0.0, "tokens": 0.0, "energy": 0.0, "energy_n": 0, "n": 0}
     )
     for obs in getattr(results, "observations", []):
         for step in (obs.metadata or {}).get("trace", []):
@@ -30,18 +30,24 @@ def stage_report(results: Any) -> list[dict[str, Any]]:
             a["elapsed"] += step.get("elapsed_s", 0.0)
             a["cost"] += step.get("cost_usd", 0.0)
             a["tokens"] += step.get("tokens", 0)
+            if "energy_wh" in step:  # opt-in: only techniques that declared energy have it
+                a["energy"] += step["energy_wh"]
+                a["energy_n"] += 1
             a["n"] += 1
     rows = []
     for (stage, tech), a in agg.items():
         n = a["n"] or 1
-        rows.append({
+        row = {
             "stage": stage,
             "technique": tech,
             "calls": a["n"],
             "mean_elapsed_s": round(a["elapsed"] / n, 4),
             "mean_cost_usd": round(a["cost"] / n, 6),
             "mean_tokens": round(a["tokens"] / n, 1),
-        })
+        }
+        if a["energy_n"]:
+            row["mean_energy_wh"] = round(a["energy"] / a["energy_n"], 6)
+        rows.append(row)
     return sorted(rows, key=lambda r: r["mean_elapsed_s"], reverse=True)
 
 

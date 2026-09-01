@@ -41,6 +41,8 @@ class Context:
         self.trace: list[dict[str, Any]] = []
         self.total_cost: float = 0.0
         self.total_tokens: int = 0
+        self.total_energy_wh: float = 0.0
+        self.energy_declared: bool = False  # True once any executed technique declared energy
         self._cache: dict[str, Any] = {}
         self._manual_cost: float = 0.0  # accrued via add_cost() during the current step
 
@@ -140,6 +142,12 @@ class Context:
             "tokens": auto_tokens,
             "cached": False,
         }
+        # Energy is opt-in per technique: computed (and traced) only when declared.
+        if spec.energy_wh is not None or spec.energy_wh_per_1k_tokens is not None:
+            energy = (spec.energy_wh or 0.0) + (spec.energy_wh_per_1k_tokens or 0.0) * auto_tokens / 1000
+            meta["energy_wh"] = round(energy, 6)
+            self.total_energy_wh += energy
+            self.energy_declared = True
         self.total_cost += cost
         self.total_tokens += auto_tokens
         self.trace.append(meta)

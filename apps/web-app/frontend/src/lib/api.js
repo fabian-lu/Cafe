@@ -62,13 +62,16 @@ export const api = {
   studies: (archived = false) => get(`/studies${archived ? "?archived=true" : ""}`),
   study: (id) => get(`/studies/${id}`),
   createStudy: (b) => post("/studies", b),
-  importStudy: (bundle) => post("/studies/import", bundle),   // a cafe.save_evaluation bundle
+  importStudy: (bundle, attachTo) =>                          // a cafe.save_evaluation bundle;
+    post(`/studies/import${attachTo ? `?attach_to=${attachTo}` : ""}`, bundle),  // attachTo = add as dimension
   archiveStudy: (id) => post(`/studies/${id}/archive`, {}),
   restoreStudy: (id) => post(`/studies/${id}/restore`, {}),
   deleteStudy: (id) => del(`/studies/${id}`),
   runStudy: (id) => post(`/studies/${id}/run`, {}),
   estimateStudy: (id) => post(`/studies/${id}/estimate`, {}),
-  results: (id) => get(`/studies/${id}/results`),
+  results: (id, dimension) =>
+    get(`/studies/${id}/results${dimension ? `?dimension=${encodeURIComponent(dimension)}` : ""}`),
+  dimensions: (id) => get(`/studies/${id}/dimensions`),
   streamUrl: (id) => `${BASE}/studies/${id}/stream`,   // for EventSource
 
   ratingSheet: (id, n = 40) => get(`/studies/${id}/rating-sheet?n=${n}`),

@@ -45,17 +45,23 @@ class Pipeline:
         self.name = getattr(compose, "__name__", "pipeline")
 
     # ── registering techniques ─────────────────────────────────────────────────
-    def _spec(self, stage: str, name: str, fn: Callable, description: str, cost_usd: float) -> None:
+    def _spec(
+        self, stage: str, name: str, fn: Callable, description: str, cost_usd: float,
+        energy_wh: float | None = None, energy_wh_per_1k_tokens: float | None = None,
+    ) -> None:
         params = {
             p.name: p.default
             for p in inspect.signature(fn).parameters.values()
             if p.default is not inspect.Parameter.empty
         }
         # Redefining replaces — like re-`def`-ing a function; makes notebook re-runs painless.
-        self._techniques[(stage, name)] = TechniqueSpec(stage, name, fn, params, description, cost_usd)
+        self._techniques[(stage, name)] = TechniqueSpec(
+            stage, name, fn, params, description, cost_usd, energy_wh, energy_wh_per_1k_tokens
+        )
 
     def technique(
-        self, stage: str, name: str, *, description: str = "", cost_usd: float = 0.0
+        self, stage: str, name: str, *, description: str = "", cost_usd: float = 0.0,
+        energy_wh: float | None = None, energy_wh_per_1k_tokens: float | None = None,
     ) -> Callable:
         """Register ``fn`` as the technique ``name`` for ``stage`` (decorator).
 
@@ -63,19 +69,26 @@ class Pipeline:
         component whose price CAFE can't see (a paid reranker, a web-search API, a human
         step). It's added to any LLM cost tracked inside the function and shows up in
         ``stage_report`` / Pareto / ``report()``.
+
+        ``energy_wh`` / ``energy_wh_per_1k_tokens`` declare this technique's energy use:
+        a fixed Wh per run, and/or Wh per 1k tokens used inside the run (scaled by the
+        tokens CAFE observes). Energy is strictly opt-in — leave both unset and no energy
+        is computed or reported anywhere. CAFE never guesses a coefficient; you declare it
+        (e.g. derived from the model's active parameter count and serving hardware).
         """
         def deco(fn: Callable[..., Any]) -> Callable[..., Any]:
-            self._spec(stage, name, fn, description, cost_usd)
+            self._spec(stage, name, fn, description, cost_usd, energy_wh, energy_wh_per_1k_tokens)
             return fn
 
         return deco
 
     def add(
-        self, stage: str, name: str, fn: Callable, *, description: str = "", cost_usd: float = 0.0
+        self, stage: str, name: str, fn: Callable, *, description: str = "", cost_usd: float = 0.0,
+        energy_wh: float | None = None, energy_wh_per_1k_tokens: float | None = None,
     ) -> "Pipeline":
         """Register a technique programmatically (not as a decorator) — e.g. a deployed
         catalog assembling a pipeline per run. Returns ``self`` for chaining."""
-        self._spec(stage, name, fn, description, cost_usd)
+        self._spec(stage, name, fn, description, cost_usd, energy_wh, energy_wh_per_1k_tokens)
         return self
 
     def compose(self, fn: ComposeFn) -> ComposeFn:
@@ -162,9 +175,13 @@ class Pipeline:
         ctx = Context(self._techniques, config)
         result = await self._compose(config, item, ctx)
         output = result["output"] if isinstance(result, dict) and "output" in result else result
-        return {
+        out = {
             "output": output,
             "cost_usd": round(ctx.total_cost, 6),
             "tokens": ctx.total_tokens,
             "trace": ctx.trace,
         }
+        # Energy is opt-in: the key exists only if a technique that ran declared it.
+        if ctx.energy_declared:
+            out["energy_wh"] = round(ctx.total_energy_wh, 6)
+        return out

@@ -102,3 +102,41 @@ async def test_sync_run_inside_event_loop():
     results = study.run()
     assert len(results) == 8
     assert results.summary()["n_errors"] == 0
+
+
+async def test_checkpoint_resume_retries_errored_cells(tmp_path):
+    cp_path = str(tmp_path / "run.jsonl")
+
+    flaky = {"fail": True}
+    calls = {"n": 0}
+
+    async def system(config, item):
+        calls["n"] += 1
+        if flaky["fail"] and config["model"] == "b":
+            raise RuntimeError("transient boom")
+        return {"output": f"{config['model']}:{item}"}
+
+    study = Study(
+        name="exec-retry",
+        system=system,
+        factors=[Factor("model", ["a", "b"])],
+        dataset=["q1", "q2"],
+        replications=2,
+    )
+
+    # First run: every 'b' cell errors (4 of 8).
+    r1 = await run_study(study, checkpoint_path=cp_path)
+    assert len(r1.errors) == 4 and calls["n"] == 8
+
+    # Resume with the provider healed: only the 4 errored cells re-run, all succeed.
+    flaky["fail"] = False
+    calls["n"] = 0
+    r2 = await run_study(study, checkpoint_path=cp_path, resume=True)
+    assert calls["n"] == 4
+    assert len(r2) == 8 and len(r2.errors) == 0
+
+    # retry_errors=False keeps errored cells as done.
+    flaky["fail"] = True
+    calls["n"] = 0
+    r3 = await run_study(study, checkpoint_path=cp_path, resume=True, retry_errors=False)
+    assert calls["n"] == 0 and len(r3) == 8

@@ -33,6 +33,7 @@ const G = {
   vc: <><b>Variance components.</b> Splits the leftover (unexplained) variance into differences <i>between questions</i> vs plain <i>residual</i> noise. A large between-question share means some questions are just harder.</>,
   clmm: <><b>Cumulative-link mixed model.</b> Treats verdicts as <i>ordered categories</i> (0&lt;1&lt;2), not numbers — the statistically-correct model for an ordinal rubric. Includes a random effect per question.</>,
   marginal: <><b>Marginal mean.</b> The average quality at one factor level, averaged over all the other factors. "Is this level better on average?"</>,
+  energy: <><b>Energy (Wh).</b> Estimated, not measured: each technique <i>declares</i> its coefficient (a fixed Wh per run and/or Wh per 1k tokens), and CAFE multiplies by the tokens each answer actually used. Techniques without a declaration contribute nothing — a study whose pipeline declares nothing shows no energy at all. CO₂e and trees are display-time conversions you can adjust below.</>,
 };
 const SigLegend = () => <span className="mono"> *** p&lt;.001 · ** &lt;.01 · * &lt;.05 · . &lt;.1</span>;
 
@@ -456,6 +457,8 @@ export default function Results() {
   const [sel, setSel] = useState(params.get("study") || "");
   const [res, setRes] = useState(null);
   const [err, setErr] = useState(null);
+  const [dims, setDims] = useState([]);   // judged dimensions (rubric names); >1 shows the selector
+  const [dim, setDim] = useState("");
 
   useEffect(() => { api.studies().then((all) => {
     const done = all.filter((s) => s.status === "done");
@@ -467,9 +470,22 @@ export default function Results() {
     if (!sel) return;
     setErr(null); setRes(null);
     setParams({ study: sel });
-    api.results(sel).then(setRes).catch((e) => setErr(e.message));
+    Promise.resolve(api.dimensions(sel)).catch(() => [])
+      .then((d) => {
+        const names = (d || []).map((x) => x.dimension).filter(Boolean);
+        setDims(names);
+        setDim(names[0] || "");
+        return api.results(sel, names[0]);
+      })
+      .then(setRes).catch((e) => setErr(e.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel]);
+
+  const switchDim = (name) => {
+    if (name === dim) return;
+    setDim(name); setRes(null); setErr(null);
+    api.results(sel, name).then(setRes).catch((e) => setErr(e.message));
+  };
 
   const byFactor = useMemo(() => {
     const g = {};
@@ -510,6 +526,16 @@ export default function Results() {
           {studies.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
       </div>
+
+      {dims.length > 1 && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+          <span className="hint mono" style={{ margin: 0 }}>dimension:</span>
+          {dims.map((d) => (
+            <button key={d} className={"btn btn-sm" + (d === dim ? " primary" : "")}
+              onClick={() => switchDim(d)}>{d}</button>
+          ))}
+        </div>
+      )}
 
       {err && <div className="banner">{err}</div>}
       {!sel && <div className="empty">select a finished study above</div>}
@@ -593,6 +619,13 @@ export default function Results() {
             </Section>
           )}
 
+          {res.energy && (
+            <Section title="Energy by factor level"
+              hint={<>estimated from each technique's declared coefficient × observed tokens — see <InfoTip label="how energy works">{G.energy}</InfoTip>. Shown only because this study's pipeline declares coefficients.</>}>
+              <Energy energy={res.energy} />
+            </Section>
+          )}
+
           {res.records?.length > 0 && (
             <Section title="Verdict distribution">
               <Distribution records={res.records} rubric={res.rubric} />
@@ -625,6 +658,258 @@ export default function Results() {
         </>
       )}
     </div>
+  );
+}
+
+// ── energy (opt-in: rendered only when the payload carries an energy block) ─────
+const fmtWh = (wh) => {
+  if (wh == null) return "—";
+  if (wh >= 1000) return `${(wh / 1000).toFixed(2)} kWh`;
+  if (wh >= 1) return `${wh.toFixed(2)} Wh`;
+  if (wh >= 0.001) return `${(wh * 1000).toFixed(1)} mWh`;
+  return `${(wh * 1e6).toFixed(0)} µWh`;
+};
+const fmtCO2 = (g) => (g >= 1000 ? `${(g / 1000).toFixed(2)} kg` : g >= 1 ? `${g.toFixed(2)} g` : `${(g * 1000).toFixed(1)} mg`);
+// duration given in hours; distance in km; share as % or ×
+const fmtDur = (h) => {
+  const s = h * 3600;
+  if (s < 90) return `${s.toFixed(0)} s`;
+  if (s < 5400) return `${(s / 60).toFixed(0)} min`;
+  if (h < 48) return `${h.toFixed(1)} h`;
+  return `${(h / 24).toFixed(1)} days`;
+};
+const fmtDist = (km) => (km >= 1 ? `${km.toFixed(1)} km` : `${(km * 1000).toFixed(1)} m`);
+const fmtShare = (x) => (x >= 1 ? `${x.toFixed(1)}×` : x >= 0.095 ? `${Math.round(x * 100)}%` : `${(x * 100).toFixed(1)}%`);
+
+// minimal line icons (stroke = currentColor) so identity never rides on color alone
+const ICONS = {
+  phone: <><rect x="7" y="2.5" width="10" height="19" rx="2.5" /><line x1="10.5" y1="18.5" x2="13.5" y2="18.5" /></>,
+  bulb: <><circle cx="12" cy="9" r="5" /><path d="M10 16.5h4M10.5 19h3" /></>,
+  screen: <><rect x="3.5" y="4.5" width="17" height="12" rx="2" /><path d="M10.5 8v5l4.2-2.5z" /><path d="M9 20h6" /></>,
+  car: <><path d="M5 13.5l1.4-4A2 2 0 0 1 8.3 8h7.4a2 2 0 0 1 1.9 1.5l1.4 4" /><rect x="3.5" y="13" width="17" height="4.5" rx="1.5" /><circle cx="7.5" cy="19.5" r="1.5" /><circle cx="16.5" cy="19.5" r="1.5" /></>,
+  tree: <><path d="M12 3.5l4 5.5h-2.4l3.4 5H7l3.4-5H8z" /><path d="M12 14v6M9.5 20h5" /></>,
+};
+const Icon = ({ name, size = 22, color = "var(--on-surface-variant)" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color}
+    strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>{ICONS[name]}</svg>
+);
+
+// pick the dial the value is visible on: seconds→minute, minutes→hour, hours→day, days→year
+function treeDial(treeYears) {
+  const ts = treeYears * 31536000; // tree-seconds
+  if (ts < 60) return { frac: ts / 60, value: ts, unit: "tree-sec", of: "of one tree-minute" };
+  if (ts < 3600) return { frac: ts / 3600, value: ts / 60, unit: "tree-min", of: "of one tree-hour" };
+  if (ts < 86400) return { frac: ts / 86400, value: ts / 3600, unit: "tree-hours", of: "of one tree-day" };
+  if (ts < 31536000) return { frac: ts / 31536000, value: ts / 86400, unit: "tree-days", of: "of one tree-year" };
+  return { frac: 1, value: treeYears, unit: "tree-years", of: "" };
+}
+
+function TreeDial({ treeYears }) {
+  const d = treeDial(treeYears);
+  const S = 168, r = 66, C = 2 * Math.PI * r;
+  const arc = Math.max(d.frac, 0.004) * C; // keep a sliver visible — the number carries precision
+  return (
+    <div style={{ textAlign: "center", flexShrink: 0 }}>
+      <svg width={S} height={S} viewBox={`0 0 ${S} ${S}`}>
+        <circle cx={S / 2} cy={S / 2} r={r} fill="none" stroke="var(--surface-container-highest)" strokeWidth="9" />
+        <circle cx={S / 2} cy={S / 2} r={r} fill="none" stroke="var(--green)" strokeWidth="9"
+          strokeLinecap="round" strokeDasharray={`${arc} ${C}`} transform={`rotate(-90 ${S / 2} ${S / 2})`}
+          style={{ filter: "drop-shadow(0 0 6px var(--green))", opacity: 0.9 }} />
+        <g transform={`translate(${S / 2 - 12}, ${S / 2 - 34})`}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--green)"
+            strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">{ICONS.tree}</svg>
+        </g>
+        <text x={S / 2} y={S / 2 + 14} textAnchor="middle" fill="var(--on-surface)" fontSize="24"
+          fontWeight="700" fontFamily="var(--font-display)">{d.value >= 100 ? Math.round(d.value) : d.value.toFixed(1)}</text>
+        <text x={S / 2} y={S / 2 + 32} textAnchor="middle" fill="var(--on-surface-variant)" fontSize="11"
+          fontFamily="var(--font-mono)">{d.unit}</text>
+      </svg>
+      <div className="hint mono" style={{ marginTop: 2, maxWidth: 190 }}>
+        time one tree needs to reabsorb this{d.of ? <> · <span style={{ color: "var(--green)" }}>{pct(d.frac)}</span> {d.of}</> : ""}
+      </div>
+    </div>
+  );
+}
+
+function EquivChip({ icon, value, label, note }) {
+  return (
+    <div title={note} style={{ display: "flex", alignItems: "center", gap: 10, background: "var(--surface-container)",
+      borderRadius: 8, padding: "10px 12px", cursor: "default" }}>
+      <Icon name={icon} />
+      <div>
+        <div className="mono" style={{ fontSize: 15, color: "var(--amber-soft)", lineHeight: 1.2 }}>{value}</div>
+        <div className="hint mono" style={{ margin: 0, fontSize: 11 }}>{label}</div>
+      </div>
+    </div>
+  );
+}
+
+const fmtTreeTime = (treeYears) => {
+  const ty = Math.abs(treeYears);
+  if (ty >= 1) return `${ty.toFixed(1)} tree-years`;
+  const d = ty * 365;
+  if (d >= 1) return `${d.toFixed(1)} tree-days`;
+  const h = d * 24;
+  if (h >= 1) return `${h.toFixed(1)} tree-hours`;
+  const m = h * 60;
+  if (m >= 1) return `${m.toFixed(1)} tree-minutes`;
+  return `${(m * 60).toFixed(0)} tree-seconds`;
+};
+
+// "if you switched this factor from A to B" — savings projected per 1,000 answers
+function SwitchSavings({ byLevel, grid, treeKg }) {
+  const spread = (g) => Math.max(...g.rows.map((r) => r.mean)) - Math.min(...g.rows.map((r) => r.mean));
+  const defaultFactor = byLevel.reduce((a, b) => (spread(b) > spread(a) ? b : a), byLevel[0]).factor;
+  const [factor, setFactor] = useState(defaultFactor);
+  const g = byLevel.find((x) => x.factor === factor) || byLevel[0];
+  return (
+    <div className="card" style={{ marginBottom: 12 }}>
+      <div className="row-between" style={{ marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+        <div className="stage-name" style={{ margin: 0 }}>what switching saves</div>
+        {byLevel.length > 1 && (
+          <select className="select" style={{ width: "auto", padding: "4px 8px", fontSize: 12 }}
+            value={factor} onChange={(e) => setFactor(e.target.value)}>
+            {byLevel.map((x) => <option key={x.factor} value={x.factor}>{x.factor}</option>)}
+          </select>
+        )}
+      </div>
+      <SwitchPair key={factor} rows={g.rows} grid={grid} treeKg={treeKg} />
+    </div>
+  );
+}
+
+function SwitchPair({ rows, grid, treeKg }) {
+  const sorted = [...rows].sort((a, b) => b.mean - a.mean);
+  const [from, setFrom] = useState(String(sorted[0].level));
+  const [to, setTo] = useState(String(sorted[sorted.length - 1].level));
+  const a = rows.find((r) => String(r.level) === from) || sorted[0];
+  const b = rows.find((r) => String(r.level) === to) || sorted[sorted.length - 1];
+  const dWh = a.mean - b.mean;                    // per answer
+  const saves = dWh >= 0;
+  const relPct = a.mean > 0 ? Math.abs(dWh) / a.mean : 0;
+  const per1kWh = Math.abs(dWh) * 1000;           // per 1,000 answers
+  const co2g = (per1kWh / 1000) * (grid || 0);
+  const treeYears = treeKg > 0 ? co2g / 1000 / treeKg : 0;
+  const pairMax = Math.max(a.mean, b.mean, 1e-9);
+  const levelSelect = (value, set) => (
+    <select className="select" style={{ width: "auto", padding: "4px 8px", fontSize: 12 }}
+      value={value} onChange={(e) => set(e.target.value)}>
+      {rows.map((r) => <option key={r.level} value={String(r.level)}>{r.level}</option>)}
+    </select>
+  );
+  return (
+    <>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+        <span className="hint mono" style={{ margin: 0 }}>switching from</span>
+        {levelSelect(from, setFrom)}
+        <span className="hint mono" style={{ margin: 0 }}>to</span>
+        {levelSelect(to, setTo)}
+      </div>
+      <Bar label={String(a.level)} value={a.mean} valueText={fmtWh(a.mean)} n={a.n} max={pairMax} color="var(--amber-dim)" glow={false} />
+      <Bar label={String(b.level)} value={b.mean} valueText={fmtWh(b.mean)} n={b.n} max={pairMax} color="var(--green)" labelColor="var(--green)" glow={false} />
+      <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--outline-variant)" }}>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 700, color: saves ? "var(--green)" : "var(--amber)", lineHeight: 1.2 }}>
+          {saves ? "saves" : "adds"} {Math.round(relPct * 100)}% energy
+        </div>
+        <div className="mono" style={{ fontSize: 13, marginTop: 6, color: "var(--on-surface-variant)" }}>
+          per 1,000 answers: {fmtWh(per1kWh)} · {fmtCO2(co2g)} CO₂e · <span style={{ color: saves ? "var(--green)" : "var(--amber)" }}>≈ {fmtTreeTime(treeYears)}</span>
+        </div>
+        <div className="hint" style={{ marginTop: 6 }}>same quality question is answered by the sections above — this card only prices the energy side of the switch.</div>
+      </div>
+    </>
+  );
+}
+
+function Energy({ energy }) {
+  const [grid, setGrid] = useState(480);    // grid carbon intensity, gCO₂e per kWh
+  const [treeKg, setTreeKg] = useState(21); // kg CO₂ one tree absorbs per year
+  const gramsTotal = (energy.total_wh / 1000) * (grid || 0);
+  const treeYears = treeKg > 0 ? gramsTotal / 1000 / treeKg : 0;
+
+  const byLevel = Object.entries(energy.by_level || {}).map(([factor, rows]) => ({
+    factor, rows: rows.map((r) => ({ level: r.level, mean: r.mean_wh, n: r.n })),
+  }));
+  const lvlMax = Math.max(...byLevel.flatMap((g) => g.rows.map((r) => r.mean)), 1e-9);
+  const configs = [...(energy.by_config || [])].sort((a, b) => a.mean_wh - b.mean_wh);
+  const cfgMax = Math.max(...configs.map((c) => c.mean_wh), 1e-9);
+
+  // everyday anchors (EPA/EcoLogits style); each chip's assumption is in its hover note
+  const chips = [
+    { icon: "phone", value: fmtShare(energy.total_wh / 15), label: "of a phone charge", note: "assumes ≈15 Wh for one full smartphone charge" },
+    { icon: "bulb", value: fmtDur(energy.total_wh / 10), label: "of LED light", note: "assumes a 10 W LED bulb" },
+    { icon: "screen", value: fmtDur(energy.total_wh / 80), label: "of video streaming", note: "assumes ≈80 Wh per streaming hour (device + network + datacenter)" },
+    { icon: "car", value: fmtDist(gramsTotal / 120), label: "driven by car", note: "assumes ≈120 gCO₂e per km; follows the grid-intensity setting" },
+  ];
+
+  const numInput = (value, set) => (
+    <input type="number" className="select" style={{ width: 84, padding: "4px 8px", fontSize: 12 }}
+      value={value} min="0" onChange={(e) => set(Number(e.target.value))} />
+  );
+
+  return (
+    <>
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div style={{ display: "flex", gap: 28, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 240 }}>
+            <div className="hint mono" style={{ marginTop: 0 }}>total energy</div>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 40, fontWeight: 700, color: "var(--amber-soft)", lineHeight: 1.1, margin: "4px 0" }}>
+              {fmtWh(energy.total_wh)}
+            </div>
+            <div className="hint mono" style={{ margin: 0 }}>
+              {energy.n_answers} answers · {fmtWh(energy.mean_wh_per_answer)} per answer
+            </div>
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--outline-variant)" }}>
+              <span className="mono" style={{ fontSize: 18, color: "var(--green)" }}>≈ {fmtCO2(gramsTotal)} CO₂e</span>
+              <span className="hint mono" style={{ marginLeft: 8 }}>at {grid} gCO₂e/kWh</span>
+            </div>
+          </div>
+          <TreeDial treeYears={treeYears} />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(168px, 1fr))", gap: 10, marginTop: 16 }}>
+          {chips.map((c) => <EquivChip key={c.icon} {...c} />)}
+        </div>
+        <div style={{ display: "flex", gap: 20, alignItems: "center", flexWrap: "wrap", marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--outline-variant)" }}>
+          <span className="hint mono" style={{ margin: 0 }}>conversions (display-only):</span>
+          <label className="hint mono" style={{ margin: 0, display: "flex", alignItems: "center", gap: 6 }}>
+            grid intensity {numInput(grid, setGrid)} gCO₂e/kWh</label>
+          <label className="hint mono" style={{ margin: 0, display: "flex", alignItems: "center", gap: 6 }}>
+            tree absorption {numInput(treeKg, setTreeKg)} kg/yr</label>
+        </div>
+      </div>
+
+      {byLevel.map((g) => {
+        const means = g.rows.map((r) => r.mean);
+        const mn = Math.min(...means), mx = Math.max(...means);
+        return (
+          <div className="card" key={g.factor} style={{ marginBottom: 12 }}>
+            <div className="stage-name">{g.factor}</div>
+            {g.rows.map((r) => (
+              <Bar key={r.level} label={String(r.level)} value={r.mean} valueText={fmtWh(r.mean)} n={r.n} max={lvlMax} />
+            ))}
+            <AxisCap>→ mean energy per answer</AxisCap>
+            {means.length > 1 && mn > 0 && (
+              <div className="hint" style={{ marginTop: 4 }}>
+                hungriest level uses <span className="mono" style={{ color: "var(--amber-soft)" }}>×{(mx / mn).toFixed(1)}</span> the energy of the greenest
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {byLevel.length > 0 && <SwitchSavings byLevel={byLevel} grid={grid} treeKg={treeKg} />}
+
+      {configs.length > 1 && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="stage-name">per configuration</div>
+          {configs.map((c, i) => (
+            <Bar key={c.config} label={c.config} value={c.mean_wh} valueText={fmtWh(c.mean_wh)} n={c.n} max={cfgMax}
+              color={i === 0 ? "var(--green)" : "var(--amber-dim)"} labelColor={i === 0 ? "var(--green)" : undefined} glow={false} />
+          ))}
+          <AxisCap>→ mean energy per answer</AxisCap>
+          <div className="hint"><span style={{ color: "var(--green)" }}>■</span> most energy-efficient configuration</div>
+        </div>
+      )}
+    </>
   );
 }
 

@@ -38,6 +38,10 @@ async def init_db() -> None:
                 "ALTER TABLE studies ADD COLUMN IF NOT EXISTS concurrency INTEGER DEFAULT 8",
                 "ALTER TABLE rubrics ADD COLUMN IF NOT EXISTS preset VARCHAR DEFAULT 'reference_qa'",
                 "ALTER TABLE rubrics ADD COLUMN IF NOT EXISTS system_prompt VARCHAR",
+                # dimensions: several judged rubrics per study, one StudyResult row each
+                "ALTER TABLE studies ADD COLUMN IF NOT EXISTS rubric_ids JSON DEFAULT '[]'",
+                "ALTER TABLE study_results ADD COLUMN IF NOT EXISTS dimension VARCHAR DEFAULT 'quality'",
+                "ALTER TABLE study_results DROP CONSTRAINT IF EXISTS study_results_study_id_key",
             ):
                 await conn.execute(text(stmt))
 

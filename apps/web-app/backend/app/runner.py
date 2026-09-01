@@ -50,7 +50,12 @@ def _is_num(s: str) -> bool:
 
 
 async def _load_study_objects(study_id: int):
-    """Assemble the cafe.Study (+ dataset/rubric/judge) from the DB rows."""
+    """Assemble the cafe.Study (+ dataset/rubric/judge) from the DB rows.
+
+    Returns ``(study_obj, concurrency, extra_dims)`` where ``extra_dims`` is a list of
+    ``(dimension_name, cafe.Rubric, cafe.LLMJudge)`` for every rubric in ``rubric_ids``
+    beyond the primary — each is a separate judging pass over the same answers.
+    """
     async with SessionLocal() as db:
         study = await db.get(models.Study, study_id)
         if study is None:
@@ -68,6 +73,23 @@ async def _load_study_objects(study_id: int):
         judge_preset = getattr(rubric_row, "preset", None) or "reference_qa"
         judge_system = getattr(rubric_row, "system_prompt", None)
         concurrency = max(1, getattr(study, "concurrency", 8) or 8)
+        # extra dimensions: every rubric in rubric_ids that isn't the primary
+        extra_rows = []
+        for rid in (getattr(study, "rubric_ids", None) or []):
+            if rid != study.rubric_id:
+                row = await db.get(models.Rubric, rid)
+                if row is not None:
+                    extra_rows.append(row)
+        extra_dims = []
+        if judge_model:
+            for row in extra_rows:
+                extra_dims.append((
+                    row.name,
+                    _build_rubric(row),
+                    cafe.LLMJudge(model=judge_model,
+                                  preset=getattr(row, "preset", None) or "reference_qa",
+                                  system_prompt=getattr(row, "system_prompt", None)),
+                ))
 
     pipe = get_pipeline(pipeline_name)
     factors = [cafe.Factor(f["name"], _coerce_levels(f["levels"])) for f in factors_raw]
@@ -79,7 +101,7 @@ async def _load_study_objects(study_id: int):
         name=name, system=pipe, factors=factors, dataset=items,
         rubric=rubric, judge=judge, replications=reps,
     )
-    return study_obj, concurrency
+    return study_obj, concurrency, extra_dims
 
 
 def _results_payload(ev) -> dict[str, Any]:
@@ -101,13 +123,19 @@ def _results_payload(ev) -> dict[str, Any]:
         "variance_components": None, "clmm": None, "logistic": None, "rubric": None,
         "effects_model": None, "r_squared": None,
         "timing": _timing(ev.answers),
+        "energy": None,
     }
     try:
         out["records"] = [
             {k: r.get(k) for k in ("input_id", "question", "reference", "output", "verdict",
-                                   "reasoning", "cost_usd", "tokens", "elapsed_s", *(_factor_keys(ev)))}
+                                   "reasoning", "cost_usd", "tokens", "elapsed_s", "energy_wh",
+                                   *(_factor_keys(ev)))}
             for r in ev.records()
         ]
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        out["energy"] = _energy(ev.answers)
     except Exception:  # noqa: BLE001
         pass
     try:
@@ -194,6 +222,48 @@ def _factor_keys(ev) -> list[str]:
         return []
 
 
+def _energy(answers) -> dict[str, Any] | None:
+    """Aggregate opt-in per-answer energy (Wh) into totals + per-level + per-config means.
+
+    Energy exists only where the pipeline's techniques declared coefficients; when no
+    observation carries it, return None so the UI shows nothing (strictly opt-in)."""
+    obs = [
+        o for o in answers.observations
+        if o.ok and (o.metadata or {}).get("energy_wh") is not None
+    ]
+    if not obs:
+        return None
+
+    def _mean(vals: list[float]) -> float:
+        return round(sum(vals) / len(vals), 6)
+
+    by_level: dict[str, list[dict[str, Any]]] = {}
+    for factor in sorted({k for o in obs for k in o.config}):
+        groups: dict[str, list[float]] = {}
+        for o in obs:
+            groups.setdefault(str(o.config.get(factor)), []).append(o.metadata["energy_wh"])
+        by_level[factor] = [
+            {"level": lvl, "mean_wh": _mean(vals), "n": len(vals)}
+            for lvl, vals in groups.items()
+        ]
+
+    configs: dict[str, list[float]] = {}
+    for o in obs:
+        label = "·".join(f"{k}={o.config[k]}" for k in sorted(o.config))
+        configs.setdefault(label, []).append(o.metadata["energy_wh"])
+
+    return {
+        "n_answers": len(obs),
+        "total_wh": round(sum(o.metadata["energy_wh"] for o in obs), 4),
+        "mean_wh_per_answer": _mean([o.metadata["energy_wh"] for o in obs]),
+        "by_level": by_level,
+        "by_config": [
+            {"config": label, "mean_wh": _mean(vals), "n": len(vals)}
+            for label, vals in configs.items()
+        ],
+    }
+
+
 def _timing(answers) -> dict[str, Any]:
     """How long the run took, straight from the observations cafe already tracked: total compute
     (sum of per-cell time), wall-clock span (from ``started_at`` + ``elapsed_s``), and a per-stage
@@ -236,7 +306,7 @@ async def estimate_study(study_id: int) -> dict[str, Any]:
     for the full run + design warnings. Makes real calls, so it takes a moment (hence the UI spinner)."""
     from cafe.evaluation import preflight
 
-    study_obj, concurrency = await _load_study_objects(study_id)
+    study_obj, concurrency, _extra = await _load_study_objects(study_id)
     pf = await preflight(study_obj, concurrency=concurrency, progress=False)
     return {"estimate": pf.estimate, "warnings": pf.warnings, "judge_calls": pf.judge_calls}
 
@@ -247,7 +317,7 @@ async def run_study_task(study_id: int) -> None:
     try:
         import time as _time
         run_started = _time.monotonic()
-        study_obj, concurrency = await _load_study_objects(study_id)
+        study_obj, concurrency, extra_dims = await _load_study_objects(study_id)
         total = len(cafe.design.generate(study_obj)) * max(1, len(study_obj.dataset)) * study_obj.replications
         PROGRESS[study_id].update({"phase": "answers", "total": total})
 
@@ -277,24 +347,43 @@ async def run_study_task(study_id: int) -> None:
 
         ev = Evaluation(study_name=study_obj.name, answers=answers, ratings=ratings,
                         attribution=attribution, questions=questions, references=references)
+
+        # Additional dimensions: judge the SAME answers once per extra rubric (no re-running).
+        primary_dim = getattr(study_obj.rubric, "name", None) or "quality"
+        dim_payloads: dict[str, dict] = {}
+        for dim_name, dim_rubric, dim_judge in extra_dims:
+            def dim_cb(_r, done, tot, _n=dim_name):
+                PROGRESS[study_id].update({"phase": f"judging · {_n}", "done": done, "total": tot})
+            dim_ratings = await judge_results(
+                answers, dim_judge, dim_rubric,
+                repetitions=study_obj.judge_replications, concurrency=concurrency,
+                questions=questions, references=references, on_progress=dim_cb, progress=False)
+            dim_ev = Evaluation(study_name=f"{study_obj.name} · {dim_name}", answers=answers,
+                                ratings=dim_ratings, attribution=attribute(dim_ratings),
+                                questions=questions, references=references)
+            dim_payloads[dim_name] = _results_payload(dim_ev)
+
         PROGRESS[study_id].update({"phase": "saving", "done": total, "total": total})
 
         payload = _results_payload(ev)
         # true end-to-end wall clock (answers + judging), the "total time it took to run"
         payload["timing"]["run_wall_s"] = round(_time.monotonic() - run_started, 2)
+        dim_payloads = {primary_dim: payload, **dim_payloads}
         async with SessionLocal() as db:
             existing = await db.get(models.Study, study_id)
             if existing:
                 existing.status = "done"
                 existing.progress = 100
-            # upsert the cached result
+            # upsert one cached result row per dimension
             from sqlalchemy import select
-            res = (await db.execute(select(models.StudyResult).where(
-                models.StudyResult.study_id == study_id))).scalar_one_or_none()
-            if res is None:
-                db.add(models.StudyResult(study_id=study_id, payload=payload))
-            else:
-                res.payload = payload
+            for dim_name, dim_payload in dim_payloads.items():
+                res = (await db.execute(select(models.StudyResult).where(
+                    models.StudyResult.study_id == study_id,
+                    models.StudyResult.dimension == dim_name))).scalars().first()
+                if res is None:
+                    db.add(models.StudyResult(study_id=study_id, dimension=dim_name, payload=dim_payload))
+                else:
+                    res.payload = dim_payload
             await db.commit()
         PROGRESS[study_id].update({"phase": "done", "status": "done"})
     except Exception as exc:  # noqa: BLE001

@@ -25,8 +25,11 @@ _METRIC = {"ordinal": "ordinal", "numeric": "interval", "binary": "nominal"}
 
 
 async def _records(db: AsyncSession, study_id: int) -> list[dict]:
+    # Multi-dimension studies have one StudyResult per rubric; human rating + IRR operate on
+    # the PRIMARY dimension (the first row) — per-dimension human rating is future work.
     res = (await db.execute(select(models.StudyResult).where(
-        models.StudyResult.study_id == study_id))).scalar_one_or_none()
+        models.StudyResult.study_id == study_id)
+        .order_by(models.StudyResult.id))).scalars().first()
     if res is None:
         raise HTTPException(404, "no results yet — run the study first")
     return res.payload.get("records", [])

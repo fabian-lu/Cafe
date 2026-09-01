@@ -50,7 +50,8 @@ class Study(Base):
     pipeline: Mapped[str] = mapped_column(String(200), default="pipeline")  # which discovered system
     factors: Mapped[list] = mapped_column(JSON, default=list)       # [{name, levels:[...]}]
     dataset_id: Mapped[int | None] = mapped_column(ForeignKey("datasets.id"), nullable=True)
-    rubric_id: Mapped[int | None] = mapped_column(ForeignKey("rubrics.id"), nullable=True)
+    rubric_id: Mapped[int | None] = mapped_column(ForeignKey("rubrics.id"), nullable=True)  # primary dimension
+    rubric_ids: Mapped[list] = mapped_column(JSON, default=list)  # ALL dimension rubric ids (incl. primary); [] = just rubric_id
     judge_model: Mapped[str] = mapped_column(String(200), default="")
     replications: Mapped[int] = mapped_column(Integer, default=1)
     concurrency: Mapped[int] = mapped_column(Integer, default=8)       # parallel calls per phase
@@ -104,9 +105,11 @@ class HumanRating(Base):
 
 class StudyResult(Base):
     """Cached, JSON-serialised results for a finished study (report/effects/marginals/pareto/records).
-    Computed once when the run completes; the Results page reads this blob."""
+    One row per (study, dimension): a study judged on several rubrics ("Dimensionen") stores one
+    payload per rubric, all sharing the same answers. The Results page reads these blobs."""
     __tablename__ = "study_results"
     id: Mapped[int] = mapped_column(primary_key=True)
-    study_id: Mapped[int] = mapped_column(ForeignKey("studies.id"), unique=True)
+    study_id: Mapped[int] = mapped_column(ForeignKey("studies.id"))
+    dimension: Mapped[str] = mapped_column(String(200), default="quality")  # rubric name of this pass
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

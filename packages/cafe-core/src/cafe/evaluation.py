@@ -82,6 +82,7 @@ class Evaluation:
                     **o.config, "rep": o.rep, "output": o.output,
                     "elapsed_s": o.elapsed_s,
                     "cost_usd": meta.get("cost_usd"), "tokens": meta.get("tokens"),
+                    "energy_wh": meta.get("energy_wh"),
                     "error": o.error,
                 })
             return rows
@@ -100,6 +101,7 @@ class Evaluation:
                 "elapsed_s": obs.elapsed_s if obs else None,
                 "cost_usd": meta.get("cost_usd"),
                 "tokens": meta.get("tokens"),
+                "energy_wh": meta.get("energy_wh"),
                 "judge_system": sys_prompt,
                 "judge_prompt": r.prompt,
                 "judge_raw": r.raw_response,

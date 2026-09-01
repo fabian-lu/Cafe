@@ -25,6 +25,7 @@ async def judge_results(
     questions: dict[str, str] | None = None,
     checkpoint_path: str | None = None,
     resume: bool = True,
+    retry_errors: bool = True,
     on_progress: ProgressFn | None = None,
     progress: bool = False,
 ) -> Ratings:
@@ -63,10 +64,17 @@ async def judge_results(
     def _key(obs_key: str, judge_rep: int) -> str:
         return f"{obs_key}::jr{judge_rep}"
 
-    todo = [(o, jr) for o in targets for jr in range(repetitions)
-            if _key(o.key(), jr) not in prior]
+    def _needs_run(o, jr: int) -> bool:
+        prev = prior.get(_key(o.key(), jr))
+        # retry_errors: a checkpointed verdict that failed (unparseable / judge error) is
+        # re-judged on resume rather than treated as done; successes are always skipped.
+        return prev is None or (retry_errors and prev.error is not None)
+
+    todo = [(o, jr) for o in targets for jr in range(repetitions) if _needs_run(o, jr)]
     total = len(targets) * repetitions
-    ratings: list[Rating] = list(prior.values())
+    ratings: list[Rating] = [
+        r for k, r in prior.items() if not (retry_errors and r.error is not None)
+    ]
     sem = asyncio.Semaphore(max(1, concurrency))
     lock = asyncio.Lock()
     done = len(prior)

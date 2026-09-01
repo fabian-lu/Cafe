@@ -60,11 +60,25 @@ async def stream_progress(id_: int):
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
-@router.get("/studies/{id_}/results")
-async def get_results(id_: int, db: AsyncSession = Depends(get_session)):
-    res = (await db.execute(
+@router.get("/studies/{id_}/dimensions")
+async def list_dimensions(id_: int, db: AsyncSession = Depends(get_session)):
+    """The judged dimensions (rubric names) this study has results for, in creation order.
+    The first entry is the primary dimension (what /results returns without a param)."""
+    rows = list((await db.execute(
         select(models.StudyResult).where(models.StudyResult.study_id == id_)
-    )).scalar_one_or_none()
+        .order_by(models.StudyResult.id)
+    )).scalars())
+    return [{"dimension": r.dimension or "quality"} for r in rows]
+
+
+@router.get("/studies/{id_}/results")
+async def get_results(id_: int, dimension: str | None = None,
+                      db: AsyncSession = Depends(get_session)):
+    q = select(models.StudyResult).where(models.StudyResult.study_id == id_)
+    if dimension is not None:
+        q = q.where(models.StudyResult.dimension == dimension)
+    res = (await db.execute(q.order_by(models.StudyResult.id))).scalars().first()
     if res is None:
-        raise HTTPException(404, "no results yet — run the study first")
+        raise HTTPException(404, "no results yet — run the study first"
+                            if dimension is None else f"no results for dimension {dimension!r}")
     return res.payload

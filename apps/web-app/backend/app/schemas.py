@@ -44,7 +44,8 @@ class StudyIn(BaseModel):
     pipeline: str = "pipeline"                  # which discovered system (file stem)
     factors: list[dict[str, Any]] = []         # [{name, levels:[...]}]
     dataset_id: int | None = None
-    rubric_id: int | None = None
+    rubric_id: int | None = None               # primary dimension
+    rubric_ids: list[int] = []                 # ALL dimensions incl. primary ([] = just rubric_id)
     judge_model: str = ""
     replications: int = 1
     concurrency: int = 8
