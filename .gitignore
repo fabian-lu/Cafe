@@ -87,3 +87,7 @@ apps/web-app/.env
 
 # DIVA testing work (local-only, never committed)
 examples/diva/
+
+# diva.cafe-ai.de server-side files (basic auth + keys) — never in git
+deploy/diva/htpasswd
+deploy/diva/.env

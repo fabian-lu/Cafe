@@ -17,6 +17,9 @@ on:
     paths:
       - "apps/landing/**"
       - "apps/web-app/frontend/**"
+      - "apps/web-app/backend/**"
+      - "packages/cafe-core/**"
+      - "techniques/**"
       - "deploy/**"
       - ".github/workflows/deploy.yml"
   workflow_dispatch: {}
@@ -34,6 +37,7 @@ jobs:
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
           SERVER_USER: ${{ secrets.SERVER_USER }}
           SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          DIVA_BASIC_AUTH: ${{ secrets.DIVA_BASIC_AUTH }}
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
@@ -45,3 +49,16 @@ jobs:
             cd ~/Cafe && git pull --ff-only
             cd deploy && docker compose up -d --build && docker image prune -f
           '
+          # DIVA-themed instance at diva.cafe-ai.de. Deployed only when DIVA_BASIC_AUTH
+          # (format "user:password") is set — the htpasswd is created on the server on
+          # first deploy and kept thereafter (delete the file to rotate the password).
+          if [ -n "${DIVA_BASIC_AUTH:-}" ]; then
+            HTLINE="${DIVA_BASIC_AUTH%%:*}:$(openssl passwd -apr1 "${DIVA_BASIC_AUTH#*:}")"
+            printf '%s\n' "$HTLINE" | ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$SERVER_USER@$SERVER_HOST" '
+              set -e
+              cd ~/Cafe/deploy/diva
+              [ -s htpasswd ] || cat > htpasswd
+              touch .env
+              docker compose up -d --build && docker image prune -f
+            '
+          fi

@@ -1,0 +1,79 @@
+# DIVA-themed CAFE instance at https://diva.cafe-ai.de — full app (backend + Postgres + frontend),
+# basic-auth protected, behind the host's shared nginx proxy (ionos_christoph_server repo).
+#
+# Server prerequisites: the proxy stack (creates `proxy-net`), an `htpasswd` file next to this
+# compose (the deploy workflow creates it from the DIVA_BASIC_AUTH secret), and an optional `.env`
+# with LLM keys (only needed for judge previews / UI-run studies — imports work without any keys).
+#
+#   docker compose up -d --build      # from Cafe/deploy/diva/ on the server
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: diva-cafe-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cafe
+      POSTGRES_PASSWORD: cafe          # unreachable from outside — internal network only
+      POSTGRES_DB: cafe
+    volumes:
+      - diva-cafe-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cafe"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - internal
+
+  backend:
+    build:
+      context: ../..                   # repo root — installs the local cafe-core
+      dockerfile: apps/web-app/backend/Dockerfile
+    image: diva-cafe-backend
+    container_name: diva-cafe-backend
+    restart: unless-stopped
+    env_file:
+      - path: .env                     # optional LLM keys (judge previews / UI runs)
+        required: false
+    environment:
+      DATABASE_URL: postgresql+asyncpg://cafe:cafe@db:5432/cafe
+      FRONTEND_ORIGIN: https://diva.cafe-ai.de
+      CAFE_TECHNIQUES_DIR: /techniques
+    volumes:
+      - ../../techniques:/techniques:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - internal                       # NOT on proxy-net: only reachable through the web container
+
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/diva/Dockerfile
+    image: diva-cafe-web
+    container_name: diva-cafe-web
+    restart: unless-stopped
+    expose:
+      - "80"
+    environment:
+      VIRTUAL_HOST: diva.cafe-ai.de
+      LETSENCRYPT_HOST: diva.cafe-ai.de
+      LETSENCRYPT_EMAIL: fabian.lukassen@googlemail.com
+    volumes:
+      - ./htpasswd:/etc/nginx/htpasswd:ro   # basic auth — server-side file, never in git
+    depends_on:
+      - backend
+    networks:
+      - internal
+      - proxy-net
+
+volumes:
+  diva-cafe-db:
+
+networks:
+  internal: {}
+  proxy-net:
+    external: true
+    name: proxy-net

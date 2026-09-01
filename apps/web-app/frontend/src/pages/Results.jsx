@@ -16,7 +16,7 @@ const fmtSecs = (s) => {
   return `${Math.floor(m / 60)}h ${m % 60}m`;
 };
 const configLabel = (config) => Object.keys(config).sort().map((k) => `${k}=${config[k]}`).join(" · ");
-const PALETTE = ["var(--amber)", "var(--green)", "var(--cyan)", "#c98bff", "#ff8b6b", "#7fd1ff"];
+const PALETTE = ["var(--amber)", "var(--green)", "var(--cyan)", "var(--chart-4)", "var(--chart-5)", "var(--chart-6)"];
 
 // ── glossary (hover explanations) ───────────────────────────────────────────────
 const G = {
@@ -174,7 +174,7 @@ function InteractionChart({ records, factors, scaleMax }) {
           const color = PALETTE[bi % PALETTE.length];
           return <g key={b}>
             <polyline fill="none" stroke={color} strokeWidth="2" points={pts.map((p) => `${xPos(p.ai)},${yPos(p.m)}`).join(" ")} />
-            {pts.map((p) => <circle key={p.a} cx={xPos(p.ai)} cy={yPos(p.m)} r="5" fill={color} stroke="#000" strokeWidth="0.5"
+            {pts.map((p) => <circle key={p.a} cx={xPos(p.ai)} cy={yPos(p.m)} r="5" fill={color} stroke="var(--surface)" strokeWidth="0.5"
               style={{ cursor: "pointer" }}
               onMouseEnter={(e) => t.show(e, <>{fa}={p.a} · {fb}={b}<br />mean {fmt(p.m, 2)} <span className="muted">(n={data.n(p.a, b)})</span></>)}
               onMouseMove={t.move} onMouseLeave={t.hide} />)}
@@ -394,7 +394,7 @@ function Pareto({ pareto }) {
         <polyline fill="none" stroke="var(--amber-dim)" strokeWidth="1.5" strokeDasharray="4 3" points={frontier.map((r) => `${sx(r[xKey])},${sy(r.quality)}`).join(" ")} />
         {pareto.rows.map((r, i) => {
           const opt = r.pareto_optimal;
-          return <circle key={i} cx={sx(r[xKey])} cy={sy(r.quality)} r={opt ? 6 : 4} fill={opt ? "var(--amber)" : "var(--outline)"} stroke="#000" strokeWidth={opt ? 1 : 0}
+          return <circle key={i} cx={sx(r[xKey])} cy={sy(r.quality)} r={opt ? 6 : 4} fill={opt ? "var(--amber)" : "var(--outline)"} stroke="var(--surface)" strokeWidth={opt ? 1 : 0}
             style={{ cursor: "pointer" }}
             onMouseEnter={(e) => t.show(e, <>{opt ? "★ " : ""}{configLabel(r.config)}<br />quality {fmt(r.quality, 2)} · {xKey} {fmt(r[xKey], 4)}</>)}
             onMouseMove={t.move} onMouseLeave={t.hide} />;

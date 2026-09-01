@@ -1,0 +1,96 @@
+/* ── DIVA theme — a pure token OVERWRITE of index.css ─────────────────────────────
+ *
+ * Loaded ONLY when the frontend is built/started with VITE_THEME=diva (see main.jsx);
+ * without that variable this file is never imported and CAFE keeps Factorial Mono.
+ *
+ * Palette taken from diva-frontend's deployed DaisyUI theme (src/App.css, branch main):
+ * light cool-gray bases (oklch 98/96/86% hue ~248), primary DIVA red #D22B25,
+ * dark warm text (oklch 21%). Fonts: DIVA's app UI is a plain sans — Inter everywhere.
+ */
+:root {
+  color-scheme: light;
+
+  /* surfaces: DIVA base-100/200/300 ramp (light, slightly blue-gray) */
+  --surface: #f2f4f8;
+  --surface-container-lowest: #ffffff;
+  --surface-container-low: #eceff5;
+  --surface-container: #e5e9f0;
+  --surface-container-high: #dbe0ea;
+  --surface-container-highest: #ccd4e0;
+
+  /* ink: DIVA base-content (near-black warm gray) */
+  --on-surface: #262524;
+  --on-surface-variant: #45443f;
+  --outline: #798088;
+  --outline-variant: #c3cbd6;
+
+  /* accent: DIVA red replaces terminal amber */
+  --amber: #d22b25;          /* primary — bars, highlights, active pills */
+  --amber-dim: #e79c99;      /* soft red — secondary bars, glows */
+  --amber-soft: #a11e19;     /* accent TEXT (hero numbers) — dark enough for light bg */
+  --on-accent: #ffffff;      /* text on red buttons */
+
+  /* semantics, darkened for a light background */
+  --green: #1e7f43;          /* DIVA success (oklch 52% 150) */
+  --cyan: #20669f;           /* DIVA info blue */
+  --error: #b3261e;
+
+  /* categorical chart series 4-6, re-picked for light ground */
+  --chart-4: #7c5cd6;
+  --chart-5: #c2571f;
+  --chart-6: #2f7fb8;
+
+  /* type: DIVA's app is a plain sans UI */
+  --font-display: "Inter", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+/* The CRT scanline overlay belongs to the terminal aesthetic — off on DIVA's clean light UI. */
+body::after {
+  display: none;
+}
+
+/* ── Polish pass: light-dashboard depth, DIVA radii, disciplined red ──────────────
+ * Red carries meaning (actions, active states, data accents, brand); structure text
+ * (section labels, table heads) drops to slate so the page reads calm, not loud. */
+
+/* depth: white cards on the blue-gray canvas, hairline border, soft ambient shadow */
+.card {
+  background: #ffffff;
+  border: 1px solid #e4e9f1;
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 10px 28px -16px rgba(16, 24, 40, 0.10);
+}
+.sidebar { box-shadow: 1px 0 0 rgba(16, 24, 40, 0.03); }
+
+/* structure labels: slate ink; the small red marker keeps the brand note */
+.section-label { color: #5c6675; }
+.stage-name { color: #5c6675; }
+.stage-name::before { background: var(--amber); box-shadow: none; border-radius: 2px; }
+.list-table th { color: #5c6675; }
+
+/* DIVA radii: pill buttons and fields (DaisyUI radius-field ≈ 2rem), softer chips */
+.btn { border-radius: 999px; }
+.btn.primary:hover { background: #b7211c; box-shadow: 0 4px 14px -6px rgba(210, 43, 37, 0.45); }
+.btn.danger { border-color: rgba(179, 38, 30, 0.28); }
+.input, .select, textarea.input { border-radius: 12px; }
+.input:focus, .select:focus, textarea.input:focus {
+  border-color: var(--amber);
+  box-shadow: 0 0 0 3px rgba(210, 43, 37, 0.10);
+}
+
+/* nav: active item gets a soft red tint instead of a gray box */
+.nav-link { border-radius: 10px; }
+.nav-link.active {
+  background: rgba(210, 43, 37, 0.08);
+  color: #a11e19;
+  border-color: transparent;
+}
+
+/* amber-tinted hardcoded rgba() accents → their red/blue equivalents */
+.check.on { background: rgba(210, 43, 37, 0.07); }
+.chip.param { border-color: rgba(32, 102, 159, 0.35); }
+
+/* tooltips/overlays: soft light shadow instead of the heavy dark one */
+.chart-tip { box-shadow: 0 10px 28px -12px rgba(16, 24, 40, 0.25); }

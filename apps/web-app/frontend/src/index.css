@@ -16,6 +16,10 @@
   --green: #4ce346;          /* success / significant */
   --cyan: #04dcff;           /* tertiary / links */
   --error: #ffb4ab;
+  --chart-4: #c98bff;        /* categorical series 4-6 (charts) */
+  --chart-5: #ff8b6b;
+  --chart-6: #7fd1ff;
+  --on-accent: #2a1d00;      /* text on primary-accent buttons */
 
   --font-display: "Space Grotesk", sans-serif;
   --font-body: "Inter", sans-serif;
@@ -251,7 +255,7 @@ a:hover { text-decoration: underline; }
 }
 .btn:hover { background: var(--surface-container-high); border-color: var(--outline); transform: translateY(-1px); }
 .btn:active { transform: translateY(0); }
-.btn.primary { background: var(--amber); color: #2a1d00; border-color: var(--amber); }
+.btn.primary { background: var(--amber); color: var(--on-accent); border-color: var(--amber); }
 .btn.primary:hover { background: var(--amber-dim); box-shadow: 0 4px 16px -4px var(--amber-dim); }
 .btn.ghost { background: transparent; }
 .btn.ghost:hover { background: var(--surface-container-low); }
