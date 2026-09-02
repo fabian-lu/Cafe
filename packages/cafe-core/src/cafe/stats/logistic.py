@@ -34,18 +34,15 @@ _TERM_RE = re.compile(r"Q\('([^']+)'\)[^:]*?\[T\.([^\]]+)\]")
 def _parse_statsmodels_term(name: str, back: dict[str, str]) -> tuple[str, str | None, bool]:
     """Turn a statsmodels term like ``C(Q('cafe_f0'))[T.good]`` into
     (``"model=good"``, ``"model"``, is_interaction), mapping the safe column name back to the
-    real factor via ``back`` (safe->real). Interactions (``a:b``) join with ×."""
-    pieces = name.split(":")
-    labels, first_factor = [], None
-    for piece in pieces:
-        m = _TERM_RE.search(piece)
-        if m:
-            factor, level = back.get(m.group(1), m.group(1)), m.group(2)
-            first_factor = first_factor or factor
-            labels.append(f"{factor}={level}")
-        else:
-            labels.append(piece)
-    return " × ".join(labels), first_factor, len(pieces) > 1
+    real factor via ``back`` (safe->real). Interactions join with ×. The ``C(...)`` groups
+    are matched directly (never split on ``:``) — a ``:`` inside a *level* like
+    ``[T.llama3:8b]`` is part of the level, not an interaction separator."""
+    matches = list(_TERM_RE.finditer(name))
+    if not matches:
+        return name, None, False
+    labels = [f"{back.get(m.group(1), m.group(1))}={m.group(2)}" for m in matches]
+    first_factor = back.get(matches[0].group(1), matches[0].group(1))
+    return " × ".join(labels), first_factor, len(matches) > 1
 
 
 @dataclass
@@ -157,7 +154,7 @@ def _fit_glmer(
     import tempfile
     from importlib.resources import files
 
-    from cafe.stats.ordinal import _readable_term
+    from cafe.stats.ordinal import _readable_term, _split_r_term, _term_factor
 
     order = max(1, min(interactions, len(factors)))
     keep = ["verdict", "input_id", *factors]
@@ -195,10 +192,11 @@ def _fit_glmer(
         term = str(c.get("term", ""))
         est = c.get("estimate")
         p = c.get("p")
+        pieces = _split_r_term(term, factors)  # a ':' inside a level is not an interaction
         res.terms.append({
             "label": _readable_term(term, factors),
-            "factor": next((f for f in factors if term.startswith(f)), None),
-            "interaction": ":" in term,
+            "factor": _term_factor(pieces[0], factors),  # longest prefix, not first match
+            "interaction": len(pieces) > 1,
             "coef": est,
             "odds_ratio": math.exp(est) if est is not None and abs(est) < 30 else None,
             "p": p,
