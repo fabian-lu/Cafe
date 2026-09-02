@@ -60,5 +60,9 @@ jobs:
               [ -s htpasswd ] || cat > htpasswd
               touch .env
               docker compose up -d --build && docker image prune -f
+              # study-bundle imports are multi-MB uploads; the SHARED proxy in front defaults to
+              # nginx 1m — raise it per-vhost via nginx-proxy's documented vhost.d mechanism.
+              docker exec nginx-proxy sh -c "echo \"client_max_body_size 200m;\" > /etc/nginx/vhost.d/diva.cafe-ai.de"
+              docker exec nginx-proxy nginx -s reload
             '
           fi
