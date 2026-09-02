@@ -13,15 +13,34 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import FRONTEND_ORIGIN, missing_llm_keys
-from app.db import init_db
+from app.db import SessionLocal, init_db
 from app.routers import crud, judge, pipeline, raters, runs
 from app.seed import seed_if_empty
 
 
+async def _fail_orphaned_runs() -> None:
+    """Runs execute as in-process tasks and progress lives in memory, so any study
+    still marked "running" at boot was orphaned by a crash/restart mid-run. Nothing
+    else ever repairs the row — POST /run would 409 "already running" forever — so
+    mark them failed here; the user can simply re-run them."""
+    from sqlalchemy import update
+
+    from app import models
+
+    async with SessionLocal() as db:
+        result = await db.execute(
+            update(models.Study).where(models.Study.status == "running").values(status="failed")
+        )
+        await db.commit()
+        if result.rowcount:
+            print(f"[startup] marked {result.rowcount} orphaned 'running' study(ies) as failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()        # create tables if missing
-    await seed_if_empty()  # first-boot only: load the bundled demo study into an empty DB
+    await init_db()             # create tables if missing
+    await _fail_orphaned_runs() # repair studies orphaned by a mid-run crash/restart
+    await seed_if_empty()       # first-boot only: load the bundled demo study into an empty DB
     yield
 
 
