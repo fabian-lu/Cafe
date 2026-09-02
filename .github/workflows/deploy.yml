@@ -63,6 +63,8 @@ jobs:
               # study-bundle imports are multi-MB uploads; the SHARED proxy in front defaults to
               # nginx 1m — raise it per-vhost via nginx-proxy's documented vhost.d mechanism.
               docker exec nginx-proxy sh -c "echo \"client_max_body_size 200m;\" > /etc/nginx/vhost.d/diva.cafe-ai.de"
-              docker exec nginx-proxy nginx -s reload
+              # nginx-proxy only INCLUDES a vhost.d file if it existed at config-generation time —
+              # restart our web container so docker-gen regenerates the proxy config with the include.
+              docker restart diva-cafe-web
             '
           fi
