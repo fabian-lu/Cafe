@@ -46,6 +46,10 @@ class Evaluation:
     attribution: Attribution | None = None
     questions: dict[str, str] = field(default_factory=dict)    # input_id -> question text
     references: dict[str, str] = field(default_factory=dict)   # input_id -> gold answer
+    #: The full dataset items (id/text/reference plus any user metadata keys, e.g. a topic
+    #: or question category) — carried along so saved bundles keep the metadata and result
+    #: views can filter by it. Empty for evaluations created before this field existed.
+    items: list[dict[str, Any]] = field(default_factory=list)
     #: Wall-clock seconds for the whole evaluation (answer generation + judging).
     #: ``answers.wall_clock_s`` is the answer-generation phase alone.
     wall_clock_s: float | None = None
@@ -269,7 +273,7 @@ class Evaluation:
         return Evaluation(
             study_name=name or f"{self.study_name} ({getattr(judge, 'model', 'judge')})",
             answers=self.answers, ratings=ratings, attribution=attribute(ratings),
-            questions=self.questions, references=self.references,
+            items=self.items, questions=self.questions, references=self.references,
         )
 
     def judge_stability(self):
@@ -502,6 +506,7 @@ async def evaluate(
         answers=answers,
         ratings=ratings,
         attribution=attribution,
+        items=[dict(it) for it in study.dataset if isinstance(it, dict)],
         questions=questions,
         references=references,
         wall_clock_s=round(time.monotonic() - wall_t0, 3),
@@ -534,6 +539,7 @@ def save_evaluation(evaluation: "Evaluation", path: str) -> None:
         "wall_clock_s": evaluation.wall_clock_s,
         "questions": evaluation.questions,
         "references": evaluation.references,
+        "items": evaluation.items,
         "answers": {
             "study_name": ans.study_name,
             "factors": list(ans.factors),
@@ -617,6 +623,7 @@ def load_evaluation(source: "str | dict[str, Any]") -> "Evaluation":
         answers=answers,
         ratings=ratings,
         attribution=attribution,
+        items=data.get("items") or [],
         questions=data.get("questions") or {},
         references=data.get("references") or {},
         wall_clock_s=data.get("wall_clock_s"),

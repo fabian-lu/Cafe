@@ -69,9 +69,15 @@ export const api = {
   deleteStudy: (id) => del(`/studies/${id}`),
   runStudy: (id) => post(`/studies/${id}/run`, {}),
   estimateStudy: (id) => post(`/studies/${id}/estimate`, {}),
-  results: (id, dimension) =>
-    get(`/studies/${id}/results${dimension ? `?dimension=${encodeURIComponent(dimension)}` : ""}`),
+  results: (id, dimension, filter) => {
+    const params = new URLSearchParams();
+    if (dimension) params.set("dimension", dimension);
+    if (filter?.key) { params.set("fkey", filter.key); params.set("fval", filter.value); }
+    const qs = params.toString();
+    return get(`/studies/${id}/results${qs ? `?${qs}` : ""}`);
+  },
   dimensions: (id) => get(`/studies/${id}/dimensions`),
+  studyFilters: (id) => get(`/studies/${id}/filters`),   // question-metadata keys -> values
   streamUrl: (id) => `${BASE}/studies/${id}/stream`,   // for EventSource
 
   ratingSheet: (id, n = 40) => get(`/studies/${id}/rating-sheet?n=${n}`),

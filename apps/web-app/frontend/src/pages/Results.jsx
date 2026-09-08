@@ -413,16 +413,60 @@ function Pareto({ pareto }) {
   );
 }
 
-// ── answers (filterable) ─────────────────────────────────────────────────────────
+// ── answers (filterable; click a row for the full untruncated view) ───────────────
+function AnswerDetail({ row, factors, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const Block = ({ label, children }) => (
+    <div style={{ marginBottom: 16 }}>
+      <div className="hint mono" style={{ marginTop: 0, marginBottom: 6 }}>{label}</div>
+      <div style={{ whiteSpace: "pre-wrap", fontSize: 14, lineHeight: 1.55, color: "var(--on-surface)" }}>{children || "—"}</div>
+    </div>
+  );
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(0,0,0,0.55)",
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div onClick={(e) => e.stopPropagation()} className="card"
+        style={{ width: "min(940px, 100%)", maxHeight: "88vh", overflowY: "auto", position: "relative" }}>
+        <div className="row-between" style={{ marginBottom: 14 }}>
+          <div className="mono" style={{ fontSize: 12, color: "var(--on-surface-variant)" }}>
+            {factors.map((f) => `${f}=${row[f]}`).join(" · ")}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span className="mono" style={{ fontSize: 18, color: "var(--amber-soft)" }}>
+              verdict {row.verdict ?? "—"}</span>
+            <button className="btn btn-sm" onClick={onClose}>close (esc)</button>
+          </div>
+        </div>
+        <Block label="question">{row.question || row.input_id}</Block>
+        {row.reference && <Block label="reference answer">{row.reference}</Block>}
+        <Block label="answer (full)">{row.output}</Block>
+        {row.reasoning && <Block label="judge reasoning">{row.reasoning}</Block>}
+        <div className="hint mono" style={{ borderTop: "1px solid var(--outline-variant)", paddingTop: 10 }}>
+          {row.elapsed_s != null && <>latency {Number(row.elapsed_s).toFixed(1)}s · </>}
+          {row.tokens != null && <>~{row.tokens} tokens · </>}
+          {row.cost_usd != null && <>${Number(row.cost_usd).toFixed(4)} · </>}
+          {row.energy_wh != null && <>{fmtWh(row.energy_wh)} · </>}
+          id {row.input_id}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Records({ records, factors }) {
   const [vf, setVf] = useState("");
+  const [detail, setDetail] = useState(null);
   const verdicts = useMemo(() => [...new Set(records.map((r) => r.verdict).filter((v) => v != null))].sort((a, b) => a - b), [records]);
   const filtered = vf === "" ? records : records.filter((r) => String(r.verdict) === vf);
   const shown = filtered.slice(0, 80);
   return (
     <div className="card">
       <div className="row-between" style={{ marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
-        <div className="hint mono" style={{ margin: 0 }}>{records.length} answers</div>
+        <div className="hint mono" style={{ margin: 0 }}>{records.length} answers · click a row for the full text</div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <span className="hint mono" style={{ margin: 0 }}>verdict:</span>
           <button className={"btn btn-sm" + (vf === "" ? " primary" : "")} onClick={() => setVf("")}>all</button>
@@ -433,7 +477,7 @@ function Records({ records, factors }) {
         <thead><tr><th>Question</th><th>Config</th><th>Answer</th><th>Verdict</th></tr></thead>
         <tbody>
           {shown.map((r, i) => (
-            <tr key={i}>
+            <tr key={i} className="clickable" onClick={() => setDetail(r)} style={{ cursor: "pointer" }}>
               <td title={r.question || r.input_id} style={{ maxWidth: 220 }}>{(r.question || r.input_id || "").slice(0, 110)}</td>
               <td className="muted mono" style={{ fontSize: 11 }} title={factors.map((f) => `${f}=${r[f]}`).join(" ")}>{factors.map((f) => `${f}=${r[f]}`).join(" ")}</td>
               <td style={{ maxWidth: 300 }}>
@@ -446,6 +490,7 @@ function Records({ records, factors }) {
         </tbody>
       </table>
       {shown.length < filtered.length && <div className="hint">showing {shown.length} of {filtered.length}</div>}
+      {detail && <AnswerDetail row={detail} factors={factors} onClose={() => setDetail(null)} />}
     </div>
   );
 }
@@ -459,6 +504,8 @@ export default function Results() {
   const [err, setErr] = useState(null);
   const [dims, setDims] = useState([]);   // judged dimensions (rubric names); >1 shows the selector
   const [dim, setDim] = useState("");
+  const [qFilters, setQFilters] = useState({});   // question-metadata keys -> possible values
+  const [qSel, setQSel] = useState(null);         // active filter {key, value} | null = alle
 
   useEffect(() => { api.studies().then((all) => {
     const done = all.filter((s) => s.status === "done");
@@ -468,8 +515,10 @@ export default function Results() {
 
   useEffect(() => {
     if (!sel) return;
-    setErr(null); setRes(null);
+    setErr(null); setRes(null); setQSel(null); setQFilters({});
     setParams({ study: sel });
+    Promise.resolve(api.studyFilters(sel)).catch(() => ({}))
+      .then((f) => setQFilters(f && typeof f === "object" ? f : {}));
     Promise.resolve(api.dimensions(sel)).catch(() => [])
       .then((d) => {
         const names = (d || []).map((x) => x.dimension).filter(Boolean);
@@ -481,10 +530,21 @@ export default function Results() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel]);
 
+  const loadView = (name, filter) => {
+    setRes(null); setErr(null);
+    api.results(sel, name, filter).then(setRes).catch((e) => setErr(e.message));
+  };
+
   const switchDim = (name) => {
     if (name === dim) return;
-    setDim(name); setRes(null); setErr(null);
-    api.results(sel, name).then(setRes).catch((e) => setErr(e.message));
+    setDim(name);
+    loadView(name, qSel);
+  };
+
+  const switchFilter = (key, value) => {
+    const next = value === "" ? null : { key, value };
+    setQSel(next);
+    loadView(dim, next);
   };
 
   const byFactor = useMemo(() => {
@@ -534,6 +594,30 @@ export default function Results() {
             <button key={d} className={"btn btn-sm" + (d === dim ? " primary" : "")}
               onClick={() => switchDim(d)}>{d}</button>
           ))}
+        </div>
+      )}
+
+      {Object.keys(qFilters).length > 0 && (
+        <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+          <span className="hint mono" style={{ margin: 0 }}>questions:</span>
+          {Object.entries(qFilters).map(([key, values]) => (
+            <label key={key} className="hint mono" style={{ margin: 0, display: "flex", alignItems: "center", gap: 6 }}>
+              {key}
+              <select className="select" style={{ width: "auto", padding: "4px 8px", fontSize: 12 }}
+                value={qSel?.key === key ? qSel.value : ""}
+                onChange={(e) => switchFilter(key, e.target.value)}>
+                <option value="">alle</option>
+                {values.map((v) => <option key={v} value={v}>{v}</option>)}
+              </select>
+            </label>
+          ))}
+          {res?.filtered && (
+            <span className="hint" style={{ margin: 0 }}>
+              → gefilterte Ansicht: <span className="mono" style={{ color: "var(--amber-soft)" }}>
+              {res.filtered.key} = {res.filtered.value}</span> · Statistiken neu berechnet auf{" "}
+              <span className="mono">{res.filtered.n_questions}/{res.filtered.n_total}</span> Fragen
+            </span>
+          )}
         </div>
       )}
 

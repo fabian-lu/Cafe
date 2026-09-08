@@ -212,10 +212,13 @@ async def import_study(request: Request, attach_to: int | None = None,
     first, first_payload = evs[0], payloads[0]
     rubric = _rubric_row(first)
     ids = list(first.questions) or sorted({o.input_id for o in first.answers.observations})
+    # Prefer the bundle's full items (id/text/reference + metadata keys — feeds the question
+    # filters); fall back to rebuilding bare items from the question/reference maps.
     dataset = models.Dataset(
         name=f"{name_override or first.study_name or 'imported'} (imported)",
-        items=[{"id": i, "text": first.questions.get(i, ""), "reference": first.references.get(i)}
-               for i in ids],
+        items=(list(first.items) if getattr(first, "items", None) else
+               [{"id": i, "text": first.questions.get(i, ""), "reference": first.references.get(i)}
+                for i in ids]),
     )
     db.add_all([rubric, dataset])
     await db.flush()  # assign ids

@@ -41,6 +41,8 @@ class LLMJudge:
         system_prompt: str | None = None,
         prompt_template: str | None = None,
         structured: str | bool = "auto",
+        timeout: float = 120.0,
+        retries: int = 3,
     ) -> None:
         if preset not in JUDGE_PRESETS:
             raise ValueError(f"unknown preset {preset!r}; choose from {sorted(JUDGE_PRESETS)}")
@@ -48,6 +50,12 @@ class LLMJudge:
             raise ValueError(f"structured must be True, False, or 'auto'; got {structured!r}")
         self.model = model
         self.temperature = temperature
+        #: Per-call timeout in seconds. Raise it for long answers judged by thinking models —
+        #: a large prompt plus reasoning tokens can easily exceed the 120s default.
+        self.timeout = timeout
+        #: Provider-level retries (LiteLLM, exponential backoff) — judging at concurrency
+        #: routinely hits transient 429s/5xxs; without retries every one becomes an error row.
+        self.retries = retries
         self.preset = preset
         self.system_prompt = system_prompt or self.default_system
         #: Full override of the user prompt (placeholders: {instruction} {question}
@@ -115,7 +123,8 @@ class LLMJudge:
                 return out
 
         try:
-            raw = await complete(self.model, messages, temperature=self.temperature)
+            raw = await complete(self.model, messages, temperature=self.temperature,
+                                 timeout=self.timeout, num_retries=self.retries)
         except LLMError as exc:
             return JudgeOutput(None, None, f"judge call failed: {exc}", prompt, None)
         value, numeric, reasoning = parse_verdict(raw, rubric)
@@ -134,7 +143,8 @@ class LLMJudge:
         try:
             raw = await complete(
                 self.model, json_messages,
-                temperature=self.temperature, response_format={"type": "json_object"},
+                temperature=self.temperature, timeout=self.timeout, num_retries=self.retries,
+                response_format={"type": "json_object"},
             )
         except LLMError:
             return None

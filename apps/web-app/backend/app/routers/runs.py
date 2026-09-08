@@ -13,6 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import models, runner
 from app.db import get_session
 
+# filtered-results cache: (study_id, result_row_id, dimension, fkey, fval) -> payload
+_FILTER_CACHE: dict[tuple, dict] = {}
+
 router = APIRouter(prefix="/api", tags=["runs"])
 
 
@@ -71,8 +74,20 @@ async def list_dimensions(id_: int, db: AsyncSession = Depends(get_session)):
     return [{"dimension": r.dimension or "quality"} for r in rows]
 
 
+@router.get("/studies/{id_}/filters")
+async def get_filters(id_: int, db: AsyncSession = Depends(get_session)):
+    """Filterable question-metadata keys/values of this study's dataset (non-reserved item
+    keys with 2-30 distinct values). Empty dict = nothing to filter by."""
+    study = await db.get(models.Study, id_)
+    if study is None:
+        raise HTTPException(404, "study not found")
+    dataset = await db.get(models.Dataset, study.dataset_id) if study.dataset_id else None
+    return runner.dataset_filters(list(dataset.items) if dataset else [])
+
+
 @router.get("/studies/{id_}/results")
 async def get_results(id_: int, dimension: str | None = None,
+                      fkey: str | None = None, fval: str | None = None,
                       db: AsyncSession = Depends(get_session)):
     q = select(models.StudyResult).where(models.StudyResult.study_id == id_)
     if dimension is not None:
@@ -81,4 +96,23 @@ async def get_results(id_: int, dimension: str | None = None,
     if res is None:
         raise HTTPException(404, "no results yet — run the study first"
                             if dimension is None else f"no results for dimension {dimension!r}")
-    return res.payload
+    if not fkey or fval is None:
+        return res.payload
+
+    # question-subset view: recompute the whole stats stack on the filtered questions
+    cache_key = (id_, res.id, res.dimension, fkey, fval)
+    if cache_key in _FILTER_CACHE:
+        return _FILTER_CACHE[cache_key]
+    study = await db.get(models.Study, id_)
+    dataset = await db.get(models.Dataset, study.dataset_id) if study and study.dataset_id else None
+    items = list(dataset.items) if dataset else []
+    if not items:
+        raise HTTPException(400, "this study's dataset carries no question metadata to filter by")
+    try:
+        payload = runner.filtered_payload(res.payload, items, fkey, fval)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(500, f"filtered recompute failed: {exc}")
+    if len(_FILTER_CACHE) > 64:
+        _FILTER_CACHE.clear()
+    _FILTER_CACHE[cache_key] = payload
+    return payload

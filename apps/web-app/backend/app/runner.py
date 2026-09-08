@@ -129,7 +129,7 @@ def _results_payload(ev) -> dict[str, Any]:
         out["records"] = [
             {k: r.get(k) for k in ("input_id", "question", "reference", "output", "verdict",
                                    "reasoning", "cost_usd", "tokens", "elapsed_s", "energy_wh",
-                                   *(_factor_keys(ev)))}
+                                   "rep", "judge_rep", *(_factor_keys(ev)))}
             for r in ev.records()
         ]
     except Exception:  # noqa: BLE001
@@ -399,3 +399,96 @@ async def run_study_task(study_id: int) -> None:
 def launch(study_id: int) -> None:
     """Fire-and-forget the background task."""
     asyncio.create_task(run_study_task(study_id))
+
+
+# ── question-metadata filters: rebuild an Evaluation from a stored payload and recompute ──
+
+RESERVED_ITEM_KEYS = {"id", "text", "question", "reference"}
+
+
+def dataset_filters(items: list[dict]) -> dict[str, list[str]]:
+    """The filterable metadata keys of a dataset: every non-reserved item key with between
+    2 and 30 distinct non-empty values (a key with one value filters nothing; free-text
+    keys with dozens of values make useless chips)."""
+    from collections import defaultdict
+
+    vals: dict[str, set] = defaultdict(set)
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        for k, v in it.items():
+            if k in RESERVED_ITEM_KEYS or v is None or str(v).strip() == "":
+                continue
+            vals[k].add(str(v).strip())
+    return {k: sorted(v) for k, v in vals.items() if 2 <= len(v) <= 30}
+
+
+def _evaluation_from_payload(payload: dict, items: list[dict], keep_ids: set[str]):
+    """Reconstruct a minimal cafe Evaluation from a stored results payload, restricted to
+    the question ids in ``keep_ids`` — enough for the full stats stack to run again."""
+    import cafe
+    from cafe.evaluation import Evaluation
+    from cafe.execution.results import Observation, Results, config_id
+    from cafe.judging.ratings import Rating, Ratings
+    from cafe.judging.rubric import Level, Rubric, ScaleType
+
+    factors = list(payload.get("factors") or [])
+    rb = payload.get("rubric") or {}
+    rubric = Rubric(
+        name=rb.get("name", "quality"),
+        scale_type=ScaleType(rb.get("scale_type", "ordinal")),
+        instruction="",
+        levels=[Level(int(lv["value"]), str(lv.get("label", "")), "")
+                for lv in rb.get("levels", [])] or [Level(i, str(i), "") for i in range(6)],
+    )
+
+    observations: dict[str, Observation] = {}
+    ratings_items: list[Rating] = []
+    for r in payload.get("records") or []:
+        if r.get("input_id") not in keep_ids:
+            continue
+        config = {f: r.get(f) for f in factors}
+        rep = int(r.get("rep") or 0)
+        meta = {k: r.get(k) for k in ("cost_usd", "tokens", "energy_wh") if r.get(k) is not None}
+        obs = Observation(config=config, input_id=r["input_id"], rep=rep, output=r.get("output"),
+                          elapsed_s=r.get("elapsed_s"), metadata=meta)
+        observations.setdefault(obs.key(), obs)
+        if r.get("verdict") is not None or r.get("reasoning") is not None:
+            ratings_items.append(Rating(
+                obs_key=obs.key(), config=config, input_id=r["input_id"], rep=rep,
+                judge_rep=int(r.get("judge_rep") or 0),
+                value=r.get("verdict"), value_numeric=r.get("verdict"),
+                reasoning=r.get("reasoning"),
+                error=None if r.get("verdict") is not None else "unusable in subset view",
+            ))
+
+    from cafe.stats import attribute
+
+    results = Results(study_name="filtered", factors=factors,
+                      observations=list(observations.values()))
+    ratings = Ratings(rubric=rubric, judge_model="", factors=factors, items=ratings_items)
+    return Evaluation(
+        study_name="filtered", answers=results, ratings=ratings,
+        attribution=attribute(ratings) if ratings_items else None,
+        items=[it for it in (items or []) if str(it.get("id")) in keep_ids],
+        questions={r["input_id"]: r.get("question") or "" for r in payload.get("records") or []
+                   if r.get("input_id") in keep_ids},
+        references={r["input_id"]: r.get("reference") or "" for r in payload.get("records") or []
+                    if r.get("input_id") in keep_ids},
+    )
+
+
+def filtered_payload(payload: dict, items: list[dict], fkey: str, fval: str) -> dict:
+    """Recompute the full results payload on the subset of questions whose metadata key
+    ``fkey`` equals ``fval`` — means, mixed model, CLMM/logistic and energy are all refit
+    on the subset (run timing is full-run only and therefore omitted)."""
+    keep_ids = {str(it.get("id")) for it in (items or [])
+                if str(it.get(fkey, "")).strip() == fval}
+    ev = _evaluation_from_payload(payload, items, keep_ids)
+    out = _results_payload(ev)
+    out["timing"] = None  # wall-clock timing belongs to the full run, not a subset
+    n_total = len({r.get("input_id") for r in payload.get("records") or []})
+    out["filtered"] = {"key": fkey, "value": fval,
+                       "n_questions": len(keep_ids & {r.get("input_id") for r in payload.get("records") or []}),
+                       "n_total": n_total}
+    return out
