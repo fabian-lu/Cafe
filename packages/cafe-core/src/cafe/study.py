@@ -25,6 +25,13 @@ class FactorType(str, Enum):
     continuous = "continuous"    # numeric knob: temperature, top_k
 
 
+#: Column names the ratings/statistics layer reserves for its own bookkeeping
+#: (must match ``cafe.judging.ratings.Ratings._RESERVED``). A factor with one of
+#: these names would collide with that column downstream — crashing the analysis
+#: frame or, worse, silently grouping on the wrong column — so it is rejected here.
+RESERVED_FACTOR_NAMES = ("input_id", "rep", "judge_rep", "verdict", "reasoning", "error")
+
+
 @dataclass
 class Factor:
     """One axis of the experiment.
@@ -41,6 +48,12 @@ class Factor:
     def __post_init__(self) -> None:
         if not self.name or not isinstance(self.name, str):
             raise ValueError("factor name must be a non-empty string")
+        if self.name in RESERVED_FACTOR_NAMES:
+            raise ValueError(
+                f"factor name {self.name!r} is reserved for the statistics layer's "
+                f"bookkeeping columns {RESERVED_FACTOR_NAMES}; rename it (e.g. "
+                f"{self.name + '_level'!r})"
+            )
         self.levels = list(self.levels)
         if len(self.levels) == 0:
             raise ValueError(f"factor {self.name!r} must have at least one level")

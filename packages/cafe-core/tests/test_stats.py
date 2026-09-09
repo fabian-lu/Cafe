@@ -316,3 +316,18 @@ def test_judge_reps_averaged_system_reps_kept():
     attr = attribute(r)
     assert attr.n_ratings == 4   # raw ratings recorded
     assert attr.n_usable == 2    # answers actually entering the stats
+
+
+def test_reserved_factor_names_are_rejected():
+    """A factor named like a bookkeeping column ('rep', 'error', ...) used to crash
+    analysis_frame ('cannot insert rep, already exists') or — worse — silently group
+    on the wrong column and erase real effects. Reject it at construction instead."""
+    import cafe
+    from cafe.judging.ratings import Ratings
+
+    for bad in ("input_id", "rep", "judge_rep", "verdict", "reasoning", "error"):
+        with pytest.raises(ValueError, match="reserved"):
+            cafe.Factor(bad, ["a", "b"])
+    with pytest.raises(ValueError, match="reserved"):
+        Ratings(rubric=ANSWER_QUALITY_1_5, judge_model="fake", factors=["error"], items=[])
+    cafe.Factor("method", ["a", "b"])  # normal names unaffected
