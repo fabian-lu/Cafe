@@ -122,14 +122,24 @@ def _dominates(a: dict, b: dict, objectives: list[str]) -> bool:
 
 
 def _quality_by_config(ratings: "Ratings") -> tuple[dict[str, list[float]], dict[str, dict]]:
-    quality: dict[str, list[float]] = defaultdict(list)
-    configs: dict[str, dict] = {}
+    # Collapse judge replications to ONE value per answer first (mean per obs_key) —
+    # the same rule as the analysis frame. Averaging raw rating items would weight
+    # answers by however many judge reps survived (pseudo-replication), making the
+    # Pareto quality disagree with attribute() on identical data.
+    per_answer: dict[str, list[float]] = defaultdict(list)
+    answer_config: dict[str, dict] = {}
     for r in ratings.items:
         if r.value_numeric is None:
             continue
-        label = config_label(r.config)
-        configs[label] = dict(r.config)
-        quality[label].append(float(r.value_numeric))
+        per_answer[r.obs_key].append(float(r.value_numeric))
+        answer_config[r.obs_key] = dict(r.config)
+    quality: dict[str, list[float]] = defaultdict(list)
+    configs: dict[str, dict] = {}
+    for obs_key, values in per_answer.items():
+        cfg = answer_config[obs_key]
+        label = config_label(cfg)
+        configs[label] = cfg
+        quality[label].append(sum(values) / len(values))
     return quality, configs
 
 
@@ -144,8 +154,13 @@ def _resources_by_config(answers: "Results") -> dict[str, dict[str, list[float]]
         md = o.metadata or {}
         if o.elapsed_s is not None:
             res[label]["latency"].append(float(o.elapsed_s))
-        res[label]["cost"].append(float(md.get("cost_usd", 0.0) or 0.0))
-        res[label]["tokens"].append(float(md.get("tokens", 0.0) or 0.0))
+        # Skip missing values (like latency above) — counting an absent cost_usd as
+        # 0.0 dilutes the mean toward zero, letting a config whose adapter failed to
+        # report cost look spuriously cheap on the frontier. A reported 0.0 still counts.
+        if md.get("cost_usd") is not None:
+            res[label]["cost"].append(float(md["cost_usd"]))
+        if md.get("tokens") is not None:
+            res[label]["tokens"].append(float(md["tokens"]))
     return res
 
 
