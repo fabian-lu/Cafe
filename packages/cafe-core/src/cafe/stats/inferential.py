@@ -312,7 +312,10 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
                 res.formula = _display_formula(1)
                 res.warnings.append("interactions not estimable on this data — main effects only")
                 try:
-                    table = sm.stats.anova_lm(smf.ols(_formula(1), dfs).fit(), typ=2)
+                    # Reassign `fit` so residuals/fitted below describe the SAME model
+                    # as the reported table, not the abandoned interaction fit.
+                    fit = smf.ols(_formula(1), dfs).fit()
+                    table = sm.stats.anova_lm(fit, typ=2)
                 except Exception as exc:  # noqa: BLE001
                     res.warnings.append(f"ANOVA failed ({exc})")
             else:
@@ -332,27 +335,43 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
             res.model = (f"{base} + Type-II ANOVA"
                          + (f", up to {order_used}-way" if order_used >= 2 else ""))
             ss_resid = float(table.loc["Residual", "sum_sq"])
-            for name in table.index:
-                if name in ("Residual", "Intercept"):
-                    continue
-                cols = [c for c in usable if f"Q('{safe[c]}')" in name]
-                if not cols:
-                    continue
-                ss = float(table.loc[name, "sum_sq"])
-                F = float(table.loc[name, "F"])
-                p = float(table.loc[name, "PR(>F)"])
-                eta = ss / (ss + ss_resid) if (ss + ss_resid) > 0 else None
-                res.terms.append(
-                    {
-                        "factor": " × ".join(cols),
-                        "interaction": len(cols) > 1,
-                        "df": float(table.loc[name, "df"]),
-                        "F": F if F == F else None,
-                        "p": p if p == p else None,
-                        "partial_eta_sq": eta,
-                        "significant": (p < alpha) if p == p else False,
-                    }
+            if ss_resid <= 1e-12:
+                # The factors separate the verdicts PERFECTLY (zero residual variance).
+                # statsmodels then returns an all-NaN Type-II table (0/0 F), which would
+                # read as "no significant effect" — the opposite of what the data shows.
+                # Report per-factor one-way ANOVAs instead (F=inf, p=0, η²=1 under
+                # perfect separation) and say so; interactions are not estimable here.
+                res.model = ("one-way ANOVA (zero residual variance — the factors "
+                             "separate the verdicts perfectly)")
+                res.formula = _display_formula(1)
+                res.warnings.append(
+                    "the model fits the verdicts perfectly (zero residual variance), so "
+                    "the full ANOVA's F-tests are undefined (0/0); per-factor one-way "
+                    "ANOVA is reported instead, and interaction terms are not estimable"
                 )
+                res.terms = _oneway(df, usable, res.warnings, alpha)
+            else:
+                for name in table.index:
+                    if name in ("Residual", "Intercept"):
+                        continue
+                    cols = [c for c in usable if f"Q('{safe[c]}')" in name]
+                    if not cols:
+                        continue
+                    ss = float(table.loc[name, "sum_sq"])
+                    F = float(table.loc[name, "F"])
+                    p = float(table.loc[name, "PR(>F)"])
+                    eta = ss / (ss + ss_resid) if (ss + ss_resid) > 0 else None
+                    res.terms.append(
+                        {
+                            "factor": " × ".join(cols),
+                            "interaction": len(cols) > 1,
+                            "df": float(table.loc[name, "df"]),
+                            "F": F if F == F else None,
+                            "p": p if p == p else None,
+                            "partial_eta_sq": eta,
+                            "significant": (p < alpha) if p == p else False,
+                        }
+                    )
 
     if any(_degenerate(w) for w in caught):
         res.warnings.append(
