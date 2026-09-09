@@ -109,8 +109,13 @@ def _design_rank_deficient(df, factors: list[str], order: int) -> bool:
     and ordinal layers to avoid reporting un-estimable interactions."""
     if order < 2 or len(factors) < 2:
         return False
-    import numpy as np
-    import statsmodels.formula.api as smf
+    try:
+        import numpy as np
+        import statsmodels.formula.api as smf
+    except ImportError:
+        # Callers (fit_clmm / fit_logistic) support statsmodels-less environments and
+        # must never crash here — without it we simply can't run the aliasing check.
+        return False
 
     dfs, safe, _ = _safe_factor_frame(df, factors)
     main = " + ".join(f"C(Q('{safe[c]}'))" for c in factors)
