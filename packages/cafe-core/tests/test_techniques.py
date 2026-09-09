@@ -157,3 +157,52 @@ def test_programmatic_add_matches_decorator():
     pipe.add("answer", "prog", gen, cost_usd=0.003)
     assert pipe.names_for("answer") == ["prog"]
     assert pipe.get("answer", "prog").cost_usd == 0.003
+
+
+async def test_add_cost_survives_concurrent_stages():
+    """ctx.add_cost used shared instance state, so gathered stages reset/read each
+    other's accumulator — dollars vanished or were double-counted. Each in-flight
+    step must accrue its own manual cost (ContextVar, like the LLM usage sink)."""
+    import asyncio
+
+    pipe = cafe.Pipeline()
+
+    @pipe.technique("ret_a", "a")
+    async def ret_a(ctx, q):
+        ctx.add_cost(0.10)
+        await asyncio.sleep(0.02)   # keep this step in flight while ret_b starts
+        return q
+
+    @pipe.technique("ret_b", "b")
+    async def ret_b(ctx, q):
+        await asyncio.sleep(0.01)
+        ctx.add_cost(0.01)
+        return q
+
+    @pipe.compose
+    async def system(config, item, ctx):
+        a, b = await asyncio.gather(ctx.run("ret_a", q=item), ctx.run("ret_b", q=item))
+        return f"{a}|{b}"
+
+    out = await pipe.run({}, "q")
+    by_stage = {s["stage"]: s["cost_usd"] for s in out["trace"]}
+    assert by_stage["ret_a"] == 0.10
+    assert by_stage["ret_b"] == 0.01
+    assert out["cost_usd"] == 0.11
+
+
+async def test_add_cost_in_compose_body_is_not_dropped():
+    pipe = cafe.Pipeline()
+
+    @pipe.technique("answer", "only")
+    async def only(ctx, q):
+        return q
+
+    @pipe.compose
+    async def system(config, item, ctx):
+        a = await ctx.run("answer", q=item)
+        ctx.add_cost(0.05)          # outside any step: charged to the run's total
+        return a
+
+    out = await pipe.run({}, "q")
+    assert out["cost_usd"] == 0.05
