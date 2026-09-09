@@ -28,16 +28,31 @@ _INSTALL_HINT = (
 )
 
 
+def _split_r_term(term: str, factors: list[str]) -> list[str]:
+    """Split an R coefficient name on ``:`` only where it actually separates factor
+    terms. R also allows ``:`` inside a *level* (``model`` = ``llama3:8b`` yields the
+    main-effect coefficient ``modelllama3:8b``), so a ``:`` counts as an interaction
+    separator only if every resulting piece starts with a known factor name."""
+    pieces = term.split(":")
+    if len(pieces) > 1 and all(any(p.startswith(f) for f in factors) for p in pieces):
+        return pieces
+    return [term]
+
+
+def _term_factor(term: str, factors: list[str]) -> str | None:
+    """The factor a coefficient belongs to: the LONGEST matching name prefix —
+    first-match would misattribute ``retrieve.top_k2`` to ``retrieve`` whenever a
+    factor's name is a prefix of another's."""
+    matches = [f for f in factors if term.startswith(f)]
+    return max(matches, key=len) if matches else None
+
+
 def _readable_term(term: str, factors: list[str]) -> str:
     """Turn R's ``retrievekeyword:reranknone`` into ``retrieve=keyword × rerank=none``."""
     parts = []
-    for piece in term.split(":"):
-        matches = [f for f in factors if piece.startswith(f)]
-        if matches:
-            f = max(matches, key=len)  # longest prefix wins (retrieve.top_k vs retrieve)
-            parts.append(f"{f}={piece[len(f):]}")
-        else:
-            parts.append(piece)
+    for piece in _split_r_term(term, factors):
+        f = _term_factor(piece, factors)  # longest prefix wins (retrieve.top_k vs retrieve)
+        parts.append(f"{f}={piece[len(f):]}" if f else piece)
     return " × ".join(parts)
 
 
@@ -208,8 +223,9 @@ def fit_clmm(
     coeffs = payload.get("coefficients", [])
     for c in coeffs:
         term = str(c.get("term", ""))
-        c["interaction"] = ":" in term  # R names interaction coefficients a:b
-        c["factor"] = next((f for f in factors if term.startswith(f)), None)
+        pieces = _split_r_term(term, factors)  # a ':' inside a level is not an interaction
+        c["interaction"] = len(pieces) > 1
+        c["factor"] = _term_factor(pieces[0], factors)  # longest prefix, not first match
         c["label"] = _readable_term(term, factors)  # "retrieve=keyword × rerank=none"
         c["significant"] = c.get("p") is not None and c["p"] < alpha
     res.coefficients = coeffs
