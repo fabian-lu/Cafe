@@ -77,7 +77,11 @@ result <- tryCatch({
          z = ct[i, 3], p = ct[i, 4])
   })
 
-  list(available = TRUE, n_obs = nrow(d), formula = deparse(build_formula(used_order)),
+  # paste(deparse(...)): deparse splits at 60 chars, and a character VECTOR would
+  # serialize as a JSON array — the Python side expects one formula string.
+  list(available = TRUE, n_obs = nrow(d),
+       formula = gsub("\\s+", " ", paste(deparse(build_formula(used_order)), collapse = " ")),
+       used_order = used_order,
        logLik = as.numeric(logLik(m)), coefficients = coeffs)
 }, error = function(e) list(available = FALSE, error = conditionMessage(e)))
 

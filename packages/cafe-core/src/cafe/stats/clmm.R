@@ -53,9 +53,11 @@ result <- tryCatch({
   for (f in factors) d[[f]] <- factor(d[[f]])
 
   form <- build_formula(order)
+  used_order <- order
   m <- tryCatch(ordinal::clmm(form, data = d, Hess = TRUE), error = function(e) NULL)
   if (is.null(m) && order >= 2) {   # interactions not estimable -> fall back to main effects
     form <- build_formula(1L)
+    used_order <- 1L
     m <- ordinal::clmm(form, data = d, Hess = TRUE)
   }
   if (is.null(m)) stop("model did not converge")
@@ -73,7 +75,11 @@ result <- tryCatch({
     list(term = rn, estimate = unname(ct[rn, 1]))
   })
 
-  list(available = TRUE, n_obs = nrow(d), formula = deparse(form),
+  # paste(deparse(...)): deparse splits at 60 chars, and a character VECTOR would
+  # serialize as a JSON array — the Python side expects one formula string.
+  list(available = TRUE, n_obs = nrow(d),
+       formula = gsub("\\s+", " ", paste(deparse(form), collapse = " ")),
+       used_order = used_order,
        logLik = as.numeric(logLik(m)), coefficients = coeffs, thresholds = thresholds)
 }, error = function(e) list(available = FALSE, error = conditionMessage(e)))
 
