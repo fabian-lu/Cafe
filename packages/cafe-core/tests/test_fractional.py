@@ -24,6 +24,46 @@ def test_half_fraction_5_factors_is_resolution_v():
     assert d.resolution == 5  # E = ABCD is the classic resolution-V design
 
 
+@pytest.mark.parametrize(
+    "k, runs, want",
+    [
+        (6, 16, 4),  # 2^(6-2)_IV
+        (7, 16, 4),  # 2^(7-3)_IV
+        (8, None, 4),  # 2^(8-4)_IV, the default runs for 8 factors
+        (7, 32, 4),  # 2^(7-2)_IV
+        (9, 32, 4),  # 2^(9-4)_IV
+        (16, 32, 4),  # 2^(16-11)_IV, the largest resolution-IV design in 32 runs
+        (17, 32, 3),  # beyond runs/2 factors only resolution III exists
+        (8, 64, 5),  # 2^(8-2)_V
+        (9, 128, 6),  # 2^(9-2)_VI
+        (10, 128, 5),  # 2^(10-3)_V
+        (11, 128, 5),  # 2^(11-4)_V
+    ],
+)
+def test_auto_generators_reach_textbook_resolution(k, runs, want):
+    """Largest-subsets-first generators gave resolution III for every shape here (only
+    right for 17 factors in 32 runs); CAFE must reach the maximum in the standard tables."""
+    d = fractional_factorial_design(_factors("ABCDEFGHIJKLMNOPQ"[:k]), runs=runs)
+    assert d.resolution == want
+    assert len({tuple(sorted(c.items())) for c in d.configs}) == d.runs
+    if want >= 4:  # no main effect aliased with a main effect or 2-factor interaction
+        assert not any(d.aliases.values())
+
+
+@pytest.mark.parametrize(
+    "k, runs, lengths",
+    [
+        (6, 16, [4, 4, 4]),
+        (7, 32, [4, 5, 5]),
+        (9, 64, [4, 5, 5, 5, 5, 6, 6]),
+    ],
+)
+def test_auto_generators_are_minimum_aberration(k, runs, lengths):
+    """Among designs of equal resolution, the fewest shortest words (Chen, Sun & Wu 1993)."""
+    d = fractional_factorial_design(_factors("ABCDEFGHI"[:k]), runs=runs)
+    assert sorted(len(w) for w in d.defining_words) == lengths
+
+
 def test_main_effects_have_aliases():
     d = fractional_factorial_design(_factors("ABCDEFG"))
     # in a resolution-III design every main effect is aliased with some 2FI

@@ -8,8 +8,9 @@ explodes (7 factors = 128). A **regular fractional factorial** runs a chosen sub
 The price is **resolution**: the length of the shortest "word" in the design's
 defining relation. Resolution III aliases main effects with 2-factor interactions
 (good for *screening* which factors matter); IV with 3-factor; V keeps main effects
-and 2-factor interactions clear. CAFE picks generators that maximize resolution and
-**reports the resolution and alias structure** so the trade-off is explicit and honest.
+and 2-factor interactions clear. CAFE picks **minimum-aberration** generators (fewest
+short defining words, which maximizes resolution) and **reports the resolution and
+alias structure** so the trade-off is explicit and honest.
 
 Only **two-level** factors are supported here (that's what regular fractions are
 defined for); mixed-level factors must use the full factorial.
@@ -17,6 +18,7 @@ defined for); mixed-level factors must use the full factorial.
 
 from __future__ import annotations
 
+import functools
 import itertools
 import math
 from dataclasses import dataclass, field
@@ -85,6 +87,84 @@ class FractionalDesign:
         )
 
 
+#: Cap on the generator search's work (defining words evaluated). Deterministic — it
+#: counts operations, not seconds — and keeps the worst case to tens of milliseconds.
+_SEARCH_BUDGET = 1_000_000
+
+
+def _word_counts(gens: list[int], b: int) -> list[int]:
+    """``counts[L]`` = number of defining words of length ``L`` for generator columns
+    ``gens`` (bitmasks over the ``b`` basic factors; added factor ``t`` is bit ``b + t``)."""
+    counts = [0] * (b + len(gens) + 1)
+    words: list[int] = []
+    for t, g in enumerate(gens):
+        w = g | (1 << (b + t))
+        new = [w] + [w ^ x for x in words]
+        for x in new:
+            counts[x.bit_count()] += 1
+        words += new
+    return counts
+
+
+@functools.lru_cache(maxsize=None)
+def _choose_generators(b: int, p: int) -> tuple[tuple[int, ...], ...]:
+    """Pick ``p`` distinct generators (subsets of the ``b`` basic factors, size ≥ 2)
+    with **minimum aberration**: the fewest shortest defining words, compared length by
+    length. That maximizes the resolution and breaks ties between designs of equal
+    resolution the textbook way.
+
+    Branch and bound over generator sets, starting from odd-size generators (every
+    defining word then has even length ≥ 4: the classical resolution-IV construction,
+    available whenever ``k ≤ runs/2``). Word counts only grow as generators are added,
+    so a partial set already no better than the best complete one is pruned. Relabeling
+    the basic factors doesn't change the word lengths, so the heaviest generator can be
+    fixed to ``{0, ..., s-1}``. The search is exhaustive for the common shapes; past
+    :data:`_SEARCH_BUDGET` it stops and keeps the best design found.
+    """
+    cols = [m for m in range(1, 1 << b) if m.bit_count() >= 2]
+    order = sorted(cols, key=lambda m: (m.bit_count() % 2 == 0, -m.bit_count(), m))
+    best_gens = order[:p]
+    best = _word_counts(best_gens, b)
+    work = 0
+
+    class _Budget(Exception):
+        pass
+
+    def add(chosen: list[int], words: list[int], counts: list[int], gen: int,
+            cands: list[int], nxt: int) -> None:
+        """Add ``gen`` to ``chosen``; record the set if complete, else try every next
+        generator from ``cands[nxt:]``."""
+        nonlocal best, best_gens, work
+        work += len(words) + 1
+        if work > _SEARCH_BUDGET:
+            raise _Budget
+        w = gen | (1 << (b + len(chosen)))
+        new = [w] + [w ^ x for x in words]
+        counts = counts[:]
+        for x in new:
+            counts[x.bit_count()] += 1
+        if counts >= best:  # adding generators only adds words: can't beat the best
+            return
+        chosen = chosen + [gen]
+        if len(chosen) == p:
+            best, best_gens = counts, chosen
+            return
+        words = words + new
+        for i in range(nxt, len(cands) - (p - len(chosen) - 1)):
+            add(chosen, words, counts, cands[i], cands, i + 1)
+
+    try:
+        for s in range(b, 1, -1):
+            heaviest = (1 << s) - 1
+            rest = [m for m in order if m.bit_count() <= s and m != heaviest]
+            add([], [], [0] * (b + p + 1), heaviest, rest, 0)
+    except _Budget:
+        pass
+
+    gens = [tuple(i for i in range(b) if m >> i & 1) for m in best_gens]
+    return tuple(sorted(gens, key=lambda s: (-len(s), s)))
+
+
 def _full_relation(words: list[frozenset[int]]) -> set[frozenset[int]]:
     """Every non-empty XOR-combination of the generator words (the defining relation)."""
     full: set[frozenset[int]] = set()
@@ -107,10 +187,39 @@ def fractional_factorial_design(
 ) -> FractionalDesign:
     """Build a resolution-maximizing 2^(k-p) fractional factorial for 2-level factors.
 
-    ``runs`` (a power of two) sets the fraction; default is the smallest design that
-    can place every factor (a saturated, resolution-III screening design). Pass
-    ``generators`` (``{added_factor: [basic_factor, ...]}``) to specify the aliasing
-    yourself instead of letting CAFE choose.
+    The first ``log2(runs)`` factors are the basic factors (a full factorial); every
+    other factor is "added" as the product of a generator subset of them.
+
+    Parameters
+    ----------
+    factors:
+        The two-level factors (at least 3).
+    runs:
+        The fraction's size, a power of two below ``2^k``. Default: the smallest
+        design that can place every factor (a resolution-III screening design when
+        nearly saturated).
+    generators:
+        ``{added_factor: [basic_factor, ...]}`` to specify the aliasing yourself. If
+        ``None``, CAFE searches for the **minimum-aberration** generators (the fewest
+        shortest defining words, so maximum resolution first; ties go to the design
+        with fewer words of the next length). The search is deterministic and gives the
+        textbook maximum resolution for every design up to 128 runs. For larger
+        designs it stops after a fixed amount of work and keeps the best design found,
+        which is at least resolution IV whenever ``runs >= 2k`` but may fall short of
+        the maximum when only a few factors are added.
+
+    Returns
+    -------
+    FractionalDesign
+        The configs plus the generators, defining words, resolution and main-effect
+        aliases (``.show()`` prints them).
+
+    Raises
+    ------
+    ValueError
+        If a factor doesn't have exactly two levels, there are fewer than 3 factors,
+        ``runs`` isn't a power of two ≥ 4 below ``2^k``, the factors don't fit in
+        ``runs``, or ``generators`` misses an added factor.
     """
     bad = [f.name for f in factors if len(f.levels) != 2]
     if bad:
@@ -138,16 +247,14 @@ def fractional_factorial_design(
     names = [f.name for f in factors]
     basic, added = names[:b], names[b:]
 
-    # Assign each added factor a generator (a subset of basic factors), largest first
-    # to push the defining words as long as possible (higher resolution).
+    # Assign each added factor a generator (a subset of ≥ 2 basic factors), chosen by a
+    # minimum-aberration search. (Taking the largest subsets first is not enough: XOR of
+    # ABCDE and ABCF is DEF, so greedy gave resolution III where IV/V designs exist.)
     if generators is None:
-        pool = [
-            combo for size in range(b, 1, -1)
-            for combo in itertools.combinations(range(b), size)
-        ]
-        if len(added) > len(pool):
+        if len(added) > (1 << b) - b - 1:
             raise ValueError(f"cannot place {k} factors in {runs} runs; increase runs")
-        gen_idx = {added[t]: pool[t] for t in range(len(added))}
+        chosen = _choose_generators(b, len(added))
+        gen_idx = {added[t]: chosen[t] for t in range(len(added))}
     else:
         name_to_basic = {n: i for i, n in enumerate(basic)}
         gen_idx = {}
