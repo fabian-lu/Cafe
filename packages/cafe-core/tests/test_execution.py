@@ -1,7 +1,7 @@
 import asyncio
 
 
-from cafe import Factor, Study, run_study
+from cafe import Factor, Study, preflight, run_study
 from cafe.execution import Checkpoint
 
 
@@ -140,3 +140,35 @@ async def test_checkpoint_resume_retries_errored_cells(tmp_path):
     calls["n"] = 0
     r3 = await run_study(study, checkpoint_path=cp_path, resume=True, retry_errors=False)
     assert calls["n"] == 0 and len(r3) == 8
+
+
+async def _preflight_text(outputs):
+    async def system(config, item):
+        if config["kind"] == "boom":
+            raise RuntimeError("boom")
+        return {"output": outputs[config["kind"]], "cost_usd": 0.01}
+
+    study = Study(
+        name="pf",
+        system=system,
+        factors=[Factor("kind", [*outputs, "boom"])],
+        dataset=["q1"],
+    )
+    return (await preflight(study)).show()
+
+
+async def test_preflight_show_renders_non_string_outputs():
+    # A system's output may be any value, not just a str.
+    text = await _preflight_text({"dict": {"answer": 42}, "list": ["a", "b"], "int": 7})
+    assert "[kind=dict] {'answer': 42}" in text
+    assert "[kind=list] ['a', 'b']" in text
+    assert "[kind=int] 7" in text
+    assert "[kind=boom] RuntimeError: boom" in text  # no output -> the error is shown
+
+
+async def test_preflight_show_keeps_falsy_outputs():
+    # 0 / False are answers; they must not be replaced by the (empty) error text.
+    text = await _preflight_text({"zero": 0, "false": False})
+    assert "[kind=zero] 0" in text
+    assert "[kind=false] False" in text
+    assert "[kind=boom] RuntimeError: boom" in text

@@ -403,7 +403,10 @@ class Preflight:
         lines = ["preflight — one input through every configuration:"]
         for o in self.answers.observations:
             cfg = "·".join(f"{k}={o.config[k]}" for k in sorted(o.config))
-            body = (o.output or o.error or "").replace("\n", " ")
+            # The output may be any value (dict, list, number, ...), and a falsy one (0, "")
+            # is still the answer; the error is shown only when there is no output.
+            shown = o.output if o.output is not None else (o.error or "")
+            body = str(shown).replace("\n", " ")
             lines.append(f"  [{cfg}] {body[:80]}")
         e = self.estimate
         compute = e.get("est_total_compute_s")
