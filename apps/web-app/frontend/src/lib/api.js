@@ -85,3 +85,8 @@ export const api = {
   studyRaters: (id) => get(`/studies/${id}/raters`),
   reliability: (id) => get(`/studies/${id}/reliability`),
 };
+
+// Run phases on the progress stream (backend runner.PROGRESS): "starting", "answers", "judging",
+// "judging · <rubric>" (one per extra dimension), "saving", then "done" / "error".
+export const isJudgingPhase = (phase) => (phase || "").startsWith("judging");
+export const phaseLabel = (phase) => (!phase || phase === "answers" ? "answering" : phase);
