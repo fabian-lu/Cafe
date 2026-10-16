@@ -248,6 +248,95 @@ def test_fit_logistic_suppresses_pvalues_under_separation():
     assert "near-degenerate" in log.show() or "separation" in log.show()
 
 
+def _colon_level_ratings(binary: bool, model: str = "model", prompt: str = "prompt") -> Ratings:
+    """An ollama-style level with a ':' (``llama3:8b``, the better model) plus a second
+    factor, over 30 questions with a per-question difficulty."""
+    import random
+
+    from cafe.rubrics import CORRECT_PASS_FAIL
+
+    rng = random.Random(3)
+    items = []
+    for q in range(30):
+        hard = rng.gauss(0, 0.7)
+        for m in ("gemma", "llama3:8b"):
+            for p in ("plain", "cot"):
+                eta = (1.5 if m == "llama3:8b" else -1.0) + hard + rng.gauss(0, 1)
+                v = int(eta > 0) if binary else max(1, min(5, round(3 + eta)))
+                items.append(Rating(obs_key=f"{q}{m}{p}", config={model: m, prompt: p},
+                                    input_id=f"q{q}", rep=0, judge_rep=0, value=v, value_numeric=v))
+    return Ratings(rubric=CORRECT_PASS_FAIL if binary else ANSWER_QUALITY_1_5, judge_model="x",
+                   factors=[model, prompt], items=items)
+
+
+def test_statsmodels_term_keeps_colon_inside_level():
+    from cafe.stats.logistic import _parse_statsmodels_term
+
+    back = {"cafe_f0": "model", "cafe_f1": "prompt"}
+    assert _parse_statsmodels_term("C(Q('cafe_f0'))[T.llama3:8b]", back) == (
+        "model=llama3:8b", "model", False)
+    assert _parse_statsmodels_term("C(Q('cafe_f0'))[T.x]:y]:C(Q('cafe_f1'))[T.cot]", back) == (
+        "model=x]:y × prompt=cot", "model", True)
+    assert _parse_statsmodels_term("C(Q('cafe_f0'))[T.a]:C(Q('cafe_f1'))[T.b]", back) == (
+        "model=a × prompt=b", "model", True)
+
+
+def test_logistic_statsmodels_colon_level_is_a_main_effect():
+    from cafe import fit_logistic
+
+    log = fit_logistic(_colon_level_ratings(binary=True), interactions=2, backend="statsmodels")
+    by_label = {t["label"]: t for t in log.terms}
+    main = by_label["model=llama3:8b"]
+    assert main["factor"] == "model" and main["interaction"] is False
+    assert by_label["model=llama3:8b × prompt=plain"]["interaction"] is True
+    assert log.significant_factors == ["model"]
+
+
+def test_r_coef_term_prefers_the_factors_and_levels_r_reports():
+    from cafe.stats.ordinal import _r_coef_term
+
+    fs = ["model", "prompt"]
+    c = {"term": "modelllama3:8b:promptcot", "factors": ["model", "prompt"],
+         "levels": ["llama3:8b", "cot"]}
+    assert _r_coef_term(c, fs) == ("model=llama3:8b × prompt=cot", "model", True)
+    c = {"term": "`top-k`5", "factors": ["top-k"], "levels": ["5"]}
+    assert _r_coef_term(c, ["top-k"]) == ("top-k=5", "top-k", False)
+    # no structured info -> R's name is parsed as before
+    assert _r_coef_term({"term": "modelgpt:promptcot"}, fs) == ("model=gpt × prompt=cot", "model", True)
+
+
+@pytest.mark.parametrize("model", ["model", "llm model"])   # plain and non-syntactic (back-quoted)
+def test_clmm_colon_level_is_a_main_effect(model):
+    from cafe.stats.ordinal import check_r
+
+    if not check_r()[0]:
+        pytest.skip("R + ordinal not installed")
+    clmm = fit_clmm(_colon_level_ratings(binary=False, model=model), interactions=2)
+    assert clmm.available, clmm.reason
+    by_label = {c["label"]: c for c in clmm.coefficients}
+    main = by_label[f"{model}=llama3:8b"]
+    assert main["factor"] == model and main["interaction"] is False
+    assert by_label[f"{model}=llama3:8b × prompt=plain"]["interaction"] is True
+    assert clmm.significant_factors == [model]
+
+
+@pytest.mark.parametrize("model", ["model", "llm model"])
+def test_glmer_colon_level_is_a_main_effect(model):
+    from cafe import fit_logistic
+    from cafe.stats.logistic import check_glmer
+
+    if not check_glmer()[0]:
+        pytest.skip("R + lme4 not installed")
+    log = fit_logistic(_colon_level_ratings(binary=True, model=model), interactions=2,
+                       backend="glmer")
+    assert log.available and "glmer" in log.model
+    by_label = {t["label"]: t for t in log.terms}
+    main = by_label[f"{model}=llama3:8b"]
+    assert main["factor"] == model and main["interaction"] is False
+    assert by_label[f"{model}=llama3:8b × prompt=plain"]["interaction"] is True
+    assert log.significant_factors == [model]
+
+
 def test_report_routes_model_by_scale_type():
     from cafe.evaluation import Evaluation
     from cafe.execution.results import Results

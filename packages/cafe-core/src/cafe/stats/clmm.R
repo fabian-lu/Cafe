@@ -32,10 +32,35 @@ factors <- strsplit(args[[2]], ",")[[1]]
 order <- if (length(args) >= 3) suppressWarnings(as.integer(args[[3]])) else 1L
 if (is.na(order)) order <- 1L
 
-build_formula <- function(ord) {
+fixed_terms <- function(ord) {
   terms <- paste(sprintf("`%s`", factors), collapse = " + ")
-  fixed <- if (ord >= 2 && length(factors) >= 2) sprintf("(%s)^%d", terms, ord) else terms
-  stats::as.formula(sprintf("verdict ~ (1|input_id) + %s", fixed))  # random effect first
+  if (ord >= 2 && length(factors) >= 2) sprintf("(%s)^%d", terms, ord) else terms
+}
+
+build_formula <- function(ord) {
+  stats::as.formula(sprintf("verdict ~ (1|input_id) + %s", fixed_terms(ord)))  # random effect first
+}
+
+# The factor(s) and level(s) behind every fixed-effect coefficient, keyed by the name R
+# gives that coefficient (e.g. `modelllama3:8b:promptcot`). The caller uses this instead of
+# splitting that name on ':', which can't tell an interaction from a level that contains
+# ':' (ollama tags such as llama3:8b), and which misses back-quoted non-syntactic factor
+# names (`top-k`5). Covers every order up to `ord`, so it also fits the main-effects fallback.
+coef_info <- function(d, ord) {
+  inc <- attr(stats::terms(stats::as.formula(paste("~", fixed_terms(ord)))), "factors")
+  if (nrow(inc) != length(factors)) return(list())
+  info <- list()
+  for (t in seq_len(ncol(inc))) {
+    idx <- which(inc[, t] > 0)   # rows follow the order of `factors`
+    # treatment contrasts: one column per non-baseline level combination
+    lv <- expand.grid(lapply(factors[idx], function(f) levels(d[[f]])[-1]), stringsAsFactors = FALSE)
+    for (i in seq_len(nrow(lv))) {
+      lvl <- unlist(lv[i, ], use.names = FALSE)
+      name <- paste0(rownames(inc)[idx], lvl, collapse = ":")   # R's own label for the column
+      info[[name]] <- list(factors = I(factors[idx]), levels = I(lvl))
+    }
+  }
+  info
 }
 
 if (!have_ordinal) {
@@ -64,10 +89,12 @@ result <- tryCatch({
   beta_names <- names(m$beta)          # fixed-effect (factor) coefficients
   alpha_names <- names(m$alpha)        # threshold (cut-point) coefficients
 
+  info <- coef_info(d, order)
+
   coeffs <- lapply(beta_names, function(rn) {
     row <- ct[rn, ]
-    list(term = rn, estimate = unname(row[[1]]), std_error = unname(row[[2]]),
-         z = unname(row[[3]]), p = unname(row[[4]]))
+    c(list(term = rn, estimate = unname(row[[1]]), std_error = unname(row[[2]]),
+           z = unname(row[[3]]), p = unname(row[[4]])), info[[rn]])
   })
   thresholds <- lapply(alpha_names, function(rn) {
     list(term = rn, estimate = unname(ct[rn, 1]))
