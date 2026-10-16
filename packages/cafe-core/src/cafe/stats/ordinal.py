@@ -28,16 +28,20 @@ _INSTALL_HINT = (
 )
 
 
+def _term_factor(term: str, factors: list[str]) -> str | None:
+    """The factor an R coefficient name starts with. The **longest** matching name wins:
+    with factors ``retrieve`` and ``retrieve.top_k``, ``retrieve.top_k2`` belongs to
+    ``retrieve.top_k`` (a first-match would credit it to ``retrieve``)."""
+    matches = [f for f in factors if term.startswith(f)]
+    return max(matches, key=len) if matches else None
+
+
 def _readable_term(term: str, factors: list[str]) -> str:
     """Turn R's ``retrievekeyword:reranknone`` into ``retrieve=keyword × rerank=none``."""
     parts = []
     for piece in term.split(":"):
-        matches = [f for f in factors if piece.startswith(f)]
-        if matches:
-            f = max(matches, key=len)  # longest prefix wins (retrieve.top_k vs retrieve)
-            parts.append(f"{f}={piece[len(f):]}")
-        else:
-            parts.append(piece)
+        f = _term_factor(piece, factors)
+        parts.append(f"{f}={piece[len(f):]}" if f else piece)
     return " × ".join(parts)
 
 
@@ -209,7 +213,7 @@ def fit_clmm(
     for c in coeffs:
         term = str(c.get("term", ""))
         c["interaction"] = ":" in term  # R names interaction coefficients a:b
-        c["factor"] = next((f for f in factors if term.startswith(f)), None)
+        c["factor"] = _term_factor(term, factors)
         c["label"] = _readable_term(term, factors)  # "retrieve=keyword × rerank=none"
         c["significant"] = c.get("p") is not None and c["p"] < alpha
     res.coefficients = coeffs
