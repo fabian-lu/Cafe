@@ -38,6 +38,19 @@ def test_builtin_rubrics_are_valid():
     assert cafe.rubrics.CORRECT_PASS_FAIL.scale_type == cafe.ScaleType.binary
 
 
+@pytest.mark.parametrize(
+    "levels",
+    [
+        [],
+        [cafe.Level(1, "only", "the single level")],
+        [cafe.Level(1, "ok", "x"), cafe.Level(1, "fine", "y")],  # two labels, one scale point
+    ],
+)
+def test_rubric_needs_two_distinct_levels(levels):
+    with pytest.raises(ValueError, match="at least two levels"):
+        cafe.Rubric(name="degenerate", levels=levels)
+
+
 def test_grade_hint_is_scale_aware():
     # numeric → a range (any integer valid); ordinal/binary → exact allowed values
     assert cafe.rubrics.HELPFULNESS_0_10.grade_hint() == "an integer from 0 to 10"

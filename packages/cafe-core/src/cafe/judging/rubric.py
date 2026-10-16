@@ -42,6 +42,12 @@ class Rubric:
     ``{instruction}``, ``{question}``, ``{answer}``, ``{reference}``, ``{scale}``,
     ``{min}``, ``{max}``, ``{grade}`` — the scale-aware "allowed final grade" hint).
     Leave it ``None`` to use the cited default in :mod:`cafe.judging`.
+
+    Raises
+    ------
+    ValueError
+        If ``levels`` has fewer than two distinct values (one scale point leaves the
+        judge nothing to choose), or ``scale_type`` is not a :class:`ScaleType`.
     """
 
     name: str
@@ -53,8 +59,9 @@ class Rubric:
     def __post_init__(self) -> None:
         if isinstance(self.scale_type, str):
             self.scale_type = ScaleType(self.scale_type)
-        if not self.levels:
-            raise ValueError("a rubric needs at least two levels")
+        # One distinct value is not a scale: every verdict would be the same number.
+        if len({lvl.value for lvl in self.levels}) < 2:
+            raise ValueError("a rubric needs at least two levels (with different values)")
         if self.prompt_template is not None:
             from cafe.judging.prompts import check_template_placeholders
 
