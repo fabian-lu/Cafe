@@ -67,6 +67,8 @@ async def stream_progress(id_: int):
 async def list_dimensions(id_: int, db: AsyncSession = Depends(get_session)):
     """The judged dimensions (rubric names) this study has results for, in creation order.
     The first entry is the primary dimension (what /results returns without a param)."""
+    if await db.get(models.Study, id_) is None:
+        raise HTTPException(404, "study not found")
     rows = list((await db.execute(
         select(models.StudyResult).where(models.StudyResult.study_id == id_)
         .order_by(models.StudyResult.id)
