@@ -16,6 +16,15 @@ const fmtSecs = (s) => {
   return `${Math.floor(m / 60)}h ${m % 60}m`;
 };
 const configLabel = (config) => Object.keys(config).sort().map((k) => `${k}=${config[k]}`).join(" · ");
+// factor-level order: numeric levels by value (a 2,10,20 sweep must not read 10,2,20), before
+// any text levels, which sort alphabetically. Levels reach the page as strings.
+const levelNum = (v) => { const s = String(v).trim(); return s === "" ? NaN : Number(s); };
+const levelOrder = (a, b) => {
+  const na = levelNum(a), nb = levelNum(b), fa = Number.isFinite(na), fb = Number.isFinite(nb);
+  if (fa && fb && na !== nb) return na - nb;
+  if (fa !== fb) return fa ? -1 : 1;
+  return String(a).localeCompare(String(b));
+};
 const PALETTE = ["var(--amber)", "var(--green)", "var(--cyan)", "var(--chart-4)", "var(--chart-5)", "var(--chart-6)"];
 
 // ── glossary (hover explanations) ───────────────────────────────────────────────
@@ -139,8 +148,8 @@ function InteractionChart({ records, factors, scaleMax }) {
   const [fb, setFb] = useState(factors[1]);
   const t = useTip();
   const data = useMemo(() => {
-    const aLevels = [...new Set(records.map((r) => String(r[fa])))].sort();
-    const bLevels = [...new Set(records.map((r) => String(r[fb])))].sort();
+    const aLevels = [...new Set(records.map((r) => String(r[fa])))].sort(levelOrder);
+    const bLevels = [...new Set(records.map((r) => String(r[fb])))].sort(levelOrder);
     const cell = {};
     for (const r of records) { if (r.verdict == null) continue; (cell[`${r[fa]}|||${r[fb]}`] ||= []).push(r.verdict); }
     const mean = (a, b) => { const v = cell[`${a}|||${b}`]; return v && v.length ? v.reduce((s, x) => s + x, 0) / v.length : null; };
@@ -558,7 +567,7 @@ export default function Results() {
     return facs.map((f) => {
       const byLevel = {};
       for (const r of recs) { if (r.elapsed_s == null) continue; (byLevel[r[f]] ||= []).push(r.elapsed_s); }
-      const rows = Object.entries(byLevel).map(([level, arr]) => ({ level, mean: arr.reduce((a, b) => a + b, 0) / arr.length, n: arr.length })).sort((a, b) => a.level.localeCompare(b.level));
+      const rows = Object.entries(byLevel).map(([level, arr]) => ({ level, mean: arr.reduce((a, b) => a + b, 0) / arr.length, n: arr.length })).sort((a, b) => levelOrder(a.level, b.level));
       return { factor: f, rows };
     }).filter((g) => g.rows.length);
   }, [res]);
@@ -911,7 +920,7 @@ function Energy({ energy }) {
   const treeYears = treeKg > 0 ? gramsTotal / 1000 / treeKg : 0;
 
   const byLevel = Object.entries(energy.by_level || {}).map(([factor, rows]) => ({
-    factor, rows: rows.map((r) => ({ level: r.level, mean: r.mean_wh, n: r.n })),
+    factor, rows: rows.map((r) => ({ level: r.level, mean: r.mean_wh, n: r.n })).sort((a, b) => levelOrder(a.level, b.level)),
   }));
   const lvlMax = Math.max(...byLevel.flatMap((g) => g.rows.map((r) => r.mean)), 1e-9);
   const configs = [...(energy.by_config || [])].sort((a, b) => a.mean_wh - b.mean_wh);
