@@ -91,6 +91,35 @@ def _two_factor_interaction_ratings() -> Ratings:
     return Ratings(rubric=ANSWER_QUALITY_1_5, judge_model="x", factors=["A", "B"], items=items)
 
 
+def test_aliasing_check_without_statsmodels_returns_unknown(monkeypatch):
+    """The aliasing check fit_clmm runs must not raise ImportError where statsmodels is
+    missing (pandas-only installs are supported); it reports 'unknown' (None) instead."""
+    import sys
+
+    import pandas as pd
+
+    from cafe.stats.inferential import _design_rank_deficient
+
+    monkeypatch.setitem(sys.modules, "statsmodels.formula.api", None)  # import -> ImportError
+    df = pd.DataFrame({"verdict": [1.0, 2.0, 3.0, 4.0],
+                       "a": ["x", "x", "y", "y"], "b": ["p", "q", "p", "q"]})
+    assert _design_rank_deficient(df, ["a", "b"], order=2) is None
+    assert _design_rank_deficient(df, ["a", "b"], order=1) is False  # nothing to check
+
+
+@pytest.mark.skipif(shutil.which("Rscript") is None, reason="R not installed")
+def test_fit_clmm_without_statsmodels_returns_result(monkeypatch):
+    """Two factors + the default interactions=2 reach the aliasing check; without statsmodels
+    fit_clmm must still return a CLMMResult (and say the check was skipped), not raise."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "statsmodels.formula.api", None)
+    res = fit_clmm(_two_factor_interaction_ratings())
+    assert res.available or res.reason
+    if res.available:
+        assert any("statsmodels is not installed" in w for w in res.warnings)
+
+
 def test_interactions_detected_and_toggleable():
     r = _two_factor_interaction_ratings()
     two_way = {t["factor"]: t for t in fit_effects(r, interactions=2).terms}

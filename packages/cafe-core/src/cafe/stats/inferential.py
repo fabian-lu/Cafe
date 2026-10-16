@@ -102,15 +102,20 @@ def _safe_factor_frame(df, factors: list[str]):
     return df.rename(columns=safe), safe, {v: k for k, v in safe.items()}
 
 
-def _design_rank_deficient(df, factors: list[str], order: int) -> bool:
+def _design_rank_deficient(df, factors: list[str], order: int) -> bool | None:
     """Whether the fixed-effects design at this interaction ``order`` is rank-deficient —
     true for an **aliased** design (e.g. a fractional factorial below resolution V), where
     interaction columns are collinear and cannot be separated. Used by both the Gaussian
-    and ordinal layers to avoid reporting un-estimable interactions."""
+    and ordinal layers to avoid reporting un-estimable interactions. ``None`` if it can't
+    be checked because statsmodels isn't installed (``fit_clmm`` must still work then)."""
     if order < 2 or len(factors) < 2:
         return False
     import numpy as np
-    import statsmodels.formula.api as smf
+
+    try:
+        import statsmodels.formula.api as smf
+    except ImportError:
+        return None
 
     dfs, safe, _ = _safe_factor_frame(df, factors)
     main = " + ".join(f"C(Q('{safe[c]}'))" for c in factors)

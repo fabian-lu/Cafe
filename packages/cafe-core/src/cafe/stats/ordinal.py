@@ -120,6 +120,14 @@ def fit_clmm(
 
     ``interactions`` is the maximum interaction order (1 = main effects, 2 = also two-way,
     …); R falls back to main effects if the interaction model doesn't converge.
+
+    Returns
+    -------
+    CLMMResult
+        Always returned rather than raised: ``available=False`` with a ``reason`` when R /
+        ``ordinal`` is missing or there is nothing to fit. Aliased interactions (e.g. a
+        fractional factorial below resolution V) are dropped with a note in ``warnings``;
+        without statsmodels that check can't run, and ``warnings`` says so instead.
     """
     import json
     import os
@@ -167,11 +175,18 @@ def fit_clmm(
         # Gaussian layer, so the two reports agree).
         from cafe.stats.inferential import _design_rank_deficient
 
-        if order >= 2 and _design_rank_deficient(df, factors, order):
+        aliased = _design_rank_deficient(df, factors, order) if order >= 2 else False
+        if aliased:
             order = 1
             res.warnings.append(
                 "interactions are aliased in this design (e.g. a fractional factorial below "
                 "resolution V) — they can't be separated, so only main effects are fit"
+            )
+        elif aliased is None:
+            res.warnings.append(
+                "statsmodels is not installed, so the design wasn't checked for aliased "
+                "interactions; for a fractional factorial below resolution V, read the "
+                "interaction terms as confounded (or pass interactions=1)"
             )
         try:
             proc = subprocess.run(
