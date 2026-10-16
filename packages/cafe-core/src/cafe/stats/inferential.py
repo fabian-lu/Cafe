@@ -312,7 +312,10 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
                 res.formula = _display_formula(1)
                 res.warnings.append("interactions not estimable on this data — main effects only")
                 try:
-                    table = sm.stats.anova_lm(smf.ols(_formula(1), dfs).fit(), typ=2)
+                    # Rebind `fit`: the residuals/fitted attached below must come from the
+                    # main-effects model the table reports, not the abandoned interaction fit.
+                    fit = smf.ols(_formula(1), dfs).fit()
+                    table = sm.stats.anova_lm(fit, typ=2)
                 except Exception as exc:  # noqa: BLE001
                     res.warnings.append(f"ANOVA failed ({exc})")
             else:
