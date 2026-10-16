@@ -132,7 +132,7 @@ progress, and explore the full analytics in the browser.
 
 ```bash
 cd apps/web-app
-cp .env.example .env      # add your LLM keys
+cp ../../.env.example ../../.env   # add your LLM keys to the repo-root .env
 docker compose up
 ```
 

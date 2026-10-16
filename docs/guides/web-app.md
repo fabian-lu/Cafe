@@ -26,21 +26,28 @@ and the front-end deps); subsequent starts are fast. Keys come from the repo-roo
 
 ## Your system under test
 
-The app evaluates the pipeline in the repo-root [`techniques/`](https://github.com/fabian-lu/Cafe/tree/main/techniques)
-folder, which is mounted into the backend. It must expose a module-level `pipe` (a
-`cafe.Pipeline`) in `pipeline.py`; the app discovers it at startup and builds the study
-form's factors from its stages and techniques.
+The app evaluates the pipelines in the repo-root [`techniques/`](https://github.com/fabian-lu/Cafe/tree/main/techniques)
+folder, which is mounted into the backend. Every `.py` file there whose module-level
+`pipe` (a `cafe.Pipeline`) has a `@pipe.compose` is one selectable pipeline, named after
+the file; files without a compose are technique libraries. The app discovers them at
+startup, and the study form builds its factors from the chosen pipeline's stages and
+techniques.
 
 To evaluate your own system, drop your techniques into that folder (or point
 `CAFE_TECHNIQUES_DIR` at your own), then hit **Reload** on the Techniques page — no
 restart needed. See [Define your system](define-a-system.md) for how to write the
 pipeline.
 
+Already ran a study in Python? **Import study** on the Studies page takes a
+`cafe.save_evaluation` bundle (or a multi-dimension bundle holding one per rubric) and
+shows it like any other study, without re-running anything.
+
 ## The flow
 
-1. **Techniques** — the discovered pipeline: its stages, the techniques on each, and
-   the factors they become. **Reload** picks up edits to the techniques folder.
-2. **Datasets & Rubrics** — pick the inputs to evaluate on and the scale to grade with
+1. **Techniques** — the discovered pipelines; pick one to see its stages, the
+   techniques on each, and the factors they become. **Reload** picks up edits to the
+   techniques folder.
+2. **Questions & Rubrics** — pick the inputs to evaluate on and the scale to grade with
    (the built-in rubrics, or your own).
 3. **New study** — choose which stages/parameters to vary as factors, the questions, a
    judge and rubric, and the number of replications. CAFE shows the configuration count
@@ -49,7 +56,10 @@ pipeline.
    are resumable.
 5. **Results** — the same analysis as `report()`, in the browser: per-factor
    attribution (F, p, partial η², variance share), effect sizes, per-level marginal
-   means, and the best configuration. (See
+   means, and the best configuration. A study created with extra rubrics (each judges
+   the same answers as its own dimension) gets a dimension selector; extra fields on the
+   questions (2–30 distinct values) become filters that recompute the statistics on that
+   subset; energy is shown when the pipeline's techniques declare it. (See
    [Interpreting results](../interpreting-results.md) for how to read these.)
 6. **Raters** — collect human ratings by name and see judge↔human reliability, the
    platform version of the [human-ratings workflow](human-ratings.md).
