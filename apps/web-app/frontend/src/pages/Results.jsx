@@ -511,7 +511,7 @@ export default function Results() {
     const done = all.filter((s) => s.status === "done");
     setStudies(done);
     if (!sel && done.length) setSel(String(done[0].id));
-  }); }, []);
+  }).catch((e) => setErr(e.message)); }, []);
 
   useEffect(() => {
     if (!sel) return;
