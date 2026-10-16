@@ -10,6 +10,11 @@ Quality is maximized; cost / latency / tokens are minimized. An objective that
 doesn't vary across configs (e.g. cost is 0 for a local model) is dropped from the
 dominance test automatically, so the frontier reflects only what actually trades off.
 
+A cost / tokens / latency value an answer doesn't report is **missing, not zero**: the
+means use only the answers that report it, a configuration reporting it for none of its
+answers gets ``None``, and such an objective is left out of the default dominance test
+(an unreported cost must not make a configuration look free).
+
 Needs the ``stats`` extra (pandas); :meth:`ParetoResult.plot` needs matplotlib.
 """
 
@@ -63,7 +68,18 @@ class ParetoResult:
         """Scatter all configs on two objectives, with the frontier highlighted.
 
         Defaults to quality (y) vs cost (x). Returns the matplotlib Axes.
+
+        Raises
+        ------
+        ValueError
+            If ``x`` or ``y`` is not reported (``None``) for some configuration.
         """
+        unreported = [r["label"] for r in self.rows if r.get(x) is None or r.get(y) is None]
+        if unreported:
+            raise ValueError(
+                f"{x!r}/{y!r} is not reported for {len(unreported)} configuration(s) "
+                f"(e.g. {unreported[0]}); nothing to plot them at"
+            )
         import matplotlib.pyplot as plt
 
         if ax is None:
@@ -134,6 +150,8 @@ def _quality_by_config(ratings: "Ratings") -> tuple[dict[str, list[float]], dict
 
 
 def _resources_by_config(answers: "Results") -> dict[str, dict[str, list[float]]]:
+    """Per-configuration latency / cost / tokens samples from the successful answers. A value
+    an answer doesn't report is skipped, not counted as 0 (it would drag the mean down)."""
     res: dict[str, dict[str, list[float]]] = defaultdict(
         lambda: {"latency": [], "cost": [], "tokens": []}
     )
@@ -144,8 +162,10 @@ def _resources_by_config(answers: "Results") -> dict[str, dict[str, list[float]]
         md = o.metadata or {}
         if o.elapsed_s is not None:
             res[label]["latency"].append(float(o.elapsed_s))
-        res[label]["cost"].append(float(md.get("cost_usd", 0.0) or 0.0))
-        res[label]["tokens"].append(float(md.get("tokens", 0.0) or 0.0))
+        if md.get("cost_usd") is not None:
+            res[label]["cost"].append(float(md["cost_usd"]))
+        if md.get("tokens") is not None:
+            res[label]["tokens"].append(float(md["tokens"]))
     return res
 
 
@@ -159,6 +179,20 @@ def pareto(
     Pass the :class:`~cafe.evaluation.Evaluation` returned by ``cafe.evaluate``.
     By default the objectives are quality plus whichever of cost / latency / tokens
     actually vary across configurations.
+
+    Returns
+    -------
+    ParetoResult
+        One row per configuration. ``latency`` / ``cost`` / ``tokens`` are means over the
+        answers that report them, or ``None`` if none of the configuration's answers do;
+        an objective that is ``None`` for any configuration is left out of the default
+        objectives.
+
+    Raises
+    ------
+    ValueError
+        If ``result`` has no answers/ratings, or an explicitly requested resource objective
+        is not reported for every configuration.
     """
     import statistics
 
@@ -170,6 +204,9 @@ def pareto(
     quality, configs = _quality_by_config(ratings)
     resources = _resources_by_config(answers)
 
+    def _mean(values: list[float], ndigits: int) -> float | None:
+        return round(statistics.fmean(values), ndigits) if values else None  # None = unreported
+
     rows: list[dict[str, Any]] = []
     for label, cfg in configs.items():
         r = resources.get(label, {"latency": [], "cost": [], "tokens": []})
@@ -177,18 +214,27 @@ def pareto(
             "config": cfg,
             "label": label,
             "quality": round(statistics.fmean(quality[label]), 4) if quality[label] else 0.0,
-            "latency": round(statistics.fmean(r["latency"]), 4) if r["latency"] else 0.0,
-            "cost": round(statistics.fmean(r["cost"]), 6) if r["cost"] else 0.0,
-            "tokens": round(statistics.fmean(r["tokens"]), 1) if r["tokens"] else 0.0,
+            "latency": _mean(r["latency"], 4),
+            "cost": _mean(r["cost"], 6),
+            "tokens": _mean(r["tokens"], 1),
         })
 
-    # Choose objectives: quality always; resource objectives only if they vary.
+    # Choose objectives: quality always; a resource objective only if every configuration
+    # reports it (an unknown value can't be compared) and it varies.
     if objectives is None:
         objectives = ["quality"]
         for obj in ("cost", "latency", "tokens"):
             values = {r[obj] for r in rows}
-            if len(values) > 1:
+            if None not in values and len(values) > 1:
                 objectives.append(obj)
+    else:
+        for obj in objectives:
+            unreported = [r["label"] for r in rows if obj in r and r[obj] is None]
+            if unreported:
+                raise ValueError(
+                    f"objective {obj!r} is not reported for {len(unreported)} configuration(s) "
+                    f"(e.g. {unreported[0]}); it can't be compared — drop it from objectives"
+                )
 
     for r in rows:
         r["pareto_optimal"] = not any(
