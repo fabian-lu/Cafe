@@ -317,8 +317,11 @@ function Distribution({ records, rubric }) {
   const counts = useMemo(() => {
     const c = {}; for (const r of records) if (r.verdict != null) c[r.verdict] = (c[r.verdict] || 0) + 1; return c;
   }, [records]);
-  const levels = rubric?.levels?.length ? rubric.levels
-    : [...new Set(records.map((r) => r.verdict).filter((v) => v != null))].sort((a, b) => a - b).map((v) => ({ value: v, label: "" }));
+  // rubric anchors + every observed verdict: a numeric rubric's levels are only anchors (any
+  // integer in range is valid), and a verdict without a bar would still count towards the total
+  const anchors = rubric?.levels || [];
+  const levels = [...new Set([...anchors.map((l) => l.value), ...records.map((r) => r.verdict).filter((v) => v != null)])]
+    .sort((a, b) => a - b).map((v) => anchors.find((l) => l.value === v) || { value: v, label: "" });
   const total = Object.values(counts).reduce((a, b) => a + b, 0) || 1;
   const max = Math.max(...levels.map((l) => counts[l.value] || 0), 1);
   const H = 200;
