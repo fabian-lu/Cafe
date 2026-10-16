@@ -78,7 +78,8 @@ result <- tryCatch({
   })
 
   list(available = TRUE, n_obs = nrow(d), formula = deparse(build_formula(used_order)),
-       logLik = as.numeric(logLik(m)), coefficients = coeffs)
+       logLik = as.numeric(logLik(m)), coefficients = coeffs,
+       used_order = used_order)   # < the requested order when interactions fell back
 }, error = function(e) list(available = FALSE, error = conditionMessage(e)))
 
 emit(result)

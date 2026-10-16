@@ -66,7 +66,7 @@ class CLMMResult:
     error: str | None = None         # R-side error message, if any
     alpha: float = 0.05
     n_obs: int | None = None
-    formula: str | None = None
+    formula: str | None = None       # the fitted model (main effects only after a fallback)
     log_lik: float | None = None
     coefficients: list[dict[str, Any]] = field(default_factory=list)  # term, estimate, std_error, z, p, factor, significant
     thresholds: list[dict[str, Any]] = field(default_factory=list)
@@ -203,6 +203,8 @@ def fit_clmm(
     res.available = True
     res.n_obs = payload.get("n_obs")
     res.formula = payload.get("formula")
+    if payload.get("used_order", order) < order:  # clmm.R refit main effects only
+        res.warnings.append("interactions not estimable on this data — main effects only")
     res.log_lik = payload.get("logLik")
     res.thresholds = payload.get("thresholds", [])
     coeffs = payload.get("coefficients", [])
