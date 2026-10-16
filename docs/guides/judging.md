@@ -50,6 +50,13 @@ Grades must be whole numbers on the rubric's scale. A fractional grade (`GRADE: 
 never rounded or truncated — so it shows up in `result.ratings.failures()` instead of
 quietly shifting the scores.
 
+The `GRADE:` line is read leniently in form but strictly in value. Markdown emphasis
+(`**GRADE:** 4`, `GRADE: **4**`) and the delimiters `<4>`, `[4]` and `[[4]]` are
+accepted. A decimal comma counts as a decimal point, so `GRADE: 4,5` is a fractional grade
+and an error. A grade written "out of" something (`GRADE: 4/5`, `4 out of 5`) counts only
+when the denominator is the rubric's maximum. `GRADE: 4/10` on a 1–5 rubric is an error,
+never rescaled and never read as 4.
+
 ## Rubrics
 
 A rubric fixes the **scale** answers are scored on — and the scale decides which

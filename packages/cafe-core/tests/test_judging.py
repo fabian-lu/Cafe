@@ -92,6 +92,32 @@ def test_fractional_grades_are_rejected_not_truncated():
     assert (v, n) == (4.5, None)
 
 
+def test_parse_verdict_markdown_decimal_comma_and_out_of():
+    parse, r = cafe.judging.parse_verdict, cafe.ANSWER_QUALITY_1_5
+    r010 = cafe.rubrics.HELPFULNESS_0_10
+    # Markdown emphasis around the marker or the number, and `[[n]]` after `GRADE:`
+    for raw in ("Fine.\n**GRADE:** 4", "Fine.\n**GRADE: 4**", "Fine.\n**Grade**: 4",
+                "Fine.\nGRADE: **4**", "Fine.\n*GRADE:* 4", "Fine.\n__GRADE:__ 4",
+                "Fine.\nGRADE: [[4]]", "Fine.\nGRADE: 4, mostly right"):
+        assert parse(raw, r)[:2] == (4, 4), raw
+    assert parse("I'd say GRADE: 3 at first, but\nGRADE: [[4]]", r)[:2] == (4, 4)
+    # a decimal comma is a fractional grade: rejected, never truncated to 4
+    for raw in ("Mostly.\nGRADE: 4,5", "Mostly.\n**GRADE:** 4,5", "Mostly. [[4,5]]"):
+        value, numeric, why = parse(raw, r)
+        assert (value, numeric) == (4.5, None) and "not on scale" in why, raw
+    assert parse("ok\nGRADE: 4,0", r)[:2] == (4, 4)
+    # "out of" counts only when the denominator is the rubric's maximum
+    for raw in ("Fine.\nGRADE: 4/5", "Fine.\nGRADE: 4 / 5", "Fine.\nGRADE: 4 out of 5",
+                "Fine.\n**GRADE:** 4/5", "Fine.\nGRADE: **4**/5"):
+        assert parse(raw, r) == (4, 4, "Fine."), raw
+    assert parse("ok\nGRADE: 7/10", r010)[:2] == (7, 7)
+    for raw, rubric, written in (("ok\nGRADE: 4/10", r, "4/10"), ("ok\nGRADE: 3/5", r010, "3/5"),
+                                 ("ok\nGRADE: 4 out of 10", r, "4/10")):
+        value, numeric, why = parse(raw, rubric)
+        assert (value, numeric) == (written, None) and "not on scale" in why, raw
+    assert parse("GRADE: 4\nOut of fairness, I note the tone.", r)[:2] == (4, 4)
+
+
 def test_preview_includes_system_and_user():
     j = cafe.LLMJudge(model="m", system_prompt="You are terse.")
     out = j.preview(cafe.ANSWER_QUALITY_1_5, "Q?", "A.", reference="ref")
