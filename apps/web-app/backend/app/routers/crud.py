@@ -22,6 +22,52 @@ async def _get_or_404(db: AsyncSession, model, id_: int):
     return obj
 
 
+# ── Validation by cafe-core ──────────────────────────────────────────────────
+# A definition is checked by building from it the cafe-core objects a run builds (with the
+# runner's own builders), so whatever cafe-core rejects is rejected when the definition is saved,
+# with cafe-core's message, instead of when the study runs. The rules are cafe-core's alone: a
+# check added there applies here without a backend change.
+_BUILD_ERRORS = (ValueError, TypeError, KeyError, IndexError, AttributeError)
+
+
+def _message(exc: Exception) -> str:
+    return str(exc) if isinstance(exc, ValueError) else f"{type(exc).__name__}: {exc}"
+
+
+def _rubric_error(row: models.Rubric) -> str | None:
+    """Why cafe-core rejects this rubric, or ``None``. Builds the ``cafe.Rubric`` and the
+    ``cafe.LLMJudge`` for its preset, and renders the judge prompt once: a prompt template that
+    cannot be rendered would otherwise fail only when a run starts judging, after every answer
+    was generated (and paid for)."""
+    import cafe
+
+    from app.runner import _build_rubric
+
+    try:
+        rubric = _build_rubric(row)
+        judge = cafe.LLMJudge(model="validation", preset=row.preset or "reference_qa",
+                              system_prompt=row.system_prompt)
+        judge.render_messages(rubric, "question", "answer")
+    except _BUILD_ERRORS as exc:  # cafe-core's ValueError, or e.g. str.format's KeyError
+        return _message(exc)
+    return None
+
+
+def _study_error(factors: list[dict], replications: int) -> str | None:
+    """Why cafe-core rejects these factors / this replication count, or ``None`` — checked by
+    building the ``cafe.Factor`` list and a ``cafe.Study`` the way a run does."""
+    import cafe
+
+    from app.runner import _build_factors
+
+    try:
+        cafe.Study(name="validation", system=None, factors=_build_factors(factors),
+                   replications=replications)
+    except _BUILD_ERRORS as exc:
+        return _message(exc)
+    return None
+
+
 # ── Rubrics ──────────────────────────────────────────────────────────────────
 @router.get("/rubrics", response_model=list[schemas.RubricOut])
 async def list_rubrics(db: AsyncSession = Depends(get_session)):
@@ -35,7 +81,17 @@ async def get_rubric(id_: int, db: AsyncSession = Depends(get_session)):
 
 @router.post("/rubrics", response_model=schemas.RubricOut, status_code=201)
 async def create_rubric(body: schemas.RubricIn, db: AsyncSession = Depends(get_session)):
+    """Save a rubric.
+
+    Raises
+    ------
+    HTTPException
+        422 if cafe-core rejects the rubric (levels, scale type, preset, or a prompt template
+        it cannot render); the detail carries cafe-core's message.
+    """
     obj = models.Rubric(**body.model_dump())
+    if (err := _rubric_error(obj)) is not None:
+        raise HTTPException(422, f"invalid rubric: {err}")
     db.add(obj)
     await db.commit()
     await db.refresh(obj)
@@ -99,6 +155,16 @@ async def get_study(id_: int, db: AsyncSession = Depends(get_session)):
 
 @router.post("/studies", response_model=schemas.StudyOut, status_code=201)
 async def create_study(body: schemas.StudyIn, db: AsyncSession = Depends(get_session)):
+    """Save a study as a draft.
+
+    Raises
+    ------
+    HTTPException
+        422 if cafe-core rejects its factors or replication count; the detail carries
+        cafe-core's message.
+    """
+    if (err := _study_error(body.factors, body.replications)) is not None:
+        raise HTTPException(422, f"invalid study: {err}")
     obj = models.Study(**body.model_dump(), status="draft", progress=0)
     db.add(obj)
     await db.commit()
@@ -168,6 +234,13 @@ async def import_study(request: Request, attach_to: int | None = None,
 
     ``?attach_to=<study_id>`` adds the bundle's dimension(s) to an existing study instead of
     creating a new one (rarely needed — e.g. re-judging an old study on a new rubric later).
+
+    Raises
+    ------
+    HTTPException
+        400 if the body is not a valid bundle — including a rubric or factors that cafe-core
+        rejects (the imported rubrics can be reused by new studies); 404 for an unknown
+        ``attach_to`` study; 409 for a dimension that study already has.
     """
     import cafe
 
@@ -195,6 +268,8 @@ async def import_study(request: Request, attach_to: int | None = None,
         if ev.ratings is None:
             raise HTTPException(400, "an evaluation in this bundle has no judge ratings — "
                                      "nothing to attribute")
+        if (err := _rubric_error(_rubric_row(ev))) is not None:
+            raise HTTPException(400, f"not a valid cafe evaluation bundle: {err}")
         evs.append(ev)
     payloads = [_results_payload(ev) for ev in evs]
 
@@ -235,6 +310,8 @@ async def import_study(request: Request, attach_to: int | None = None,
                 levels.append(v)
         factors.append({"name": name, "levels": levels})
     reps = max((o.rep for o in first.answers.observations), default=0) + 1
+    if (err := _study_error(factors, reps)) is not None:
+        raise HTTPException(400, f"not a valid cafe evaluation bundle: {err}")
 
     study = models.Study(
         name=name_override or first.study_name or "imported study",

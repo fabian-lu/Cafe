@@ -41,7 +41,10 @@ pipeline.
 1. **Techniques** — the discovered pipeline: its stages, the techniques on each, and
    the factors they become. **Reload** picks up edits to the techniques folder.
 2. **Datasets & Rubrics** — pick the inputs to evaluate on and the scale to grade with
-   (the built-in rubrics, or your own).
+   (the built-in rubrics, or your own). Rubrics and studies are checked by cafe-core when
+   you save them: a definition it would reject — say, a custom judge prompt with a stray
+   `{` (write `{{` / `}}` for a literal brace) — is refused right away with cafe-core's
+   message, instead of failing when the study runs.
 3. **New study** — choose which stages/parameters to vary as factors, the questions, a
    judge and rubric, and the number of replications. CAFE shows the configuration count
    and a cost/time estimate before you commit.
