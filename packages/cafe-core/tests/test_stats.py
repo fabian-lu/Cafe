@@ -238,6 +238,80 @@ def test_fit_logistic_rejects_non_binary_rubric():
     assert "unavailable" in log.show()
 
 
+def _canned_glmer(monkeypatch, optimizer, estimate=0.4):
+    """fit_logistic(backend="glmer") on a canned glmm.R payload reporting ``optimizer``."""
+    import json
+    import subprocess
+
+    from cafe import fit_logistic
+    from cafe.stats import logistic
+
+    payload = {"available": True, "n_obs": 16, "logLik": -9.0, "optimizer": optimizer,
+               "formula": "verdict ~ (1 | input_id) + method",
+               "coefficients": [{"term": "methodgood", "estimate": estimate, "std_error": 0.0014,
+                                 "z": 278.3, "p": 0.0}]}
+    monkeypatch.setattr(logistic, "check_glmer", lambda: (True, "ok"))
+    monkeypatch.setattr(logistic.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(
+        a[0], 0, stdout=json.dumps(payload), stderr=""))
+    return fit_logistic(_binary_ratings([1, 1, 1, 0, 1, 1, 0, 1], [0, 1, 0, 0, 1, 0, 0, 0]),
+                        backend="glmer")
+
+
+def test_glmer_withholds_pvalues_when_lme4_reports_no_convergence(monkeypatch):
+    """glmm.R silences glmer's warnings, so lme4's "Model failed to converge" verdict must come
+    through the payload; such a fit's SEs can be ~100x too small (p ≈ 0)."""
+    grad = ("Model failed to converge with max|grad| = 0.0492286 (tol = 0.002, component 1)\n"
+            "  See ?lme4::convergence and ?lme4::troubleshooting.")
+    log = _canned_glmer(monkeypatch, {"convergence": 0, "message": "ok", "lme4_code": [-1],
+                                      "lme4_messages": [grad]})
+    assert log.available and log.converged is False
+    t = log.terms[0]
+    assert t["p"] is None and t["significant"] is False and log.significant_factors == []
+    assert t["coef"] == pytest.approx(0.4) and t["odds_ratio"] is not None
+    note = next(w for w in log.warnings if "did not converge" in w)
+    assert "max|grad| = 0.0492286" in note and "See ?lme4" not in note
+    text = log.show()
+    assert "did not converge" in text and "near-degenerate" not in text and "Signif." not in text
+
+    # a boundary (singular) fit or a clean one is converged: p-values stay
+    for msgs in (["boundary (singular) fit: see help('isSingular')"], []):
+        ok = _canned_glmer(monkeypatch, {"convergence": 0, "message": "ok", "lme4_code": [],
+                                         "lme4_messages": msgs})
+        assert ok.converged is True and ok.terms[0]["p"] == 0.0 and not ok.warnings
+
+    # separated and not converged: both notes, the separation one still names the cause
+    sep = _canned_glmer(monkeypatch, {"convergence": 0, "message": "ok", "lme4_code": [-4],
+                                      "lme4_messages": ["unable to evaluate scaled gradient"]},
+                        estimate=-79.3)
+    assert sep.converged is False and "separates pass from fail" in sep.show()
+
+
+def test_glmer_no_spurious_significance_from_unconverged_fit():
+    """30 questions; B has no effect. On this data lme4 reports "Model failed to converge
+    with max|grad| = 0.049" (lme4 2.0) and SE 0.0014 instead of ~0.5, so p ≈ 0. Whatever
+    lme4 does on another version, B must not come out significant."""
+    from cafe import fit_logistic
+    from cafe.rubrics import CORRECT_PASS_FAIL
+    from cafe.stats.logistic import check_glmer
+
+    if not check_glmer()[0]:
+        pytest.skip("R + lme4 not installed")
+    passes = {("a1", "b1"): "110000111100101010111011100101",
+              ("a2", "b1"): "110001111111001000111011000111",
+              ("a1", "b2"): "111001101010001010100011100111",
+              ("a2", "b2"): "110000111111101010100111100101"}
+    items = [Rating(obs_key=f"{a}{b}{q}", config={"A": a, "B": b}, input_id=f"q{q + 1}", rep=0,
+                    judge_rep=0, value=int(v), value_numeric=int(v))
+             for (a, b), row in passes.items() for q, v in enumerate(row)]
+    r = Ratings(rubric=CORRECT_PASS_FAIL, judge_model="x", factors=["A", "B"], items=items)
+    log = fit_logistic(r, interactions=1, backend="glmer")
+    assert log.available and "B" not in log.significant_factors
+    assert log.converged is not None                      # glmm.R reports lme4's verdict
+    if log.converged is False:
+        assert all(t["p"] is None for t in log.terms)
+        assert any("did not converge" in w for w in log.warnings)
+
+
 def test_fit_logistic_suppresses_pvalues_under_separation():
     from cafe import fit_logistic
 
