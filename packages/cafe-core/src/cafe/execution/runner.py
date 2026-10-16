@@ -199,16 +199,26 @@ def estimate(results: Results, total_cells: int) -> dict[str, Any]:
 
     Uses mean per-cell time and any ``cost_usd`` metadata observed so far,
     extrapolated to ``total_cells``. Conservative and meant for the preflight.
+
+    Returns
+    -------
+    dict
+        ``sampled_cells``, ``total_cells``, ``labels``, and the extrapolated
+        ``est_total_compute_s`` / ``est_total_cost_usd``. An estimate is ``None`` only
+        when nothing was measured (no successful cell with a time, or none reporting a
+        ``cost_usd``); a measured mean of 0.0 (e.g. a free, cached or local model)
+        gives an estimate of 0.0.
     """
     oks = [o for o in results.observations if o.ok]
     times = [o.elapsed_s for o in oks if o.elapsed_s is not None]
-    costs = [o.metadata.get("cost_usd") for o in oks if "cost_usd" in o.metadata]
+    # A ``cost_usd`` of None means "not reported", like a missing key; 0.0 is a real cost.
+    costs = [o.metadata["cost_usd"] for o in oks if o.metadata.get("cost_usd") is not None]
     mean_t = sum(times) / len(times) if times else None
     mean_c = sum(costs) / len(costs) if costs else None
     return {
         "sampled_cells": len(oks),
         "total_cells": total_cells,
-        "est_total_compute_s": round(mean_t * total_cells, 2) if mean_t else None,
-        "est_total_cost_usd": round(mean_c * total_cells, 4) if mean_c else None,
+        "est_total_compute_s": round(mean_t * total_cells, 2) if mean_t is not None else None,
+        "est_total_cost_usd": round(mean_c * total_cells, 4) if mean_c is not None else None,
         "labels": [config_label(o.config) for o in oks[:1]],
     }
