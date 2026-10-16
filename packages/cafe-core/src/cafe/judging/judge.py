@@ -27,7 +27,15 @@ class Judge(Protocol):
 
 
 class LLMJudge:
-    """Scores answers with an LLM (any provider, via a LiteLLM model string)."""
+    """Scores answers with an LLM (any provider, via a LiteLLM model string).
+
+    Raises
+    ------
+    ValueError
+        If ``preset`` or ``structured`` is not a supported value, or ``prompt_template``
+        cannot be rendered (an unknown placeholder or an unescaped literal brace — write a
+        literal brace as ``{{`` / ``}}``).
+    """
 
     #: System message framing the judge; override per instance if you like.
     default_system = "You are a strict, fair, impartial evaluator."
@@ -59,8 +67,9 @@ class LLMJudge:
         self.preset = preset
         self.system_prompt = system_prompt or self.default_system
         #: Full override of the user prompt (placeholders: {instruction} {question}
-        #: {answer} {reference} {scale} {grade} {min} {max}). Wins over the rubric's
-        #: template and the preset. Must still elicit a final ``GRADE: <int>`` line.
+        #: {answer} {reference} {scale} {grade} {min} {max}; double any literal brace).
+        #: Wins over the rubric's template and the preset. Must still elicit a final
+        #: ``GRADE: <int>`` line.
         self.prompt_template = prompt_template
         if prompt_template is not None:
             from cafe.judging.prompts import check_template_placeholders

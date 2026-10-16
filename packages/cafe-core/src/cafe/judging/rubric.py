@@ -41,6 +41,8 @@ class Rubric:
     Set ``prompt_template`` to take full control of the judge prompt (placeholders:
     ``{instruction}``, ``{question}``, ``{answer}``, ``{reference}``, ``{scale}``,
     ``{min}``, ``{max}``, ``{grade}`` — the scale-aware "allowed final grade" hint).
+    Any other brace must be doubled (a JSON example is written ``{{"grade": 4}}``): a
+    template that can't be rendered raises ``ValueError`` when the rubric is created.
     Leave it ``None`` to use the cited default in :mod:`cafe.judging`.
     """
 

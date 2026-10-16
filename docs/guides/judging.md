@@ -75,6 +75,13 @@ tone = cafe.Rubric(
 )
 ```
 
+To replace the preset's wording entirely, give the rubric (or, taking precedence, the
+judge) a `prompt_template` with the placeholders `{instruction} {question} {answer}
+{reference} {scale} {grade} {min} {max}`. Any other brace must be doubled, so a JSON
+example in the prompt is written `{{"grade": 4}}`. A template that cannot be rendered —
+an unknown placeholder or a single brace — raises a `ValueError` as soon as the rubric or
+judge is created, before any answers are generated.
+
 ## Judge self-consistency
 
 An LLM judge can score the *same* answer differently on repeat calls. Set

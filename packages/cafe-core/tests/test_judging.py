@@ -26,6 +26,32 @@ def test_judge_prompt_template_wins_over_rubric_and_preset():
     assert "GRADE: <exactly one of: 1, 2, 3, 4, 5>" in user
 
 
+@pytest.mark.parametrize("template", [
+    'Q: {question} A: {answer} S: {scale} Reply as JSON like {"grade": {grade}}',
+    "{questions} {answer} {scale} GRADE: <{grade}>",
+    "{question} {answer} {scale} GRADE: <{grade}> }",
+    "{question} {answer} {scale} {} GRADE: <{grade}>",
+], ids=["json-example", "typo-placeholder", "stray-brace", "positional"])
+def test_unrenderable_template_is_rejected_when_set(template):
+    # used to pass construction and raise a bare KeyError/ValueError at the first judge call
+    with pytest.raises(ValueError, match="judge prompt_template cannot be rendered.*doubled"):
+        cafe.LLMJudge(model="m", prompt_template=template)
+    with pytest.raises(ValueError, match="rubric 'r' prompt_template cannot be rendered"):
+        cafe.Rubric(name="r", levels=cafe.ANSWER_QUALITY_1_5.levels, prompt_template=template)
+
+
+def test_escaped_braces_render_literally_and_late_templates_fail_clearly():
+    tpl = 'Q: {question} A: {answer} S: {scale} Reply as JSON like {{"grade": <{grade}>}}'
+    user = cafe.LLMJudge(model="m", prompt_template=tpl).render_messages(
+        cafe.ANSWER_QUALITY_1_5, "Q?", "A.")[1]["content"]
+    assert user.endswith('Reply as JSON like {"grade": <exactly one of: 1, 2, 3, 4, 5>}')
+    # a template assigned after construction skips the check; rendering still explains it
+    judge = cafe.LLMJudge(model="m")
+    judge.prompt_template = tpl.replace("{{", "{").replace("}}", "}")
+    with pytest.raises(ValueError, match="judge prompt template cannot be rendered"):
+        judge.render_messages(cafe.ANSWER_QUALITY_1_5, "Q?", "A.")
+
+
 def test_builtin_rubrics_are_valid():
     assert set(cafe.rubrics.ALL) == {
         "answer_quality_1_5", "faithfulness_1_5", "relevance_1_5",
