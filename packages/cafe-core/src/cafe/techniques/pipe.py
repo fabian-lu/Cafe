@@ -27,6 +27,7 @@ import inspect
 from typing import Any, Awaitable, Callable
 
 from cafe.study import Factor
+from cafe.system import normalize_output
 from cafe.techniques.context import Context
 from cafe.techniques.registry import TechniqueSpec
 
@@ -92,7 +93,10 @@ class Pipeline:
         return self
 
     def compose(self, fn: ComposeFn) -> ComposeFn:
-        """Mark ``fn(config, item, ctx)`` as this pipeline's system function (decorator)."""
+        """Mark ``fn(config, item, ctx)`` as this pipeline's system function (decorator).
+
+        ``fn`` returns the answer, or ``{"output": answer, "cost_usd": ..., ...}`` to report
+        a cost spent outside any stage (see :meth:`run`)."""
         self._compose = fn
         self.name = getattr(fn, "__name__", "pipeline")
         return fn
@@ -169,19 +173,38 @@ class Pipeline:
     # ── act as the Study's system (the System protocol: async run(config, item)) ─
     async def run(self, config: dict[str, Any], item: Any) -> dict[str, Any]:
         """Execute the compose function for one (config, item), returning the answer plus
-        per-stage trace + total cost/tokens as metadata (same contract as any system)."""
+        per-stage trace + total cost/tokens as metadata (same contract as any system).
+
+        Returns
+        -------
+        dict
+            ``{"output", "cost_usd", "tokens", "trace"}``, plus ``"energy_wh"`` once energy
+            was declared. The totals are summed over the stages that ran, plus any
+            ``cost_usd`` / ``tokens`` / ``energy_wh`` the compose function reports itself by
+            returning ``{"output": answer, "cost_usd": ..., ...}`` — spent outside any
+            stage, so not in ``trace``. Other keys of that dict are kept as metadata;
+            ``trace`` is always the pipeline's own.
+        """
         if self._compose is None:
             raise ValueError("this Pipeline has no compose function — decorate one with @pipe.compose")
         ctx = Context(self._techniques, config)
         result = await self._compose(config, item, ctx)
-        output = result["output"] if isinstance(result, dict) and "output" in result else result
+        # The compose fn may return the answer or, like any system, an {"output": ...} dict;
+        # its cost/tokens/energy add to the run's totals (not to any stage's step).
+        output, extra = normalize_output(result)
+        extra.pop("trace", None)
+        cost = ctx.total_cost + float(extra.pop("cost_usd", 0.0) or 0.0)
+        tokens = ctx.total_tokens + int(extra.pop("tokens", 0) or 0)
+        energy = extra.pop("energy_wh", None)
         out = {
             "output": output,
-            "cost_usd": round(ctx.total_cost, 6),
-            "tokens": ctx.total_tokens,
+            **extra,
+            "cost_usd": round(cost, 6),
+            "tokens": tokens,
             "trace": ctx.trace,
         }
-        # Energy is opt-in: the key exists only if a technique that ran declared it.
-        if ctx.energy_declared:
-            out["energy_wh"] = round(ctx.total_energy_wh, 6)
+        # Energy is opt-in: the key exists only if a technique that ran (or the compose
+        # fn) declared it.
+        if ctx.energy_declared or energy is not None:
+            out["energy_wh"] = round(ctx.total_energy_wh + float(energy or 0.0), 6)
         return out
