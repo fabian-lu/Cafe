@@ -230,6 +230,59 @@ def test_fit_logistic_glmer_backend_when_available():
     assert term["p"] is not None
 
 
+_FIVE_FACTORS = ["model", "prompt", "retrieval", "reranker", "chunking"]
+_FIVE_FACTOR_FORMULA = "verdict ~ (1 | input_id) + model + prompt + retrieval + reranker + chunking"
+
+
+def _five_factor_ratings() -> Ratings:
+    """Five two-level factors: the main-effects formula is longer than R deparse()'s
+    60-character line width."""
+    import itertools
+    import random
+
+    rng = random.Random(0)
+    items = []
+    for q in range(6):
+        hard = rng.gauss(0, 0.5)
+        for cfg in itertools.product(("a", "b"), repeat=len(_FIVE_FACTORS)):
+            v = max(1, min(5, round(3 + (1.0 if cfg[0] == "b" else -0.5) + hard + rng.gauss(0, 1))))
+            items.append(Rating(obs_key=f"{q}{''.join(cfg)}", config=dict(zip(_FIVE_FACTORS, cfg)),
+                                input_id=f"q{q}", rep=0, judge_rep=0, value=v, value_numeric=v))
+    return Ratings(rubric=ANSWER_QUALITY_1_5, judge_model="x", factors=_FIVE_FACTORS, items=items)
+
+
+def test_clmm_long_formula_is_one_string():
+    from cafe.stats.ordinal import check_r
+
+    if not check_r()[0]:
+        pytest.skip("R + ordinal not installed")
+    res = fit_clmm(_five_factor_ratings(), interactions=1)
+    assert res.available, res.reason
+    assert res.formula == _FIVE_FACTOR_FORMULA          # not a list of deparse() lines
+    assert f"ordinal CLMM — {_FIVE_FACTOR_FORMULA}   (n=" in res.show()
+
+
+def test_glmm_script_emits_long_formula_as_one_string(tmp_path):
+    import json
+    import subprocess
+    from importlib.resources import files
+
+    from cafe.stats._frame import analysis_frame
+    from cafe.stats.logistic import check_glmer
+
+    if not check_glmer()[0]:
+        pytest.skip("R + lme4 not installed")
+    df = analysis_frame(_five_factor_ratings())
+    df["verdict"] = (df["verdict"] >= 3).astype(int)
+    csv = tmp_path / "d.csv"
+    df[["verdict", "input_id", *_FIVE_FACTORS]].to_csv(csv, index=False)
+    proc = subprocess.run(["Rscript", str(files("cafe.stats").joinpath("glmm.R")), str(csv),
+                           ",".join(_FIVE_FACTORS), "1"], capture_output=True, text=True, timeout=120)
+    payload = json.loads(proc.stdout)
+    assert payload["available"], payload
+    assert payload["formula"] == _FIVE_FACTOR_FORMULA
+
+
 def test_fit_logistic_rejects_non_binary_rubric():
     from cafe import fit_logistic
 

@@ -73,7 +73,9 @@ result <- tryCatch({
     list(term = rn, estimate = unname(ct[rn, 1]))
   })
 
-  list(available = TRUE, n_obs = nrow(d), formula = deparse(form),
+  # deparse() splits long formulas into several strings (a JSON array); join them into one
+  formula <- paste(trimws(deparse(form, width.cutoff = 500L)), collapse = " ")
+  list(available = TRUE, n_obs = nrow(d), formula = formula,
        logLik = as.numeric(logLik(m)), coefficients = coeffs, thresholds = thresholds)
 }, error = function(e) list(available = FALSE, error = conditionMessage(e)))
 

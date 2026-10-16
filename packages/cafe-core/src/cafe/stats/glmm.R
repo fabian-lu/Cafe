@@ -77,7 +77,9 @@ result <- tryCatch({
          z = ct[i, 3], p = ct[i, 4])
   })
 
-  list(available = TRUE, n_obs = nrow(d), formula = deparse(build_formula(used_order)),
+  # deparse() splits long formulas into several strings (a JSON array); join them into one
+  formula <- paste(trimws(deparse(build_formula(used_order), width.cutoff = 500L)), collapse = " ")
+  list(available = TRUE, n_obs = nrow(d), formula = formula,
        logLik = as.numeric(logLik(m)), coefficients = coeffs)
 }, error = function(e) list(available = FALSE, error = conditionMessage(e)))
 
