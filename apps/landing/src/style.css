@@ -208,6 +208,10 @@ section { position: relative; z-index: 1; }
   border: 1px solid var(--outline-variant);
   color: var(--on-surface);
   padding: 8px;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -1015,7 +1019,12 @@ section { position: relative; z-index: 1; }
 
   .nav-inner { gap: 12px; }
   .nav-right { gap: 12px; }
-  .nav-cta { padding: 7px 10px; font-size: 11px; }
+  .nav-cta { padding: 7px 10px; font-size: 11px; min-height: 44px; }
+
+  /* 44px tap targets for the small text links without moving anything: grow the hit area with
+     padding and cancel it with an equal negative margin */
+  .footer-link,
+  .breadcrumb a { padding: 13px 8px; margin: -13px -8px; }
 
   .hero { padding-top: 110px; padding-bottom: 64px; }
   .hero-title { font-size: 34px; }
