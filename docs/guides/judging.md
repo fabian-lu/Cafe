@@ -45,6 +45,11 @@ sit behind every score, so you can audit or debug any grade. CAFE also asks for 
 structured (JSON) verdict where the model supports it and falls back to a `GRADE: <n>`
 line otherwise (`structured="auto"`, the default; force with `True`/`False`).
 
+Grades must be whole numbers on the rubric's scale. A fractional grade (`GRADE: 4.5`, or
+`"grade": 4.5` in a JSON verdict) is recorded as an error rating, like an off-scale one —
+never rounded or truncated — so it shows up in `result.ratings.failures()` instead of
+quietly shifting the scores.
+
 ## Rubrics
 
 A rubric fixes the **scale** answers are scored on — and the scale decides which

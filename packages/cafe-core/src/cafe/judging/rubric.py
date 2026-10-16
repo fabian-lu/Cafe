@@ -65,7 +65,23 @@ class Rubric:
 
         For ``numeric`` scales any integer within ``[min_value, max_value]`` is valid
         (the levels are just anchors); for ordinal/binary the value must match a defined
-        level exactly."""
+        level exactly.
+
+        Parameters
+        ----------
+        value:
+            The judge's raw grade — an ``int``, a ``float`` (e.g. from a JSON verdict) or
+            a numeric string.
+
+        Returns
+        -------
+        int or None
+            The scale point, or ``None`` if ``value`` is not on the scale. Grades must be
+            whole numbers: a fractional float such as ``4.5`` (or ``inf``/``nan``) returns
+            ``None`` — it is never truncated to 4. An integral float (``4.0``) maps to 4.
+        """
+        if isinstance(value, float) and not value.is_integer():
+            return None
         try:
             iv = int(value)  # type: ignore[arg-type]
         except (TypeError, ValueError):
