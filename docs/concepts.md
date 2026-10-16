@@ -36,6 +36,12 @@ Each factor has a **type** that shapes design generation and (later) statistics:
 | `ordinal` | `effort ∈ {low, med, high}` | ordered choices |
 | `continuous` | `temperature`, `top_k` | numeric knobs |
 
+Factor names are free-form, except for the few CAFE already uses for its own result
+columns — `input_id`, `rep`, `judge_rep`, `verdict`, `reasoning`, `error`, `question`,
+`reference`, `output`, `elapsed_s`, `cost_usd`, `tokens`, `energy_wh`, `judge_system`,
+`judge_prompt`, `judge_raw`. A factor with one of these names would be confused with that
+column in the statistics and exports, so `cafe.Factor` rejects it with a clear error.
+
 ## Configurations, runs, replication
 
 - A **configuration** (a "cell") is one full assignment of a level to every factor.

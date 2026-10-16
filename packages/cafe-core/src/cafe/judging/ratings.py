@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from cafe.judging.rubric import Rubric
+from cafe.study import check_factor_name
 
 
 @dataclass
@@ -51,7 +52,15 @@ class Rating:
 
 @dataclass
 class Ratings:
-    """All judge verdicts for a study, plus the rubric they were scored on."""
+    """All judge verdicts for a study, plus the rubric they were scored on.
+
+    Raises
+    ------
+    ValueError
+        If a name in ``factors`` is reserved (see :data:`cafe.study.RESERVED_FACTOR_NAMES`):
+        the statistics look factors up by name in :meth:`to_records`, where such a name is a
+        bookkeeping column.
+    """
 
     rubric: Rubric
     judge_model: str
@@ -60,6 +69,10 @@ class Ratings:
     #: The judge's system message (constant across verdicts); the per-rating ``prompt``
     #: holds the user message, so the full judge input is ``judge_system_prompt + prompt``.
     judge_system_prompt: str | None = None
+
+    def __post_init__(self) -> None:
+        for name in self.factors:
+            check_factor_name(name)
 
     def __len__(self) -> int:
         return len(self.items)

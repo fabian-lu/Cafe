@@ -60,6 +60,23 @@ def test_factor_validation():
     assert f.type is FactorType.ordinal
 
 
+def test_reserved_factor_names_rejected():
+    """A factor named like a bookkeeping column would crash the stats ('rep', 'input_id',
+    'verdict'), silently merge configurations ('error', 'reasoning', 'judge_rep') or be
+    overwritten in Evaluation.records() ('output', 'tokens', 'energy_wh', 'question')."""
+    import pytest
+
+    reserved = (
+        "input_id rep judge_rep verdict reasoning error question reference output "
+        "elapsed_s cost_usd tokens energy_wh judge_system judge_prompt judge_raw"
+    )
+    for name in reserved.split():
+        with pytest.raises(ValueError, match="reserved"):
+            Factor(name, ["a", "b"])
+    for ok in ("reps", "error_rate", "model.output", "Rep"):  # near-misses stay allowed
+        Factor(ok, ["a", "b"])
+
+
 def test_duplicate_factor_names_rejected():
     import pytest
 

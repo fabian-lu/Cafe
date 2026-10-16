@@ -195,6 +195,32 @@ def test_factor_named_like_patsy_builtin_does_not_crash():
     assert "C" in {t["factor"] for t in eff.terms}        # real factor name preserved
 
 
+def test_ratings_reject_reserved_factor_names():
+    """Ratings built directly (library mode, loaded bundles) get the same check as Factor:
+    with factors=['error'] the stats would group on the all-None error column instead."""
+    for name in ("error", "rep", "verdict", "tokens"):
+        with pytest.raises(ValueError, match="reserved"):
+            Ratings(rubric=ANSWER_QUALITY_1_5, judge_model="fake", factors=[name], items=[])
+
+
+def test_reserved_factor_names_cover_every_bookkeeping_column():
+    """Every column the tidy views write next to the factor columns must be reserved — so a
+    new bookkeeping column (as energy_wh was) can't silently start colliding with a factor."""
+    from cafe.evaluation import Evaluation
+    from cafe.execution.results import Observation, Results
+    from cafe.study import RESERVED_FACTOR_NAMES
+
+    obs = Observation(config={}, input_id="q0", rep=0, output="x", elapsed_s=1.0)
+    rating = Rating(obs_key=obs.key(), config={}, input_id="q0", rep=0, judge_rep=0,
+                    value=4, value_numeric=4)
+    ratings = Ratings(rubric=ANSWER_QUALITY_1_5, judge_model="fake", factors=[], items=[rating])
+    answers = Results(study_name="t", factors=[], observations=[obs])
+    columns = set(ratings.to_records()[0])
+    columns |= set(Evaluation(study_name="t", answers=answers, ratings=ratings).records()[0])
+    columns |= set(Evaluation(study_name="t", answers=answers).records()[0])  # answers-only rows
+    assert columns <= RESERVED_FACTOR_NAMES, columns - RESERVED_FACTOR_NAMES
+
+
 def test_fit_logistic_computes_odds_ratio():
     from cafe import fit_logistic
 
