@@ -11,10 +11,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import models, runner
-from app.db import get_session
+from app.db import SessionLocal, get_session
 
 # filtered-results cache: (study_id, result_row_id, dimension, fkey, fval) -> payload
 _FILTER_CACHE: dict[tuple, dict] = {}
+
+# /stream: how long a DB-"running" study may lack an in-memory progress entry before the
+# stream reports that no run is active in this process
+_NO_TASK_GRACE_S = 2.0
 
 router = APIRouter(prefix="/api", tags=["runs"])
 
@@ -48,11 +52,36 @@ async def estimate(id_: int, db: AsyncSession = Depends(get_session)):
 
 @router.get("/studies/{id_}/stream")
 async def stream_progress(id_: int):
-    """Server-Sent Events: emit the study's progress until it finishes."""
+    """Server-Sent Events: emit the study's progress until it finishes.
+
+    A study with no run in this process gets a single event and the stream ends, instead of an
+    idle stream that never terminates: its DB status (a draft, or a run that finished before a
+    restart), or ``"failed"`` for a "running" row whose run task is gone. 404 if no such study."""
+    async with SessionLocal() as db:  # short-lived: don't hold a DB connection for the stream
+        study = await db.get(models.Study, id_)
+        if study is None:
+            raise HTTPException(404, "study not found")
+        db_status = study.status
+
     async def gen():
         last = None
+        waited = 0.0
         while True:
-            p = runner.PROGRESS.get(id_, {"phase": "idle", "status": "idle"})
+            p = runner.PROGRESS.get(id_)
+            if p is None:
+                if db_status == "running" and waited < _NO_TASK_GRACE_S:
+                    # the run task registers itself as soon as it is scheduled; give it a moment
+                    waited += 0.5
+                    await asyncio.sleep(0.5)
+                    continue
+                if db_status == "running":
+                    p = {"phase": "error", "status": "failed",
+                         "error": "no active run for this study in this server process "
+                                  "(interrupted by a backend restart?)"}
+                else:
+                    p = {"phase": "idle", "status": db_status}
+                yield f"data: {json.dumps(p)}\n\n"
+                break
             snapshot = json.dumps(p)
             if snapshot != last:
                 yield f"data: {snapshot}\n\n"
