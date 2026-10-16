@@ -76,9 +76,13 @@ result <- tryCatch({
     list(term = rn[i], estimate = ct[i, 1], std_error = ct[i, 2],
          z = ct[i, 3], p = ct[i, 4])
   })
+  vc <- as.data.frame(lme4::VarCorr(m))   # grp, var1, var2, vcov (variance), sdcor (sd)
+  vc <- vc[vc$grp == "input_id", ]
+  random_intercept <- list(variance = vc$vcov[1], sd = vc$sdcor[1])
 
   list(available = TRUE, n_obs = nrow(d), formula = deparse(build_formula(used_order)),
-       logLik = as.numeric(logLik(m)), coefficients = coeffs)
+       logLik = as.numeric(logLik(m)), coefficients = coeffs,
+       random_intercept = random_intercept)
 }, error = function(e) list(available = FALSE, error = conditionMessage(e)))
 
 emit(result)

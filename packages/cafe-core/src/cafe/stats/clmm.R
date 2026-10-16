@@ -72,9 +72,12 @@ result <- tryCatch({
   thresholds <- lapply(alpha_names, function(rn) {
     list(term = rn, estimate = unname(ct[rn, 1]))
   })
+  vc <- ordinal::VarCorr(m)$input_id   # 1x1 random-intercept variance (+ "stddev" attribute)
+  random_intercept <- list(variance = vc[1, 1], sd = unname(attr(vc, "stddev"))[1])
 
   list(available = TRUE, n_obs = nrow(d), formula = deparse(form),
-       logLik = as.numeric(logLik(m)), coefficients = coeffs, thresholds = thresholds)
+       logLik = as.numeric(logLik(m)), coefficients = coeffs, thresholds = thresholds,
+       random_intercept = random_intercept)
 }, error = function(e) list(available = FALSE, error = conditionMessage(e)))
 
 emit(result)

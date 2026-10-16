@@ -60,6 +60,11 @@ class Logistic:
     n_obs: int = 0
     terms: list[dict[str, Any]] = field(default_factory=list)  # label, factor, interaction, coef, odds_ratio, p, significant
     warnings: list[str] = field(default_factory=list)
+    #: The GLMM's per-question random intercept on the latent logit scale (like R's
+    #: ``VarCorr(fit)``): ``{"random_intercept": σ_u², "random_intercept_sd": σ_u,
+    #: "residual": π²/3, "icc": σ_u² / (σ_u² + π²/3)}``. ``None`` for the statsmodels
+    #: backends, which fit no random intercept.
+    variance_components: dict[str, float] | None = None
 
     @property
     def significant_factors(self) -> list[str]:
@@ -103,6 +108,11 @@ class Logistic:
                          "(a factor separates pass from fail); the odds ratios are unstable.")
         else:
             lines.append(f"  {SIG_LEGEND}")
+        if self.variance_components:
+            from cafe.stats.ordinal import _variance_line
+
+            lines.append("")
+            lines.append(_variance_line(self.variance_components))
         if self.warnings:
             lines.append("")
             for wn in self.warnings:
@@ -205,6 +215,9 @@ def _fit_glmer(
             "significant": p is not None and p < alpha,
         })
     _apply_separation_guard(res)
+    from cafe.stats.ordinal import _set_random_intercept
+
+    _set_random_intercept(res, payload)  # variance_components (σ_u², ICC) + singular note
     return res
 
 
