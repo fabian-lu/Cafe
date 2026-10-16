@@ -423,6 +423,17 @@ def dataset_filters(items: list[dict]) -> dict[str, list[str]]:
     return {k: sorted(v) for k, v in vals.items() if 2 <= len(v) <= 30}
 
 
+def record_output(rec: dict) -> Any:
+    """The system's answer in a stored results record.
+
+    Records are written with the answer under ``"output"`` (cafe-core's
+    ``Evaluation.records()`` key). Payloads stored before that rename — the bundled demo
+    study among them — hold it under ``"answer"``. The fallback tests for the key, not for a
+    value: in a current record ``"answer"`` can be a factor of that name.
+    """
+    return rec["output"] if "output" in rec else rec.get("answer")
+
+
 def _evaluation_from_payload(payload: dict, items: list[dict], keep_ids: set[str]):
     """Reconstruct a minimal cafe Evaluation from a stored results payload, restricted to
     the question ids in ``keep_ids`` — enough for the full stats stack to run again."""
@@ -450,7 +461,7 @@ def _evaluation_from_payload(payload: dict, items: list[dict], keep_ids: set[str
         config = {f: r.get(f) for f in factors}
         rep = int(r.get("rep") or 0)
         meta = {k: r.get(k) for k in ("cost_usd", "tokens", "energy_wh") if r.get(k) is not None}
-        obs = Observation(config=config, input_id=r["input_id"], rep=rep, output=r.get("output"),
+        obs = Observation(config=config, input_id=r["input_id"], rep=rep, output=record_output(r),
                           elapsed_s=r.get("elapsed_s"), metadata=meta)
         observations.setdefault(obs.key(), obs)
         if r.get("verdict") is not None or r.get("reasoning") is not None:
