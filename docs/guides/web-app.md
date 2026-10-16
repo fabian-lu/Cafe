@@ -52,7 +52,10 @@ pipeline.
    means, and the best configuration. (See
    [Interpreting results](../interpreting-results.md) for how to read these.)
 6. **Raters** — collect human ratings by name and see judge↔human reliability, the
-   platform version of the [human-ratings workflow](human-ratings.md).
+   platform version of the [human-ratings workflow](human-ratings.md). A rating belongs
+   to the answer text it was given on: re-running the study regenerates the answers, so
+   earlier ratings stop counting toward α until you re-rate (the reliability API reports
+   them as `stale_ratings`).
 
 ## Local development (without Docker)
 
