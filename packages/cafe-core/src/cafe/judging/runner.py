@@ -34,9 +34,26 @@ async def judge_results(
     ``questions`` / ``references`` map ``input_id`` -> text so the judge sees the
     original question and any gold answer.
 
-    ``checkpoint_path`` makes the (often expensive) judging phase crash-safe: each verdict
-    is appended as it lands and a resumed run skips already-scored ``(answer, judge_rep)``
-    pairs — the same guarantee :func:`cafe.run_study` gives the answer phase.
+    Parameters
+    ----------
+    checkpoint_path:
+        Makes the (often expensive) judging phase crash-safe: each verdict is appended
+        as it lands and a resumed run skips already-scored ``(answer, judge_rep)``
+        pairs — the same guarantee :func:`cafe.run_study` gives the answer phase. Only
+        verdicts for the answers judged now, with ``judge_rep < repetitions``, are
+        carried forward; any other rows in the file are dropped with a warning.
+    resume:
+        Load ``checkpoint_path`` and skip what it already holds. ``False`` judges
+        everything again (still appending to the file).
+    retry_errors:
+        On resume, re-judge checkpointed verdicts that failed (unparseable / judge
+        error); the retry replaces them. ``False`` keeps them as done.
+
+    Warns
+    -----
+    UserWarning
+        If the checkpoint holds verdicts that don't belong to this run (the answers or
+        ``repetitions`` changed since it was written); they are left out of the result.
     """
     questions = questions or {}
     references = references or {}
@@ -64,20 +81,39 @@ async def judge_results(
     def _key(obs_key: str, judge_rep: int) -> str:
         return f"{obs_key}::jr{judge_rep}"
 
-    def _needs_run(o, jr: int) -> bool:
-        prev = prior.get(_key(o.key(), jr))
-        # retry_errors: a checkpointed verdict that failed (unparseable / judge error) is
-        # re-judged on resume rather than treated as done; successes are always skipped.
-        return prev is None or (retry_errors and prev.error is not None)
+    # Only carry forward checkpoint verdicts that belong to the CURRENT request (these
+    # answers x these repetitions) — as run_study does for answers. Verdicts for answers no
+    # longer judged, or for judge_reps beyond ``repetitions``, would silently enter the
+    # statistics. retry_errors: a checkpointed verdict that failed (unparseable / judge
+    # error) is re-judged rather than treated as done, and its retry replaces it (the
+    # checkpoint stays append-only; load() is last-wins per key).
+    valid = {_key(o.key(), jr) for o in targets for jr in range(repetitions)}
+    kept = {
+        k: r for k, r in prior.items()
+        if k in valid and not (retry_errors and r.error is not None)
+    }
+    retried = sum(
+        1 for k, r in prior.items() if k in valid and retry_errors and r.error is not None
+    )
+    stale = len(prior) - len(kept) - retried
+    if stale:
+        import warnings
 
-    todo = [(o, jr) for o in targets for jr in range(repetitions) if _needs_run(o, jr)]
+        warnings.warn(
+            f"ratings checkpoint {checkpoint_path!r}: dropped {stale} stored verdict(s) that "
+            "don't belong to this judging run (other answers, or judge_rep >= repetitions — "
+            "the study or repetitions changed since the checkpoint was written); resumed "
+            "ratings contain only the current answers' verdicts.",
+            stacklevel=2,
+        )
+
+    todo = [(o, jr) for o in targets for jr in range(repetitions)
+            if _key(o.key(), jr) not in kept]
     total = len(targets) * repetitions
-    ratings: list[Rating] = [
-        r for k, r in prior.items() if not (retry_errors and r.error is not None)
-    ]
+    ratings: list[Rating] = list(kept.values())
     sem = asyncio.Semaphore(max(1, concurrency))
     lock = asyncio.Lock()
-    done = len(prior)
+    done = len(kept)
 
     with progress_bar(total, "judging", enabled=progress and on_progress is None) as bar:
         report = on_progress or bar

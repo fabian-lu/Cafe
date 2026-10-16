@@ -95,6 +95,66 @@ async def test_judging_checkpoint_resumes(tmp_path):
     assert [r.value_numeric for r in r2.items] == [5, 5, 5]  # resumed, not re-scored
 
 
+# ── judging resume keeps only the current answers × repetitions (issue #11) ──
+async def test_judging_resume_drops_stale_and_excess_checkpoint_rows(tmp_path):
+    ckpt = str(tmp_path / "judge.jsonl")
+    results = _results(["one", "two", "three"])
+    r1 = await judge_results(results, _FixedJudge(), cafe.ANSWER_QUALITY_1_5,
+                             repetitions=2, checkpoint_path=ckpt)
+    assert len(r1.items) == 6
+
+    # fewer repetitions than checkpointed → the judge_rep=1 rows are not part of this run
+    with pytest.warns(UserWarning, match="dropped 3 stored verdict"):
+        r2 = await judge_results(results, _FixedJudge(), cafe.ANSWER_QUALITY_1_5,
+                                 repetitions=1, checkpoint_path=ckpt)
+    assert len(r2.items) == 3
+    assert {r.judge_rep for r in r2.items} == {0}
+
+    # a different Results (the study changed) → the old config's verdicts must not leak in
+    other = Results(study_name="t", factors=["m"],
+                    observations=[Observation(config={"m": "new"}, input_id="q9",
+                                              rep=0, output="fresh")])
+    progress = []
+    with pytest.warns(UserWarning, match="dropped 6 stored verdict"):
+        r3 = await judge_results(other, _FixedJudge(), cafe.ANSWER_QUALITY_1_5,
+                                 checkpoint_path=ckpt,
+                                 on_progress=lambda _r, done, total: progress.append((done, total)))
+    assert [r.config for r in r3.items] == [{"m": "new"}]
+    assert progress == [(1, 1)]
+
+
+async def test_judging_resume_retries_errors_and_counts_them_once(tmp_path):
+    class _FlakyJudge(_FixedJudge):
+        failed = False
+
+        async def score(self, rubric, question, answer, reference=None):
+            if answer == "two" and not _FlakyJudge.failed:  # fails once, then recovers
+                _FlakyJudge.failed = True
+                return JudgeOutput(None, None, "timeout", "prompt", None)
+            return JudgeOutput(4, 4, "ok", "prompt", "raw")
+
+    ckpt = str(tmp_path / "judge.jsonl")
+    results = _results(["one", "two", "three"])
+    r1 = await judge_results(results, _FlakyJudge(), cafe.ANSWER_QUALITY_1_5, checkpoint_path=ckpt)
+    assert len(r1.errors) == 1
+
+    # retry_errors=False: the failed verdict counts as done, nothing is re-judged
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # a retryable error is not a stale row
+        kept = await judge_results(results, _FlakyJudge(), cafe.ANSWER_QUALITY_1_5,
+                                   checkpoint_path=ckpt, retry_errors=False)
+    assert len(kept.items) == 3 and len(kept.errors) == 1
+
+    progress = []
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        r2 = await judge_results(results, _FlakyJudge(), cafe.ANSWER_QUALITY_1_5,
+                                 checkpoint_path=ckpt,
+                                 on_progress=lambda _r, done, total: progress.append((done, total)))
+    assert len(r2.items) == 3 and not r2.errors  # the retry replaced the failed verdict
+    assert progress == [(3, 3)]  # 2 carried forward + 1 retried, not 3 + 1
+
+
 # ── C-10: Study.check() guardrails ──
 def test_check_warns_single_factor_and_judge_rubric_mismatch():
     data = [{"text": f"q{i}"} for i in range(10)]
