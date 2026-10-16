@@ -72,31 +72,97 @@ class LLMJudge:
         self._use_json: bool | None = None  # resolved once by prepare()/score()
 
     def render_messages(
-        self, rubric: Rubric, question: str, answer: str, reference: str | None = None
+        self, rubric: Rubric, question: str, answer: str, reference: str | None = None,
+        *, structured: bool | None = None,
     ) -> list[dict[str, str]]:
         """The **exact** message list sent to the judge — the system framing plus the
         rubric-derived user prompt. This is the single source of truth shared with
         :meth:`score`, so a preview can never drift from what's actually sent. For a
-        human-readable view, use :meth:`preview`."""
+        human-readable view, use :meth:`preview`.
+
+        Parameters
+        ----------
+        structured:
+            Which call to render. ``False``: the plain call, whose prompt ends by asking
+            for a ``GRADE:`` line. ``True``: the structured call, whose prompt asks for a
+            JSON verdict instead (if the provider rejects JSON output, the plain call is
+            sent in its place). ``None`` (default): the call this judge makes. That is
+            fixed by ``structured=True``/``False``; under ``"auto"`` it is known once
+            :meth:`prepare` or an earlier check of the same model has decided it, and
+            until then the plain call is rendered. No capability check is made here;
+            :meth:`preview` shows both calls while ``"auto"`` is undecided.
+
+        Returns
+        -------
+        list of dict
+            The ``system`` message, then the ``user`` message.
+
+        Raises
+        ------
+        ValueError
+            If ``structured`` is not ``True``, ``False`` or ``None``.
+        """
+        if structured not in (True, False, None):
+            raise ValueError(f"structured must be True, False, or None; got {structured!r}")
         user = build_judge_prompt(
             rubric, question, answer, reference,
             preset=self.preset, template=self.prompt_template,
         )
-        return [
+        messages = [
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": user},
         ]
+        if structured is None:
+            structured = self._known_structured()
+        return self._json_messages(rubric, messages) if structured else messages
 
     def preview(
-        self, rubric: Rubric, question: str, answer: str, reference: str | None = None
+        self, rubric: Rubric, question: str, answer: str, reference: str | None = None,
+        *, structured: bool | None = None,
     ) -> str:
         """The **full** judge input exactly as sent — the system message *and* the user
         prompt, labelled ``[SYSTEM]`` / ``[USER]`` (no LLM call). This is the way to see
-        everything the judge receives."""
-        return "\n\n".join(
-            f"[{m['role'].upper()}]\n{m['content']}"
-            for m in self.render_messages(rubric, question, answer, reference)
-        )
+        everything the judge receives.
+
+        Parameters
+        ----------
+        structured:
+            As in :meth:`render_messages`. With ``None`` while ``structured="auto"`` is
+            still undecided for this model, both user prompts are shown: the plain one
+            under ``[USER]``, then the structured one, which is sent instead if the model
+            supports JSON output.
+
+        Returns
+        -------
+        str
+            The labelled messages, separated by blank lines.
+        """
+        messages = self.render_messages(rubric, question, answer, reference, structured=structured)
+        blocks = [(m["role"].upper(), m["content"]) for m in messages]
+        if structured is None and self._known_structured() is None:
+            json_user = self._json_messages(rubric, messages)[-1]["content"]
+            blocks.append(("USER, structured mode: sent instead of the one above if the "
+                           "model supports JSON output", json_user))
+        return "\n\n".join(f"[{label}]\n{content}" for label, content in blocks)
+
+    def _known_structured(self) -> bool | None:
+        """Whether :meth:`score` makes the structured call, if that is known without an LLM
+        call; ``None`` while ``"auto"`` is still undecided for this model."""
+        if self._use_json is not None:
+            return self._use_json
+        if self.structured != "auto":
+            return bool(self.structured)
+        from cafe.judging.structured import _support_cache  # filled by earlier checks
+
+        return _support_cache.get(self.model)
+
+    @staticmethod
+    def _json_messages(rubric: Rubric, messages: list[dict[str, str]]) -> list[dict[str, str]]:
+        """The structured call's messages, built from the plain call's."""
+        from cafe.judging.structured import build_json_prompt
+
+        user = build_json_prompt(messages[-1]["content"], rubric)
+        return [messages[0], {"role": "user", "content": user}]
 
     async def prepare(self) -> bool:
         """Resolve one-time setup before scoring — here, whether to use structured (JSON)
@@ -114,11 +180,11 @@ class LLMJudge:
     async def score(
         self, rubric: Rubric, question: str, answer: str, reference: str | None = None
     ) -> JudgeOutput:
-        messages = self.render_messages(rubric, question, answer, reference)
+        messages = self.render_messages(rubric, question, answer, reference, structured=False)
         prompt = messages[-1]["content"]
 
         if await self.prepare():
-            out = await self._score_structured(rubric, messages, prompt)
+            out = await self._score_structured(rubric, messages)
             if out is not None:  # None ⇒ provider rejected JSON; fall back to a plain call
                 return out
 
@@ -131,15 +197,15 @@ class LLMJudge:
         return JudgeOutput(value, numeric, reasoning, prompt, raw)
 
     async def _score_structured(
-        self, rubric: Rubric, messages: list[dict[str, str]], prompt: str
+        self, rubric: Rubric, messages: list[dict[str, str]]
     ) -> JudgeOutput | None:
         """Score by asking for a JSON verdict. Returns ``None`` only if the provider
         rejects ``response_format`` (so the caller falls back to a plain call); a parsed
         result — even an unparseable one — is returned with its raw response for audit."""
-        from cafe.judging.structured import build_json_prompt, parse_json_verdict
+        from cafe.judging.structured import parse_json_verdict
 
-        json_prompt = build_json_prompt(prompt, rubric)
-        json_messages = [messages[0], {"role": "user", "content": json_prompt}]
+        json_messages = self._json_messages(rubric, messages)
+        json_prompt = json_messages[-1]["content"]
         try:
             raw = await complete(
                 self.model, json_messages,
