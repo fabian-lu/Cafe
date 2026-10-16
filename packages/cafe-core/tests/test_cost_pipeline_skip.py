@@ -1,6 +1,8 @@
 """Composed-mode additions: user cost, per-technique cost, ctx.add_cost, skip level,
 pipeline view."""
 
+import asyncio
+
 import cafe
 from cafe.llm import _price_from_override, set_model_cost
 from cafe.techniques import pipeline, stage_report
@@ -53,6 +55,75 @@ def test_per_technique_and_manual_cost_flow_to_stage_report():
     assert by_stage["retrieve"]["mean_cost_usd"] == 0.002   # decorator cost
     assert by_stage["rerank"]["mean_cost_usd"] == 0.001     # ctx.add_cost
     assert by_stage["generate"]["mean_cost_usd"] == 0.0
+
+
+async def test_add_cost_attributed_per_step_under_gather():
+    # Two steps in flight at once: each must keep its own ctx.add_cost (no shared
+    # accumulator that one step resets while the other is still running).
+    pipe = cafe.Pipeline()
+    b_done = asyncio.Event()
+
+    @pipe.technique("ret_a", "a")
+    async def ret_a(ctx, q):
+        ctx.add_cost(0.10)
+        await b_done.wait()          # ret_b starts and finishes while ret_a is in flight
+        return q
+
+    @pipe.technique("ret_b", "b")
+    async def ret_b(ctx, q):
+        ctx.add_cost(0.01)
+        b_done.set()
+        return q
+
+    @pipe.compose
+    async def system(config, item, ctx):
+        a, b = await asyncio.gather(ctx.run("ret_a", q=item), ctx.run("ret_b", q=item))
+        return a + b
+
+    out = await pipe.run({}, "q")
+    by_stage = {s["stage"]: s["cost_usd"] for s in out["trace"]}
+    assert by_stage == {"ret_a": 0.10, "ret_b": 0.01}
+    assert out["cost_usd"] == 0.11
+
+
+async def test_add_cost_stays_with_its_step_when_nested():
+    pipe = cafe.Pipeline()
+
+    @pipe.technique("inner", "i")
+    async def inner(ctx, q):
+        ctx.add_cost(0.01)
+        return q
+
+    @pipe.technique("outer", "o")
+    async def outer(ctx, q):
+        ctx.add_cost(0.10)
+        return await ctx.run("inner", q=q)   # a nested step must not touch outer's cost
+
+    @pipe.compose
+    async def system(config, item, ctx):
+        return await ctx.run("outer", q=item)
+
+    out = await pipe.run({}, "q")
+    by_stage = {s["stage"]: s["cost_usd"] for s in out["trace"]}
+    assert by_stage == {"outer": 0.10, "inner": 0.01}
+    assert out["cost_usd"] == 0.11
+
+
+async def test_add_cost_in_compose_body_counts_toward_total():
+    pipe = _pipe()
+
+    @pipe.compose
+    async def system(config, item, ctx):
+        ctx.add_cost(0.05)                     # before the first step
+        c = await ctx.run("retrieve", query=item)
+        c = await ctx.run("rerank", chunks=c)
+        ctx.add_cost(0.02)                     # after the last step
+        return c
+
+    out = await pipe.run({"retrieve": "bm25", "rerank": "cross_encoder"}, "q")
+    by_stage = {s["stage"]: s["cost_usd"] for s in out["trace"]}
+    assert by_stage == {"retrieve": 0.002, "rerank": 0.001}   # stages keep their own cost
+    assert out["cost_usd"] == 0.073                           # + 0.05 + 0.02 from the body
 
 
 def test_skip_level_passthrough():
