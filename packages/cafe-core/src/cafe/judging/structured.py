@@ -22,15 +22,48 @@ import json
 import re
 from typing import Any
 
+from cafe.judging.prompts import JUDGE_PRESETS
 from cafe.judging.rubric import Rubric
 from cafe.llm import LLMError, complete
 
-#: Appended to the user prompt in structured mode. ``{grade}`` is the scale-aware hint
-#: (a range for numeric, the exact allowed values for ordinal/binary).
+#: Replaces a preset's closing ``GRADE:`` instruction in structured mode. ``{grade}`` is the
+#: scale-aware hint (a range for numeric, the exact allowed values for ordinal/binary).
 JSON_INSTRUCTION = (
     '\n\nReturn ONLY a JSON object with keys "reasoning" (a brief string) and "grade" '
     "({grade}). Output nothing else."
 )
+#: Appended after a custom prompt template instead, whose own ``GRADE:`` request is kept.
+JSON_INSTEAD_INSTRUCTION = (
+    "\n\nInstead of ending with a GRADE: line, return ONLY a JSON object with keys "
+    '"reasoning" (a brief string) and "grade" ({grade}). Output nothing else.'
+)
+
+
+def build_json_prompt(prompt: str, rubric: Rubric) -> str:
+    """The structured-mode user prompt, built from the plain-mode one.
+
+    Parameters
+    ----------
+    prompt:
+        The rendered plain-mode prompt (:func:`~cafe.judging.prompts.build_judge_prompt`).
+    rubric:
+        The rubric being judged; supplies the scale-aware grade hint.
+
+    Returns
+    -------
+    str
+        For a built-in preset, ``prompt`` with its closing "finish with ``GRADE: <…>``"
+        paragraph replaced by :data:`JSON_INSTRUCTION`, so the judge is not asked for a
+        ``GRADE:`` line *and* for JSON only. A custom template's wording can't be cut
+        reliably, so it is kept and followed by :data:`JSON_INSTEAD_INSTRUCTION`.
+    """
+    grade = rubric.grade_hint()
+    for template in JUDGE_PRESETS.values():
+        closing = "\n\n" + template.rsplit("\n\n", 1)[-1].replace("{grade}", grade)
+        if prompt.endswith(closing):
+            return prompt[: -len(closing)] + JSON_INSTRUCTION.format(grade=grade)
+    return prompt + JSON_INSTEAD_INSTRUCTION.format(grade=grade)
+
 
 # model string -> does it support response_format JSON (resolved once, then cached)
 _support_cache: dict[str, bool] = {}
