@@ -45,8 +45,9 @@ pipeline.
 3. **New study** — choose which stages/parameters to vary as factors, the questions, a
    judge and rubric, and the number of replications. CAFE shows the configuration count
    and a cost/time estimate before you commit.
-4. **Run** — launch it and watch **live progress** stream as cells complete; long runs
-   are resumable.
+4. **Run** — launch it and watch **live progress** stream as cells complete. A run
+   executes inside the backend process: if the backend restarts mid-run, the study is
+   marked **failed** and can be re-run from its page (the run starts over).
 5. **Results** — the same analysis as `report()`, in the browser: per-factor
    attribution (F, p, partial η², variance share), effect sizes, per-level marginal
    means, and the best configuration. (See
@@ -69,3 +70,7 @@ cd apps/web-app/frontend && npm install && npm run dev
 Requires Python ≥ 3.11 + R (for the stats layer) and Node for the front-end, plus a
 reachable Postgres — the Docker path bundles all of these, which is why it is the
 recommended way to run the app.
+
+Run a **single** backend process per database (no `--workers`): runs and their live
+progress live in that process, and on startup it marks any study still "running" as
+failed, which would also hit another worker's live runs.

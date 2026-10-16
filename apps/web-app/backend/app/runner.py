@@ -386,6 +386,22 @@ async def run_study_task(study_id: int) -> None:
                     res.payload = dim_payload
             await db.commit()
         PROGRESS[study_id].update({"phase": "done", "status": "done"})
+    except asyncio.CancelledError:
+        # The task was cancelled (e.g. Ctrl+C: asyncio cancels leftover tasks on the way out).
+        # CancelledError is a BaseException, so the handler below never sees it: mark the study
+        # failed (best effort; if this write can't land, or the process dies without cancelling
+        # the task, fail_orphaned_runs() repairs the row on the next startup), then re-raise.
+        PROGRESS[study_id] = {"phase": "error", "status": "failed",
+                              "error": "run cancelled (server shutdown)"}
+        try:
+            async with SessionLocal() as db:
+                s = await db.get(models.Study, study_id)
+                if s:
+                    s.status = "failed"
+                    await db.commit()
+        except Exception:  # noqa: BLE001 — shutting down; don't mask the cancellation
+            pass
+        raise
     except Exception as exc:  # noqa: BLE001
         PROGRESS[study_id] = {"phase": "error", "status": "failed", "error": str(exc)}
         traceback.print_exc()
@@ -396,9 +412,44 @@ async def run_study_task(study_id: int) -> None:
                 await db.commit()
 
 
+# Strong references to in-flight run tasks: the event loop keeps only weak references, and the
+# asyncio docs require holding one so a task can't be garbage-collected before it finishes.
+_TASKS: set[asyncio.Task] = set()
+
+
 def launch(study_id: int) -> None:
-    """Fire-and-forget the background task."""
-    asyncio.create_task(run_study_task(study_id))
+    """Start the background run task, holding a reference to it until it finishes."""
+    task = asyncio.create_task(run_study_task(study_id))
+    _TASKS.add(task)
+    task.add_done_callback(_TASKS.discard)
+
+
+async def fail_orphaned_runs() -> int:
+    """Mark every study still ``"running"`` in the DB as ``"failed"`` (called once at startup).
+
+    A run lives only as an asyncio task inside the server process (its progress is in the
+    in-memory ``PROGRESS``), so a study that is ``"running"`` when the process boots lost its
+    task to a crash, kill or restart — nothing would ever finish it, and ``POST /run`` would
+    answer 409 forever. Marked failed, it can simply be re-run.
+
+    This assumes a **single backend process** per database (one uvicorn worker, as the
+    Dockerfile and docker-compose run it): with several workers or replicas sharing the DB, a
+    starting process would also fail runs that are live in another one.
+
+    Returns
+    -------
+    int
+        How many studies were marked failed.
+    """
+    from sqlalchemy import update
+
+    async with SessionLocal() as db:
+        result = await db.execute(
+            update(models.Study).where(models.Study.status == "running").values(status="failed"))
+        await db.commit()
+    if result.rowcount:
+        print(f"[startup] marked {result.rowcount} interrupted 'running' study(ies) as failed")
+    return result.rowcount
 
 
 # ── question-metadata filters: rebuild an Evaluation from a stored payload and recompute ──
