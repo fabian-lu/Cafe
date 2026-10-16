@@ -159,7 +159,16 @@ def _pairwise_d(df, factors):
 
 def _oneway(df, factors, warnings, alpha):
     import numpy as np
-    from scipy.stats import f_oneway
+
+    try:
+        from scipy.stats import f_oneway
+    except ImportError:  # pandas without the stats extra (e.g. cafe-core[llm,notebooks])
+        f_oneway = None
+        warnings.append(
+            "scipy is not installed, so the one-way ANOVA has no F-tests / p-values (partial "
+            "η² and Cohen's d are still shown); install the stats extra: "
+            "pip install 'cafe-core[stats]'"
+        )
 
     terms = []
     for col in factors:
@@ -170,11 +179,14 @@ def _oneway(df, factors, warnings, alpha):
         groups = [g for g in groups if g.size >= 2]
         if len(groups) < 2:
             continue
-        try:
-            F, p = f_oneway(*groups)
-        except Exception as exc:  # noqa: BLE001
-            warnings.append(f"f_oneway failed for {col}: {exc}")
-            continue
+        if f_oneway is None:
+            F = p = float("nan")  # reported as None (not significant)
+        else:
+            try:
+                F, p = f_oneway(*groups)
+            except Exception as exc:  # noqa: BLE001
+                warnings.append(f"f_oneway failed for {col}: {exc}")
+                continue
         allv = np.concatenate(groups)
         grand = float(allv.mean())
         ssb = sum(g.size * (float(g.mean()) - grand) ** 2 for g in groups)
@@ -195,6 +207,11 @@ def _oneway(df, factors, warnings, alpha):
 
 def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 2) -> Effects:
     """Fit the mixed-effects model and return per-term significance + η².
+
+    Needs statsmodels (the ``stats`` extra). Without it this falls back to a one-way ANOVA
+    per factor, whose F-tests also need scipy: with neither installed the terms carry
+    partial η² but no ``F`` / ``p`` (not significant), and ``warnings`` says so — nothing
+    is raised.
 
     ``interactions`` is the maximum interaction order to include: ``1`` = main effects
     only, ``2`` = also two-way (e.g. model×prompt — the default, since two-way captures
