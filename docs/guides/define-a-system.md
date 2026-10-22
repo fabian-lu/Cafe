@@ -34,6 +34,11 @@ async def my_system(config, item):
     }
 ```
 
+Report `cost_usd` / `tokens` on every answer, including a genuine `0.0` for a free local
+model. An answer that leaves them out counts as *unreported*, not free. `cafe.pareto`
+averages only the answers that report a value, and leaves the objective out of the
+frontier if some configuration never reports it.
+
 ## An object with a `run` method
 
 Handy when your system needs setup (clients, indexes) held as state:
