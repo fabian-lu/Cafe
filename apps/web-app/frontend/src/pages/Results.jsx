@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../lib/api.js";
 import InfoTip from "../components/InfoTip.jsx";
@@ -499,13 +499,17 @@ function Records({ records, factors }) {
 export default function Results() {
   const [params, setParams] = useSearchParams();
   const [studies, setStudies] = useState([]);
-  const [sel, setSel] = useState(params.get("study") || "");
+  // ?study= is the single source of truth, so Back/Forward and the page can't disagree.
+  // Filling an empty selection (the auto-default below) replaces the entry; switching pushes.
+  const sel = params.get("study") || "";
+  const setSel = (id) => setParams(id ? { study: id } : {}, { replace: !sel });
   const [res, setRes] = useState(null);
   const [err, setErr] = useState(null);
   const [dims, setDims] = useState([]);   // judged dimensions (rubric names); >1 shows the selector
   const [dim, setDim] = useState("");
   const [qFilters, setQFilters] = useState({});   // question-metadata keys -> possible values
   const [qSel, setQSel] = useState(null);         // active filter {key, value} | null = alle
+  const viewReq = useRef(0);   // only the latest results request may update the page
 
   useEffect(() => { api.studies().then((all) => {
     const done = all.filter((s) => s.status === "done");
@@ -514,25 +518,32 @@ export default function Results() {
   }); }, []);
 
   useEffect(() => {
+    const req = ++viewReq.current;
+    setErr(null); setRes(null); setQSel(null); setQFilters({}); setDims([]); setDim("");
     if (!sel) return;
-    setErr(null); setRes(null); setQSel(null); setQFilters({});
-    setParams({ study: sel });
+    let active = true;   // false once the page has moved on to another study
     Promise.resolve(api.studyFilters(sel)).catch(() => ({}))
-      .then((f) => setQFilters(f && typeof f === "object" ? f : {}));
+      .then((f) => { if (active) setQFilters(f && typeof f === "object" ? f : {}); });
     Promise.resolve(api.dimensions(sel)).catch(() => [])
       .then((d) => {
+        if (!active) return null;
         const names = (d || []).map((x) => x.dimension).filter(Boolean);
         setDims(names);
         setDim(names[0] || "");
         return api.results(sel, names[0]);
       })
-      .then(setRes).catch((e) => setErr(e.message));
+      .then((r) => { if (active && req === viewReq.current) setRes(r); })
+      .catch((e) => { if (active && req === viewReq.current) setErr(e.message); });
+    return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel]);
 
   const loadView = (name, filter) => {
+    const req = ++viewReq.current;
     setRes(null); setErr(null);
-    api.results(sel, name, filter).then(setRes).catch((e) => setErr(e.message));
+    api.results(sel, name, filter)
+      .then((r) => { if (req === viewReq.current) setRes(r); })
+      .catch((e) => { if (req === viewReq.current) setErr(e.message); });
   };
 
   const switchDim = (name) => {
