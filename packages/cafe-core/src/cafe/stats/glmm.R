@@ -102,12 +102,16 @@ result <- tryCatch({
     c(list(term = rn[i], estimate = ct[i, 1], std_error = ct[i, 2],
            z = ct[i, 3], p = ct[i, 4]), info[[rn[i]]])
   })
+  vc <- as.data.frame(lme4::VarCorr(m))   # grp, var1, var2, vcov (variance), sdcor (sd)
+  vc <- vc[vc$grp == "input_id", ]
+  random_intercept <- list(variance = vc$vcov[1], sd = vc$sdcor[1])
 
   # deparse() splits long formulas into several strings (a JSON array); join them into one
   formula <- paste(trimws(deparse(build_formula(used_order), width.cutoff = 500L)), collapse = " ")
   list(available = TRUE, n_obs = nrow(d), formula = formula,
        logLik = as.numeric(logLik(m)), coefficients = coeffs,
-       used_order = used_order)   # < the requested order when interactions fell back
+       used_order = used_order,   # < the requested order when interactions fell back
+       random_intercept = random_intercept)
 }, error = function(e) list(available = FALSE, error = conditionMessage(e)))
 
 emit(result)

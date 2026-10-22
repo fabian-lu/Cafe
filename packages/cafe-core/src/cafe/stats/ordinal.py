@@ -14,6 +14,7 @@ Check your setup with ``cafe doctor``.
 
 from __future__ import annotations
 
+import math
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -75,6 +76,47 @@ def check_r() -> tuple[bool, str]:
     return False, f"R is installed but the 'ordinal' package is missing. {_INSTALL_HINT}"
 
 
+# Residual variance of a logit-link model on its latent scale (the variance of the standard
+# logistic distribution, π²/3) — the denominator term of the CLMM / GLMM latent-scale ICC.
+_LATENT_LOGIT_VARIANCE = math.pi ** 2 / 3
+
+# Below this random-intercept SD the fit counts as singular (σ_u ≈ 0). lme4 puts a collapsed
+# intercept at exactly 0, but clmm stops short of it (around 1e-4), so lme4's own 1e-4
+# isSingular tolerance would miss many collapsed CLMM fits.
+_SINGULAR_SD = 1e-3
+
+
+def _set_random_intercept(res: Any, payload: dict[str, Any]) -> None:
+    """Fill ``res.variance_components`` from the R payload's ``random_intercept``
+    (``VarCorr``: variance + sd of the per-question intercept) and add a note to
+    ``res.warnings`` when that intercept collapsed to ~0. Shared by the CLMM and the GLMM."""
+    ri = payload.get("random_intercept") or {}
+    if ri.get("variance") is None:
+        return
+    var = float(ri["variance"])
+    sd = float(ri["sd"]) if ri.get("sd") is not None else math.sqrt(var)
+    res.variance_components = {
+        "random_intercept": var,
+        "random_intercept_sd": sd,
+        "residual": _LATENT_LOGIT_VARIANCE,
+        "icc": var / (var + _LATENT_LOGIT_VARIANCE),
+    }
+    if sd < _SINGULAR_SD:
+        res.warnings.append(
+            "model was near-singular (random-intercept variance ≈ 0: little between-question "
+            "variance) — treat p-values as unstable"
+        )
+
+
+def _variance_line(vc: dict[str, float]) -> str:
+    """One-line summary of :func:`_set_random_intercept`'s components for ``show()``."""
+    return (
+        f"variance components:  between-question σ_u² = {vc['random_intercept']:.3f}"
+        f" (σ_u = {vc['random_intercept_sd']:.3f}) · latent residual π²/3 = {vc['residual']:.3f}"
+        f" · ICC = {vc['icc']:.3f}"
+    )
+
+
 @dataclass
 class CLMMResult:
     """Result of the ordinal CLMM (or why it couldn't be fit)."""
@@ -89,6 +131,10 @@ class CLMMResult:
     coefficients: list[dict[str, Any]] = field(default_factory=list)  # term, estimate, std_error, z, p, factor, significant
     thresholds: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    #: The per-question random intercept on the latent logit scale (like R's ``VarCorr(fit)``):
+    #: ``{"random_intercept": σ_u², "random_intercept_sd": σ_u, "residual": π²/3,
+    #: "icc": σ_u² / (σ_u² + π²/3)}``, or ``None`` when no model was fit.
+    variance_components: dict[str, float] | None = None
 
     @property
     def significant_factors(self) -> list[str]:
@@ -126,6 +172,8 @@ class CLMMResult:
                          "(separation or a ceiling in the scores); the estimates are unstable.")
         else:
             lines.append(f"  {SIG_LEGEND}")
+        if self.variance_components:
+            lines.append(f"  {_variance_line(self.variance_components)}")
         for w in self.warnings:
             lines.append(f"  note: {w}")
         return "\n".join(lines)
@@ -225,6 +273,7 @@ def fit_clmm(
         res.warnings.append("interactions not estimable on this data — main effects only")
     res.log_lik = payload.get("logLik")
     res.thresholds = payload.get("thresholds", [])
+    _set_random_intercept(res, payload)  # variance_components (σ_u², ICC) + singular note
     coeffs = payload.get("coefficients", [])
     for c in coeffs:
         # "retrieve=keyword × rerank=none", its first factor, and whether it's an interaction

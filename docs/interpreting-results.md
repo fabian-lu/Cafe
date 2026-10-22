@@ -150,6 +150,20 @@ the baseline level. Positive = better. It confirms the story from the linear lay
 the correct scale: retrieval is correctly ordered (`none` strongly negative,
 `dense_rerank` positive), the base model helps, and `finalize` stays null.
 
+Under the table the CLMM reports its per-question random intercept (R's `VarCorr()`):
+
+```text
+  variance components:  between-question σ_u² = … (σ_u = …) · latent residual π²/3 = 3.290 · ICC = …
+```
+
+`σ_u²` is how much the questions differ in difficulty on the model's latent log-odds
+scale. The ICC, `σ_u² / (σ_u² + π²/3)`, is the share of the latent variance that lies
+between questions (`π²/3` is the fixed residual variance of a logit link). The logistic
+GLMM for binary rubrics prints the same line. When `σ_u` collapses to about 0, the report
+adds a *near-singular* note, the same warning the linear layer gives: the questions barely
+differ, and the p-values are unstable. The numbers are also available as
+`result.clmm.variance_components` / `result.logistic.variance_components`.
+
 ## Which model runs for which rubric
 
 The rubric's scale type selects the model automatically — you do not choose:

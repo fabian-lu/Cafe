@@ -101,12 +101,15 @@ result <- tryCatch({
   thresholds <- lapply(alpha_names, function(rn) {
     list(term = rn, estimate = unname(ct[rn, 1]))
   })
+  vc <- ordinal::VarCorr(m)$input_id   # 1x1 random-intercept variance (+ "stddev" attribute)
+  random_intercept <- list(variance = vc[1, 1], sd = unname(attr(vc, "stddev"))[1])
 
   # deparse() splits long formulas into several strings (a JSON array); join them into one
   formula <- paste(trimws(deparse(form, width.cutoff = 500L)), collapse = " ")
   list(available = TRUE, n_obs = nrow(d), formula = formula,
        logLik = as.numeric(logLik(m)), coefficients = coeffs, thresholds = thresholds,
-       used_order = used_order)   # < the requested order when interactions fell back
+       used_order = used_order,   # < the requested order when interactions fell back
+       random_intercept = random_intercept)
 }, error = function(e) list(available = FALSE, error = conditionMessage(e)))
 
 emit(result)

@@ -692,3 +692,93 @@ def test_judge_reps_averaged_system_reps_kept():
     attr = attribute(r)
     assert attr.n_ratings == 4   # raw ratings recorded
     assert attr.n_usable == 2    # answers actually entering the stats
+
+
+def _question_effect_ratings(binary: bool, question_sd: float, seed: int) -> Ratings:
+    """model (large is better) × prompt (no effect) over 30 questions whose difficulty has
+    standard deviation ``question_sd`` on the latent logit scale (0 = no question effect)."""
+    import random
+
+    from cafe.rubrics import CORRECT_PASS_FAIL
+
+    rng = random.Random(seed)
+    items = []
+    for q in range(30):
+        u = rng.gauss(0, question_sd) if question_sd else 0.0
+        for m in ("small", "large"):
+            for p in ("plain", "cot"):
+                eta = (1.0 if m == "large" else -0.5) + u + rng.gauss(0, 1)
+                v = int(eta > 0) if binary else max(1, min(5, round(3 + eta)))
+                items.append(Rating(obs_key=f"{q}{m}{p}", config={"model": m, "prompt": p},
+                                    input_id=f"q{q}", rep=0, judge_rep=0, value=v, value_numeric=v))
+    return Ratings(rubric=CORRECT_PASS_FAIL if binary else ANSWER_QUALITY_1_5, judge_model="x",
+                   factors=["model", "prompt"], items=items)
+
+
+def _assert_latent_variance_components(vc):
+    import math
+
+    assert set(vc) == {"random_intercept", "random_intercept_sd", "residual", "icc"}
+    assert vc["random_intercept_sd"] == pytest.approx(math.sqrt(vc["random_intercept"]), rel=1e-4)
+    assert vc["residual"] == pytest.approx(math.pi ** 2 / 3)
+    assert vc["icc"] == pytest.approx(vc["random_intercept"] / (vc["random_intercept"] + math.pi ** 2 / 3))
+
+
+def test_clmm_reports_random_intercept_variance():
+    from cafe.stats.ordinal import check_r
+
+    if not check_r()[0]:
+        pytest.skip("R + ordinal not installed")
+    res = fit_clmm(_question_effect_ratings(binary=False, question_sd=1.5, seed=5), interactions=1)
+    assert res.available, res.reason
+    _assert_latent_variance_components(res.variance_components)
+    assert res.variance_components["random_intercept"] > 1      # a real between-question effect
+    assert "between-question σ_u²" in res.show() and "ICC" in res.show()
+    assert not any("near-singular" in w for w in res.warnings)
+
+    flat = fit_clmm(_question_effect_ratings(binary=False, question_sd=0.0, seed=7), interactions=1)
+    assert flat.variance_components["random_intercept_sd"] < 1e-3   # collapsed
+    assert any("near-singular" in w for w in flat.warnings)
+
+
+def test_glmer_reports_random_intercept_variance():
+    from cafe import fit_logistic
+    from cafe.stats.logistic import check_glmer
+
+    if not check_glmer()[0]:
+        pytest.skip("R + lme4 not installed")
+    log = fit_logistic(_question_effect_ratings(binary=True, question_sd=1.5, seed=5),
+                       interactions=1, backend="glmer")
+    assert log.available and "glmer" in log.model
+    _assert_latent_variance_components(log.variance_components)
+    assert log.variance_components["random_intercept"] > 1
+    assert "between-question σ_u²" in log.show() and "ICC" in log.show()
+    assert not any("near-singular" in w for w in log.warnings)
+
+    flat = fit_logistic(_question_effect_ratings(binary=True, question_sd=0.0, seed=7),
+                        interactions=1, backend="glmer")
+    assert flat.variance_components["random_intercept"] == pytest.approx(0, abs=1e-6)
+    assert any("near-singular" in w for w in flat.warnings)
+
+
+def test_random_intercept_components_and_note_from_r_payload():
+    import math
+
+    from cafe.stats.logistic import Logistic
+    from cafe.stats.ordinal import CLMMResult, _set_random_intercept
+
+    res = CLMMResult(available=True, formula="f", n_obs=10)
+    _set_random_intercept(res, {"random_intercept": {"variance": 0.25, "sd": 0.5}})
+    assert res.variance_components["icc"] == pytest.approx(0.25 / (0.25 + math.pi ** 2 / 3))
+    assert not res.warnings
+    assert "between-question σ_u² = 0.250 (σ_u = 0.500)" in res.show()
+
+    log = Logistic(available=True, formula="f", n_obs=10)
+    _set_random_intercept(log, {"random_intercept": {"variance": 0.0, "sd": 0.0}})
+    assert log.variance_components["icc"] == 0.0
+    assert any("near-singular" in w for w in log.warnings)
+    assert "ICC = 0.000" in log.show() and "near-singular" in log.show()
+
+    statsmodels_like = Logistic(available=True, formula="f")
+    _set_random_intercept(statsmodels_like, {})                 # no random intercept fit
+    assert statsmodels_like.variance_components is None
