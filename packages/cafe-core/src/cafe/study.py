@@ -17,6 +17,30 @@ from enum import Enum
 from typing import Any
 
 
+#: Names CAFE's tidy views already use for bookkeeping columns next to the factor columns:
+#: ``Ratings.to_records()`` (the frame every statistic is computed from) and
+#: ``Evaluation.records()`` (exports and the web app). A factor with one of these names would be
+#: confused with, or overwritten by, that column, so :class:`Factor` and
+#: :class:`~cafe.judging.ratings.Ratings` reject them.
+RESERVED_FACTOR_NAMES = frozenset({
+    # Ratings.to_records()
+    "input_id", "rep", "judge_rep", "verdict", "reasoning", "error",
+    # Evaluation.records()
+    "question", "reference", "output", "elapsed_s", "cost_usd", "tokens", "energy_wh",
+    "judge_system", "judge_prompt", "judge_raw",
+})
+
+
+def check_factor_name(name: str) -> None:
+    """Raise ``ValueError`` if ``name`` is one of :data:`RESERVED_FACTOR_NAMES`."""
+    if name in RESERVED_FACTOR_NAMES:
+        raise ValueError(
+            f"factor name {name!r} is reserved — CAFE's results tables already have a {name!r} "
+            f"column, so the factor would be confused with it; rename the factor (reserved: "
+            f"{', '.join(sorted(RESERVED_FACTOR_NAMES))})"
+        )
+
+
 class FactorType(str, Enum):
     """How a factor is treated by design generation and (later) statistics."""
 
@@ -32,6 +56,12 @@ class Factor:
     ``levels`` is the set of values this factor can take. Full factorial visits
     every combination of every factor's levels — there is no limit on the number
     of factors or levels (that limit only applies to fractional/screening designs).
+
+    Raises
+    ------
+    ValueError
+        If ``name`` is empty or reserved (one of :data:`RESERVED_FACTOR_NAMES`, e.g.
+        ``rep``, ``error``, ``verdict``, ``output``, ``tokens``), or ``levels`` is empty.
     """
 
     name: str
@@ -41,6 +71,7 @@ class Factor:
     def __post_init__(self) -> None:
         if not self.name or not isinstance(self.name, str):
             raise ValueError("factor name must be a non-empty string")
+        check_factor_name(self.name)
         self.levels = list(self.levels)
         if len(self.levels) == 0:
             raise ValueError(f"factor {self.name!r} must have at least one level")
