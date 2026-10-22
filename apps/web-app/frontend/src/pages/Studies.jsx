@@ -27,7 +27,9 @@ function StudyRow({ s, archived = false }) {
   }, [s.status, s.id]);
 
   const pct = prog && prog.total ? Math.round((prog.done / prog.total) * 100) : 0;
-  const running = s.status === "running" || prog?.status === "running";
+  // a terminal stream event is newer than the list's snapshot of s.status (not refetched)
+  const status = prog?.status === "done" || prog?.status === "failed" ? prog.status : s.status;
+  const running = status === "running";
   const judging = prog?.phase === "judging";
   const go = () => nav(`/studies/${s.id}`);
 
@@ -47,11 +49,11 @@ function StudyRow({ s, archived = false }) {
             <div className="hint mono">{judging ? "judging" : "answering"} {prog?.total ? `${prog.done}/${prog.total}` : ""}</div>
           </div>
         ) : (
-          <span className={"badge " + s.status}>{s.status}</span>
+          <span className={"badge " + status}>{status}</span>
         )}
       </td>
       <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-        {s.status === "done" && (
+        {status === "done" && (
           <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); nav(`/results?study=${s.id}`); }}>results</button>
         )}{" "}
         <span className="material-symbols-outlined row-arrow" style={{ fontSize: 18, verticalAlign: "-4px" }}>chevron_right</span>
