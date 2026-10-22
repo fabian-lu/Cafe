@@ -136,6 +136,12 @@ export default function Raters() {
             <span style={{ color: "var(--error)" }}>■</span> &lt; 0.667 unreliable. Each α needs ≥ 2
             raters over the same answers.
           </div>
+          {rel?.stale_ratings > 0 && (
+            <div className="hint" style={{ marginBottom: 8, color: "var(--amber-soft)" }}>
+              {rel.stale_ratings} earlier human rating{rel.stale_ratings === 1 ? "" : "s"} belong to answers
+              from a previous run of this study and {rel.stale_ratings === 1 ? "is" : "are"} not counted.
+            </div>
+          )}
         </>
       )}
 

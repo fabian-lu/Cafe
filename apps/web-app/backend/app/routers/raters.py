@@ -141,11 +141,14 @@ async def _require_study(db: AsyncSession, study_id: int) -> None:
 @router.post("/studies/{id_}/human-ratings", status_code=201)
 async def submit_ratings(id_: int, body: HumanRatingsIn, db: AsyncSession = Depends(get_session)):
     await _require_study(db, id_)
-    # replace this rater's prior scores for the study
+    # replace this rater's prior scores for the answers scored now; their other ratings stay
+    # (a returning rater submitting a partial sheet must not lose earlier work)
+    keys = {str(k) for k in body.scores}
     existing = (await db.execute(select(models.HumanRating).where(
         models.HumanRating.study_id == id_, models.HumanRating.rater == body.rater))).scalars()
     for row in existing:
-        await db.delete(row)
+        if row.answer_key in keys:
+            await db.delete(row)
     for key, score in body.scores.items():
         db.add(models.HumanRating(study_id=id_, answer_key=str(key), rater=body.rater, score=float(score)))
     await db.commit()

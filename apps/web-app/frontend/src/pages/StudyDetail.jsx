@@ -92,6 +92,18 @@ export default function StudyDetail() {
     try { await api.runStudy(id); setProg({ phase: "answers", status: "running" }); setStudy((s) => ({ ...s, status: "running" })); listen(); }
     catch (e) { setErr(e.message); }
   };
+  // Re-running a finished study regenerates and re-judges everything and replaces its results
+  // (and human ratings no longer match the new answers) — expensive work, so ask first.
+  const rerun = async () => {
+    let rated = 0;
+    try { rated = (await api.studyRaters(id)).reduce((n, r) => n + (r.n || 0), 0); } catch { /* none */ }
+    confirm("Re-run this study?",
+      "Every answer is generated and judged again, and the current results are replaced."
+        + (rated ? ` The ${rated} human rating${rated === 1 ? "" : "s"} collected for it won't match the new answers.` : ""),
+      run, "Re-run");
+  };
+  // an imported study has no pipeline to run it with
+  const canRun = study?.pipeline !== "(imported)";
   const estimate = async () => {
     setEstErr(null); setEstimating(true); setEst(null);
     try { setEst(await api.estimateStudy(id)); }
@@ -146,7 +158,7 @@ export default function StudyDetail() {
               <div className="row-between" style={{ flexWrap: "wrap", gap: 12 }}>
                 <button className="btn primary" onClick={() => nav(`/results?study=${study.id}`)}>View results →</button>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button className="btn" onClick={run}>Re-run</button>
+                  {canRun && <button className="btn" onClick={rerun}>Re-run</button>}
                   {study.archived
                     ? <>
                         <button className="btn" onClick={restore}>Restore</button>
@@ -160,7 +172,7 @@ export default function StudyDetail() {
               <div className="row-between" style={{ flexWrap: "wrap", gap: 12 }}>
                 <div className="hint" style={{ margin: 0, color: "var(--error)" }}>The last run failed. {prog?.error}</div>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button className="btn primary" onClick={run}>Re-run</button>
+                  {canRun && <button className="btn primary" onClick={run}>Re-run</button>}
                   <button className="btn" onClick={archive}>Archive</button>
                 </div>
               </div>

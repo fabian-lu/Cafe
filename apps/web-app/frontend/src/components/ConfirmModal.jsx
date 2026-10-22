@@ -1,11 +1,12 @@
-// A small confirm dialog. Usage: const [confirm, ask] = useConfirm(); ask("Delete X?", onYes)
+// A small confirm dialog. Usage: const confirm = useConfirm(); confirm("Delete X?", "message", onYes)
+// — an optional 4th argument labels the confirm button (default "Delete").
 import { createContext, useCallback, useContext, useState } from "react";
 
 const Ctx = createContext(null);
 
 export function ConfirmProvider({ children }) {
-  const [state, setState] = useState(null); // {title, message, onConfirm}
-  const ask = useCallback((title, message, onConfirm) => setState({ title, message, onConfirm }), []);
+  const [state, setState] = useState(null); // {title, message, onConfirm, label}
+  const ask = useCallback((title, message, onConfirm, label = "Delete") => setState({ title, message, onConfirm, label }), []);
   const close = () => setState(null);
   return (
     <Ctx.Provider value={ask}>
@@ -17,7 +18,7 @@ export function ConfirmProvider({ children }) {
             <p>{state.message}</p>
             <div className="modal-actions">
               <button className="btn ghost" onClick={close}>Cancel</button>
-              <button className="btn danger" onClick={() => { state.onConfirm(); close(); }}>Delete</button>
+              <button className="btn danger" onClick={() => { state.onConfirm(); close(); }}>{state.label}</button>
             </div>
           </div>
         </div>
