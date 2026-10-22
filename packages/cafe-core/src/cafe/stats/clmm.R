@@ -86,6 +86,10 @@ result <- tryCatch({
     used_order <- 1L
   }
   if (is.null(m)) stop("model did not converge")
+  # clmm never checks its optimizer's status. nlminb's `convergence` is 0 only on success
+  # (?nlminb); after e.g. "false convergence (8)" the Hessian is meaningless and the
+  # standard errors can be ~100x too small. Added to the result after the tryCatch.
+  optimizer <- list(convergence = m$optRes$convergence, message = m$optRes$message)
 
   ct <- coef(summary(m))
   beta_names <- names(m$beta)          # fixed-effect (factor) coefficients
@@ -111,5 +115,6 @@ result <- tryCatch({
        used_order = used_order,   # < the requested order when interactions fell back
        random_intercept = random_intercept)
 }, error = function(e) list(available = FALSE, error = conditionMessage(e)))
+if (isTRUE(result$available)) result$optimizer <- optimizer
 
 emit(result)

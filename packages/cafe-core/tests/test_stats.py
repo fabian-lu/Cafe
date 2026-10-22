@@ -329,6 +329,68 @@ def test_report_has_all_three_layers():
     assert Evaluation(study_name="t", answers=Results(study_name="t", factors=[])).overall_mean is None
 
 
+def _canned_clmm(monkeypatch, optimizer):
+    """fit_clmm on a canned clmm.R payload whose fit reports ``optimizer`` (no R needed)."""
+    import json
+    import subprocess
+
+    from cafe.stats import ordinal
+
+    payload = {"available": True, "n_obs": 20, "logLik": -10.0, "thresholds": [],
+               "formula": "verdict ~ (1 | input_id) + method", "optimizer": optimizer,
+               "coefficients": [{"term": "methodgood", "estimate": 0.24, "std_error": 0.0028,
+                                 "z": 84.7, "p": 0.0}]}
+    monkeypatch.setattr(ordinal, "check_r", lambda: (True, "ok"))
+    monkeypatch.setattr(ordinal.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(
+        a[0], 0, stdout=json.dumps(payload), stderr=""))
+    return fit_clmm(_ratings({"good": 5, "bad": 2}))
+
+
+def test_clmm_withholds_pvalues_when_optimizer_did_not_converge(monkeypatch):
+    """clmm doesn't check nlminb's status; after a false convergence its standard errors
+    are ~100x too small (p ≈ 0). Such a fit must not report p-values."""
+    res = _canned_clmm(monkeypatch, {"convergence": 1, "message": "false convergence (8)"})
+    assert res.available and res.converged is False
+    c = res.coefficients[0]
+    assert c["p"] is None and c["z"] is None and c["std_error"] is None
+    assert c["significant"] is False and res.significant_factors == []
+    assert c["estimate"] == pytest.approx(0.24)
+    assert any("did not converge" in w and "false convergence (8)" in w for w in res.warnings)
+    text = res.show()
+    assert "did not converge" in text and "near-degenerate" not in text and "Signif." not in text
+
+    ok = _canned_clmm(monkeypatch, {"convergence": 0, "message": "relative convergence (4)"})
+    assert ok.converged is True and ok.coefficients[0]["p"] == 0.0 and not ok.warnings
+
+
+@pytest.mark.skipif(shutil.which("Rscript") is None, reason="R not installed")
+def test_clmm_no_spurious_significance_from_unconverged_fit():
+    """30 questions; `prompt` has no effect. On this data clmm's optimizer stops with
+    "false convergence (8)" (R 4.5 / ordinal 2026.7) and reports SE 0.003 instead of ~0.33,
+    so p ≈ 0. Whatever the optimizer does, `prompt` must not come out significant."""
+    import random
+
+    rng = random.Random(5)
+    items = []
+    for q in range(30):
+        for m in ("small", "large"):
+            for p in ("plain", "cot"):
+                v = max(1, min(5, round(3 + (1.0 if m == "large" else -0.5) + rng.gauss(0, 1))))
+                items.append(Rating(obs_key=f"{q}{m}{p}", config={"model": m, "prompt": p},
+                                    input_id=f"q{q}", rep=0, judge_rep=0, value=v, value_numeric=v))
+    r = Ratings(rubric=ANSWER_QUALITY_1_5, judge_model="x", factors=["model", "prompt"], items=items)
+    res = fit_clmm(r, interactions=1)
+    if not res.available:
+        pytest.skip(res.reason or "CLMM unavailable")
+    assert res.converged is not None                     # clmm.R reports the optimizer status
+    prompt = next(c for c in res.coefficients if c["factor"] == "prompt")
+    assert "prompt" not in res.significant_factors
+    if res.converged is False:
+        assert prompt["p"] is None and any("did not converge" in w for w in res.warnings)
+    else:
+        assert prompt["std_error"] > 0.1
+
+
 def _binary_ratings(good_vals, bad_vals):
     from cafe.rubrics import CORRECT_PASS_FAIL
 

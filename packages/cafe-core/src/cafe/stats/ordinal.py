@@ -128,6 +128,7 @@ class CLMMResult:
     n_obs: int | None = None
     formula: str | None = None       # the fitted model (main effects only after a fallback)
     log_lik: float | None = None
+    converged: bool | None = None    # R's optimizer status; False -> std_error / z / p are None
     coefficients: list[dict[str, Any]] = field(default_factory=list)  # term, estimate, std_error, z, p, factor, significant
     thresholds: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -166,7 +167,9 @@ class CLMMResult:
             est = f"{c['estimate']:+.3f}" if c.get("estimate") is not None else "-"
             p = "-" if c.get("p") is None else f"{c['p']:.4f}"
             lines.append(f"  {term:<{w}}{est:>11}{p:>11}   {sig_code(c.get('p'))}")
-        if self.coefficients and all(c.get("p") is None for c in self.coefficients):
+        if self.converged is False:
+            lines.append("")  # p-values withheld; the optimizer note below says why
+        elif self.coefficients and all(c.get("p") is None for c in self.coefficients):
             lines.append("")
             lines.append("  note: standard errors / p-values unavailable — the model is near-degenerate "
                          "(separation or a ceiling in the scores); the estimates are unstable.")
@@ -194,6 +197,11 @@ def fit_clmm(
         ``ordinal`` is missing or there is nothing to fit. Aliased interactions (e.g. a
         fractional factorial below resolution V) are dropped with a note in ``warnings``;
         without statsmodels that check can't run, and ``warnings`` says so instead.
+
+        ``converged`` is R's optimizer status (``None`` when nothing was fit). If the
+        optimizer stopped without converging (``converged=False``), every coefficient's
+        ``std_error``, ``z`` and ``p`` are ``None`` and ``significant`` is ``False``, because
+        the standard errors of such a fit are not valid; ``warnings`` says so.
     """
     import json
     import os
@@ -295,4 +303,28 @@ def fit_clmm(
         c["label"], c["factor"], c["interaction"] = _r_coef_term(c, factors)
         c["significant"] = c.get("p") is not None and c["p"] < alpha
     res.coefficients = coeffs
+    _apply_convergence_guard(res, payload.get("optimizer"))
     return res
+
+
+def _apply_convergence_guard(res: CLMMResult, optimizer: dict[str, Any] | None) -> None:
+    """Set ``res.converged`` from clmm.R's ``optimizer`` status (``nlminb``'s convergence
+    code: 0 = converged). ``ordinal::clmm`` doesn't check it itself. A fit that stopped
+    without converging has a meaningless Hessian, so its standard errors can be ~100x too
+    small (p ≈ 0 for a factor with no effect). Its std_error / z / p are dropped and a note
+    is added (like ``fit_logistic`` under separation); the estimates are kept."""
+    code = (optimizer or {}).get("convergence")
+    if not isinstance(code, int):  # no status reported: leave converged=None
+        return
+    res.converged = code == 0
+    if res.converged:
+        return
+    for c in res.coefficients:
+        c["std_error"] = c["z"] = c["p"] = None
+        c["significant"] = False
+    msg = optimizer.get("message") or f"code {code}"
+    res.warnings.append(
+        f"R's optimizer did not converge (nlminb: {msg}) — the standard errors of this fit "
+        "are not valid, so no p-values are shown; treat the estimates as unreliable and "
+        "read the linear layer's tests and effect sizes instead"
+    )

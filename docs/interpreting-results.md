@@ -145,6 +145,14 @@ fixed effects (ordinal log-odds of a higher score; + = better):
   finalize=on                                             -0.070    0.8524
 ```
 
+The `p` column rests on the CLMM's standard errors. If R's optimizer stops without
+converging, those are not valid: they can come out about 100× too small, which turns a
+factor with no effect into `p = 0.0000 ***`. CAFE then shows `-` for every p-value, adds
+the note *"R's optimizer did not converge (nlminb: …)"*, and sets `result.clmm.converged`
+to `False`. The check is the optimizer's own convergence code, which `ordinal::clmm`
+reports but does not act on. For such a study, read the linear layer's tests and effect
+sizes instead.
+
 Each estimate is the **log-odds** of landing in a higher score category, relative to
 the baseline level. Positive = better. It confirms the story from the linear layer on
 the correct scale: retrieval is correctly ordered (`none` strongly negative,
