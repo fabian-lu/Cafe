@@ -328,7 +328,8 @@ def _timing(answers) -> dict[str, Any]:
     for o in obs:
         for step in (o.metadata or {}).get("trace", []):
             stg = step.get("stage")
-            if stg is not None:
+            # a cache hit repeats the original step's elapsed_s without spending it again
+            if stg is not None and not step.get("cached"):
                 stage_s[stg] = stage_s.get(stg, 0.0) + (step.get("elapsed_s") or 0.0)
 
     return {

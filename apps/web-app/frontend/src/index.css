@@ -329,19 +329,21 @@ input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; marg
 /* Explanation tooltip (components/InfoTip) */
 .infotip { position: relative; border-bottom: 1px dotted var(--outline); cursor: help; outline: none; }
 .infotip-i { font-size: 9px; color: var(--amber); margin-left: 1px; font-weight: 700; }
+/* display:none (not visibility:hidden) while closed: a hidden card near the right edge would
+   still widen the page and add a horizontal scrollbar */
 .infotip-card {
-  visibility: hidden; opacity: 0; position: absolute; z-index: 60; top: calc(100% + 8px);
+  display: none; position: absolute; z-index: 60; top: calc(100% + 8px);
   width: 300px; max-width: 78vw; padding: 12px 14px; border-radius: 10px;
   background: var(--surface-container-highest); border: 1px solid var(--outline-variant);
   box-shadow: 0 12px 32px -10px #000; color: var(--on-surface-variant);
   font-family: var(--font-body); font-size: 12.5px; line-height: 1.55; letter-spacing: 0;
-  text-transform: none; font-weight: 400; white-space: normal; transition: opacity 0.12s;
+  text-transform: none; font-weight: 400; white-space: normal;
 }
 .infotip-card.left { left: 0; }
 .infotip-card.right { right: 0; }
 .infotip-card b { color: var(--on-surface); }
 .infotip-card .mono { color: var(--amber-soft); }
-.infotip:hover .infotip-card, .infotip:focus .infotip-card { visibility: visible; opacity: 1; }
+.infotip:hover .infotip-card, .infotip:focus .infotip-card { display: block; }
 
 /* Read-only demo: corner badge + mutation toast */
 .demo-badge {
