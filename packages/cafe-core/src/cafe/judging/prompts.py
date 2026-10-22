@@ -91,11 +91,17 @@ JUDGE_PRESETS: dict[str, str] = {
 # number is captured — sign and fractional part, with a decimal point or comma — so
 # `GRADE: 4.5` / `4,5` is rejected as off-scale instead of being truncated to 4, and
 # negative levels parse. An "out of" denominator on the same line (`4/5`, `4 out of 5`) is
-# captured so parse_verdict can check it against the rubric's maximum.
+# captured so parse_verdict can check it against the rubric's maximum. GRADE must be a whole
+# word ("upgrade: 2" is not a marker).
 _GRADE_RE = re.compile(
-    r"(?is)[*_]*GRADE[*_]*\s*:[*_\s]*(?:\[\[|[<\[])?\s*(-?[0-9]+(?:[.,][0-9]+)?)"
+    r"(?is)(?<![a-z0-9])[*_]*GRADE[*_]*\s*:[*_\s]*(?:\[\[|[<\[])?\s*(-?[0-9]+(?:[.,][0-9]+)?)"
     r"(?:[*_]*[ \t]*(?:/|out[ \t]+of)[ \t]*(?P<out_of>[0-9]+))?"
 )
+# What may follow the grade on its line: closing brackets, emphasis, punctuation, and a comment
+# after a separator ("4, mostly right", "4 (solid)") as long as it holds no other number.
+# Anything else ("4-5", "4 or 5", "4 (out of 10)", "2 would be too harsh") makes the number
+# ambiguous, so it is rejected rather than read as its first number.
+_GRADE_TAIL_OK = re.compile(r"[\s*_>\].!]*(?:(?:[,;:(\u2013\u2014]|\s-\s)[^0-9]*)?")
 _BRACKET_RE = re.compile(r"\[\[\s*(-?[0-9]+(?:[.,][0-9]+)?)\s*\]\]")
 
 #: Placeholders a custom judge ``prompt_template`` must contain to be a valid grading prompt.
@@ -218,14 +224,23 @@ def parse_verdict(raw: str, rubric: Rubric) -> tuple[Any, int | None, str | None
         "out of" something (``GRADE: 4/5``, ``4 out of 5``) counts only when the
         denominator is the rubric's maximum; any other denominator (``4/10`` on a 1–5
         scale) is rejected, with ``value`` the text as written (``"4/10"``) — it is never
-        rescaled or read as 4.
+        rescaled or read as 4. A comment after the grade is fine when it follows a separator and
+        holds no other number (``GRADE: 4, mostly right``); anything else on the grade's line
+        — a range (``4-5``), an alternative (``4 or 5``), more prose — makes it ambiguous: it
+        is rejected with ``value`` the rest of the line, never read as its first number.
     """
     if not raw or not raw.strip():
         return None, None, "empty judge response"
-    matches = list(_GRADE_RE.finditer(raw)) or list(_BRACKET_RE.finditer(raw))
+    grade_matches = list(_GRADE_RE.finditer(raw))
+    matches = grade_matches or list(_BRACKET_RE.finditer(raw))
     if not matches:
         return None, None, f"no GRADE marker in judge output: {raw[:120]!r}"
     last = matches[-1]
+    if grade_matches:
+        tail = raw[last.end():].split("\n", 1)[0]
+        if not _GRADE_TAIL_OK.fullmatch(tail):
+            written = (last.group(1) + tail).strip()
+            return written, None, f"ambiguous verdict after the GRADE marker: {written!r}"
     number = float(last.group(1).replace(",", "."))  # a decimal comma: 4,5 is 4.5
     value: Any = int(number) if number.is_integer() else number  # 4.5 stays 4.5 (off-scale)
     reasoning = raw[: last.start()].strip() or None  # the prose before the verdict

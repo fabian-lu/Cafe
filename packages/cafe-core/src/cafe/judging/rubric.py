@@ -88,7 +88,10 @@ class Rubric:
             The scale point, or ``None`` if ``value`` is not on the scale. Grades must be
             whole numbers: a fractional float such as ``4.5`` (or ``inf``/``nan``) returns
             ``None`` — it is never truncated to 4. An integral float (``4.0``) maps to 4.
+            A boolean (a JSON ``true``/``false`` grade) is not a grade and returns ``None``.
         """
+        if isinstance(value, bool):  # bool is an int subclass: int(True) would read as 1
+            return None
         if isinstance(value, float) and not value.is_integer():
             return None
         try:

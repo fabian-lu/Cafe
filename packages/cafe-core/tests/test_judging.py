@@ -157,6 +157,29 @@ def test_parse_verdict_markdown_decimal_comma_and_out_of():
     assert parse("GRADE: 4\nOut of fairness, I note the tone.", r)[:2] == (4, 4)
 
 
+def test_parse_verdict_rejects_ambiguous_grades_instead_of_reading_the_first_number():
+    parse, r = cafe.judging.parse_verdict, cafe.ANSWER_QUALITY_1_5
+    # a range, an alternative, an "out of" in parentheses, or prose after the last marker is
+    # ambiguous — rejected (an error rating, re-judged on resume), never read as its first number
+    for raw in ("ok\nGRADE: 4-5", "ok\nGRADE: <4-5>", "ok\nGRADE: 4 or 5", "ok\nGRADE: 4 - 5",
+                "ok\nGRADE: 4 (out of 10)", "ok\nGRADE: 4, 5",
+                "GRADE: 4\n\nNote: a grade: 2 would be too harsh"):
+        value, numeric, why = parse(raw, r)
+        assert numeric is None and "ambiguous" in why, raw
+    # a comment after a separator is fine as long as it holds no other number
+    for raw in ("ok\nGRADE: 4, mostly right", "ok\nGRADE: 4 (solid answer)",
+                "ok\nGRADE: 4 \u2014 clear and correct", "ok\nGRADE: 4.", "ok\nGRADE: <4>"):
+        assert parse(raw, r)[:2] == (4, 4), raw
+    # GRADE must be a whole word: "upgrade: 2" is not a marker
+    assert parse("The upgrade: 2 helped.\nGRADE: 4", r)[:2] == (4, 4)
+
+
+def test_boolean_json_grade_is_not_a_scale_point():
+    r = cafe.ANSWER_QUALITY_1_5
+    assert r.numeric(True) is None and r.numeric(False) is None
+    assert r.numeric("4") == 4 and r.numeric(4.0) == 4  # string / integral-float grades still map
+
+
 def test_preview_includes_system_and_user():
     j = cafe.LLMJudge(model="m", system_prompt="You are terse.")
     out = j.preview(cafe.ANSWER_QUALITY_1_5, "Q?", "A.", reference="ref")
