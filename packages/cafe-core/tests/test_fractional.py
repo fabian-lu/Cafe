@@ -102,3 +102,10 @@ def test_study_fractional_with_options():
         design_options={"runs": 16},
     )
     assert cafe.size(study) == 16
+
+
+def test_too_many_added_factors_is_a_clear_error_not_a_memory_blowup():
+    # 31 two-level factors in 32 runs: the defining relation would have 2^26 words
+    factors = [cafe.Factor(f"f{i}", ["lo", "hi"]) for i in range(31)]
+    with pytest.raises(ValueError, match="too large to analyse"):
+        cafe.fractional_factorial_design(factors, runs=32)

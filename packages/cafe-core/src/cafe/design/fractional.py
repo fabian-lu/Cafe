@@ -165,6 +165,11 @@ def _choose_generators(b: int, p: int) -> tuple[tuple[int, ...], ...]:
     return tuple(sorted(gens, key=lambda s: (-len(s), s)))
 
 
+#: Most factors a fractional design may add to its basic ones: the defining relation has
+#: 2^p - 1 words, so beyond this the design can't be analysed in reasonable memory.
+_MAX_ADDED_FACTORS = 18
+
+
 def _full_relation(words: list[frozenset[int]]) -> set[frozenset[int]]:
     """Every non-empty XOR-combination of the generator words (the defining relation)."""
     full: set[frozenset[int]] = set()
@@ -246,6 +251,14 @@ def fractional_factorial_design(
 
     names = [f.name for f in factors]
     basic, added = names[:b], names[b:]
+    if len(added) > _MAX_ADDED_FACTORS:
+        # the defining relation has 2^p - 1 words (p = added factors): 2^26 for 31 factors in
+        # 32 runs — enumerating them would exhaust memory long before producing a design
+        raise ValueError(
+            f"{k} factors in {runs} runs adds {len(added)} factors to {b} basic ones; its "
+            f"defining relation (2^{len(added)} words) is too large to analyse — use at most "
+            f"{b + _MAX_ADDED_FACTORS} factors here, or more runs"
+        )
 
     # Assign each added factor a generator (a subset of ≥ 2 basic factors), chosen by a
     # minimum-aberration search. (Taking the largest subsets first is not enough: XOR of
