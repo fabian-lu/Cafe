@@ -5,6 +5,7 @@ asyncio background task, stream progress, and cache the results. All the science
 from __future__ import annotations
 
 import asyncio
+import math
 import traceback
 from typing import Any
 
@@ -105,7 +106,8 @@ async def _load_study_objects(study_id: int):
 
 
 def _results_payload(ev) -> dict[str, Any]:
-    """Serialise a cafe Evaluation into JSON the Results page draws."""
+    """Serialise a cafe Evaluation into JSON the Results page draws (non-finite floats such as
+    ``F = inf`` become ``null``)."""
     import numpy as np
     import pandas as pd
 
@@ -212,7 +214,20 @@ def _results_payload(ev) -> dict[str, Any]:
                          "rows": [dict(r) for r in getattr(pf, "rows", [])]}
     except Exception:  # noqa: BLE001
         pass
-    return out
+    return _json_safe(out)
+
+
+def _json_safe(obj: Any) -> Any:
+    """Replace non-finite floats with ``None`` throughout a payload. cafe-core legitimately
+    returns e.g. ``F = inf`` for perfectly separated data, but JSON has no inf/NaN: Starlette
+    renders responses with ``allow_nan=False`` and a Postgres ``json`` column rejects them."""
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    return obj
 
 
 def _factor_keys(ev) -> list[str]:
