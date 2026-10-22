@@ -98,11 +98,11 @@ export default function StudyDetail() {
     catch (e) { setEstErr(e.message); }
     finally { setEstimating(false); }
   };
-  const archive = () => api.archiveStudy(id).then(() => nav("/studies"));
-  const restore = () => api.restoreStudy(id).then(load);
+  const archive = () => { setErr(null); api.archiveStudy(id).then(() => nav("/studies")).catch((e) => setErr(e.message)); };
+  const restore = () => { setErr(null); api.restoreStudy(id).then(load).catch((e) => setErr(e.message)); };
   const del = () => confirm("Permanently delete?",
     `“${study.name}” and its results/ratings will be destroyed for good — this cannot be undone.`,
-    () => api.deleteStudy(id).then(() => nav("/studies")));
+    () => { setErr(null); api.deleteStudy(id).then(() => nav("/studies")).catch((e) => setErr(e.message)); });
 
   const running = study?.status === "running" || prog?.status === "running";
   const judging = prog?.phase === "judging";

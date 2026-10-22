@@ -53,7 +53,9 @@ export default function Raters() {
   const [msg, setMsg] = useState(null);
   const [err, setErr] = useState(null);
 
-  useEffect(() => { api.studies().then((all) => setStudies(all.filter((s) => s.status === "done"))); }, []);
+  useEffect(() => {
+    api.studies().then((all) => setStudies(all.filter((s) => s.status === "done"))).catch((e) => setErr(e.message));
+  }, []);
 
   const refresh = (id) => {
     api.studyRaters(id).then(setRaters).catch(() => setRaters([]));

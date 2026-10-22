@@ -264,8 +264,8 @@ export default function Studies() {
   };
   useEffect(() => {
     api.pipelines().then(setPipelines).catch((e) => setErr(e.message));
-    api.datasets().then(setDatasets);
-    api.rubrics().then(setRubrics);
+    api.datasets().then(setDatasets).catch((e) => setErr(e.message));
+    api.rubrics().then(setRubrics).catch((e) => setErr(e.message));
     loadStudies();
   }, []);
 
