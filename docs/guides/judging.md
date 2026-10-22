@@ -60,7 +60,7 @@ are built in:
 | `HELPFULNESS_0_10` | 0–10 helpfulness | numeric |
 | `CORRECT_PASS_FAIL` | pass / fail | binary |
 
-Define your own by listing its levels and scale type:
+Define your own by listing its levels (at least two, with different values) and scale type:
 
 ```python
 tone = cafe.Rubric(
