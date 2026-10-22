@@ -109,6 +109,42 @@ def _set_random_intercept(res: Any, payload: dict[str, Any]) -> None:
         )
 
 
+def _parse_factor_tests(payload: dict[str, Any], alpha: float) -> tuple[list[dict[str, Any]], str | None]:
+    """The per-term likelihood-ratio tests clmm.R / glmm.R report, as ``factor_tests`` rows
+    (interactions labelled ``"A × B"``), plus a note naming terms without a test (a reduced
+    model didn't converge), or ``None``. Shared by the CLMM and the GLMM."""
+    tests = []
+    for t in payload.get("factor_tests") or []:
+        fs = list(t.get("factors") or [])
+        p = t.get("p")
+        tests.append({
+            "term": " × ".join(fs) or str(t.get("term", "")), "factors": fs,
+            "interaction": len(fs) > 1, "df": t.get("df"), "chisq": t.get("chisq"), "p": p,
+            "significant": p is not None and p < alpha,
+        })
+    failed = [t["term"] for t in tests if t["p"] is None]
+    note = (f"no likelihood-ratio test for {', '.join(failed)} (a reduced model didn't converge "
+            "with any optimizer); read its coefficients instead") if failed else None
+    return tests, note
+
+
+def _factor_tests_lines(tests: list[dict[str, Any]]) -> list[str]:
+    """The per-factor likelihood-ratio table for ``show()`` (strongest first)."""
+    from cafe.stats._format import sig_code
+
+    if not tests:
+        return []
+    tw = max([len("term")] + [len(t["term"]) for t in tests])
+    lines = ["per-factor tests (likelihood ratio, Type II — does the factor matter at all?):",
+             f"  {'term':<{tw}}{'χ²':>10}{'df':>5}{'p':>11}     "]
+    for t in sorted(tests, key=lambda t: -(t.get("chisq") or 0)):
+        chisq = "-" if t.get("chisq") is None else f"{t['chisq']:.2f}"
+        df = "-" if t.get("df") is None else f"{t['df']:.0f}"
+        p = "-" if t.get("p") is None else f"{t['p']:.4f}"
+        lines.append(f"  {t['term']:<{tw}}{chisq:>10}{df:>5}{p:>11}   {sig_code(t.get('p'))}")
+    return lines + [""]
+
+
 def _variance_line(vc: dict[str, float]) -> str:
     """One-line summary of :func:`_set_random_intercept`'s components for ``show()``."""
     return (
@@ -170,16 +206,7 @@ class CLMMResult:
             f"ordinal CLMM — {self.formula}   (n={self.n_obs}, logLik={ll}, α={self.alpha})",
             "",
         ]
-        if self.factor_tests:
-            tw = max([len("term")] + [len(t["term"]) for t in self.factor_tests])
-            lines.append("per-factor tests (likelihood ratio, Type II — does the factor matter at all?):")
-            lines.append(f"  {'term':<{tw}}{'χ²':>10}{'df':>5}{'p':>11}     ")
-            for t in sorted(self.factor_tests, key=lambda t: -(t.get("chisq") or 0)):
-                chisq = "-" if t.get("chisq") is None else f"{t['chisq']:.2f}"
-                df = "-" if t.get("df") is None else f"{t['df']:.0f}"
-                p = "-" if t.get("p") is None else f"{t['p']:.4f}"
-                lines.append(f"  {t['term']:<{tw}}{chisq:>10}{df:>5}{p:>11}   {sig_code(t.get('p'))}")
-            lines.append("")
+        lines += _factor_tests_lines(self.factor_tests)
         lines += [
             "fixed effects (ordinal log-odds of a higher score; + = better):",
             f"  {'term':<{w}}{'estimate':>11}{'p':>11}     ",
@@ -338,20 +365,9 @@ def fit_clmm(
         c["significant"] = c.get("p") is not None and c["p"] < alpha
     res.coefficients = coeffs
     _apply_convergence_guard(res, payload.get("optimizer"))
-    for t in payload.get("factor_tests") or []:
-        fs = list(t.get("factors") or [])
-        p = t.get("p")
-        res.factor_tests.append({
-            "term": " × ".join(fs) or str(t.get("term", "")), "factors": fs,
-            "interaction": len(fs) > 1, "df": t.get("df"), "chisq": t.get("chisq"), "p": p,
-            "significant": p is not None and p < alpha,
-        })
-    failed = [t["term"] for t in res.factor_tests if t["p"] is None]
-    if failed:
-        res.warnings.append(
-            "no likelihood-ratio test for " + ", ".join(failed) + " (a reduced model didn't "
-            "converge); read its coefficients instead"
-        )
+    res.factor_tests, note = _parse_factor_tests(payload, alpha)
+    if note:
+        res.warnings.append(note)
     return res
 
 

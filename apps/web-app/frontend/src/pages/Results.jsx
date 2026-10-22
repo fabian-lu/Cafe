@@ -276,31 +276,37 @@ function Forest({ pairwise }) {
   );
 }
 
+// ── per-factor likelihood-ratio tests (ordinal CLMM, logistic GLMM) ──────────────
+function FactorTests({ tests }) {
+  if (!tests || !tests.length) return null;
+  const rows = [...tests].sort((a, b) => (b.chisq || 0) - (a.chisq || 0));
+  return <>
+    <div className="section-label" style={{ marginTop: 0 }}>per factor — <InfoTip label="likelihood-ratio tests">{G.lr}</InfoTip></div>
+    <table className="list-table" style={{ marginBottom: 18 }}>
+      <thead><tr><th>Factor</th><th style={{ textTransform: "none" }}>χ²</th><th>df</th><th><InfoTip label="p">{G.p}</InfoTip></th></tr></thead>
+      <tbody>
+        {rows.map((t, i) => (
+          <tr key={i}>
+            <td className="mono" style={{ color: t.significant ? "var(--green)" : undefined }}>{t.term}{t.interaction ? <span className="muted"> ×</span> : ""}</td>
+            <td className="mono">{fmt(t.chisq, 2)}</td>
+            <td className="mono">{t.df ?? "—"}</td>
+            <td className="mono">{fmt(t.p, 4)} <span style={{ color: "var(--amber)" }}>{sig(t.p)}</span></td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <div className="section-label">per level — vs. the baseline</div>
+  </>;
+}
+
 // ── ordinal CLMM ─────────────────────────────────────────────────────────────────
 function CLMMTable({ clmm }) {
   if (!clmm.available) return <div className="card" style={{ marginBottom: 16 }}>
     <div className="hint">ordinal model not fitted{clmm.reason ? ` — ${clmm.reason}` : ""}. Install R + the <span className="mono">ordinal</span> package (<span className="mono">cafe doctor</span>) to enable it.</div></div>;
   const coefs = [...clmm.coefficients].sort((a, b) => Math.abs(b.estimate || 0) - Math.abs(a.estimate || 0));
-  const tests = [...(clmm.factor_tests || [])].sort((a, b) => (b.chisq || 0) - (a.chisq || 0));
   return (
     <div className="card" style={{ marginBottom: 16 }}>
-      {tests.length > 0 && <>
-        <div className="section-label" style={{ marginTop: 0 }}>per factor — <InfoTip label="likelihood-ratio tests">{G.lr}</InfoTip></div>
-        <table className="list-table" style={{ marginBottom: 18 }}>
-          <thead><tr><th>Factor</th><th style={{ textTransform: "none" }}>χ²</th><th>df</th><th><InfoTip label="p">{G.p}</InfoTip></th></tr></thead>
-          <tbody>
-            {tests.map((t, i) => (
-              <tr key={i}>
-                <td className="mono" style={{ color: t.significant ? "var(--green)" : undefined }}>{t.term}{t.interaction ? <span className="muted"> ×</span> : ""}</td>
-                <td className="mono">{fmt(t.chisq, 2)}</td>
-                <td className="mono">{t.df ?? "—"}</td>
-                <td className="mono">{fmt(t.p, 4)} <span style={{ color: "var(--amber)" }}>{sig(t.p)}</span></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <div className="section-label">per level — vs. the baseline</div>
-      </>}
+      <FactorTests tests={clmm.factor_tests} />
       <table className="list-table">
         <thead><tr><th>Term</th>
           <th><InfoTip label="log-odds (β)">{G.beta}</InfoTip></th>
@@ -342,6 +348,7 @@ function LogisticTable({ logistic }) {
   const terms = [...logistic.terms].sort((a, b) => Math.abs(b.coef || 0) - Math.abs(a.coef || 0));
   return (
     <div className="card" style={{ marginBottom: 16 }}>
+      <FactorTests tests={logistic.factor_tests} />
       <table className="list-table">
         <thead><tr><th>Term</th>
           <th><InfoTip label="log-odds (β)">{G.beta}</InfoTip></th>

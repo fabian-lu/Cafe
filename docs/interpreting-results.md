@@ -225,9 +225,16 @@ they fail (lme4: *"Model failed to converge with max|grad| = …"*), the model's
 errors are not valid; they can come out about 100× too small, which turns a factor with no
 effect into `p = 0.0000 ***`. The report then shows `-` for every p-value and adds the note
 *"R's optimizer did not converge (lme4: …)"*, and `result.logistic.converged` is `False`.
-lme4 warns that its checks can also flag fits that are fine; CAFE then errs on the side of
-not reporting a p-value. A boundary (singular) fit is not a convergence failure. For such a
-study, read the descriptive pass rates instead.
+Because lme4's checks also flag fits that are fine, CAFE first refits once with the
+`bobyqa` optimizer and uses that fit if it passes (the report says so); only if it doesn't
+are the p-values withheld. A boundary (singular) fit is not a convergence failure. For such
+a study, read the descriptive pass rates instead.
+
+Like the CLMM, the logistic GLMM reports one **likelihood-ratio test per factor and
+interaction** above its coefficients (`result.logistic.factor_tests`) — and these stay
+valid when a factor separates pass from fail, where the per-coefficient p-values don't.
+Each reduced model is refit with several optimizers until one passes lme4's checks; a term
+where none does gets no test and a note. The statsmodels fallback (no R) has no such tests.
 
 ## Beyond the report
 

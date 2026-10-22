@@ -723,6 +723,45 @@ def test_glmer_reports_a_bobyqa_refit_that_converged(monkeypatch):
     assert any("refit with bobyqa" in w for w in log.warnings)
 
 
+def test_glmer_parses_per_factor_likelihood_ratio_tests(monkeypatch):
+    from cafe import fit_logistic
+
+    log = _canned_glmer(monkeypatch, {"convergence": 0, "message": "ok", "lme4_code": [],
+                                      "lme4_messages": []})
+    assert log.factor_tests == []                  # none reported -> coefficient-based fallback
+    import json
+    import subprocess
+
+    from cafe.stats import logistic
+
+    payload = {"available": True, "n_obs": 40, "logLik": -20.0, "formula": "verdict ~ (1 | input_id) + method",
+               "coefficients": [{"term": "methodgood", "estimate": 79.3, "std_error": 1e4, "z": 0.0, "p": 1.0}],
+               "optimizer": {"convergence": 0, "message": "ok", "lme4_code": [], "lme4_messages": []},
+               "factor_tests": [{"term": "method", "factors": ["method"], "df": 1, "chisq": 40.1,
+                                 "p": 2.4e-10, "converged": True}]}
+    monkeypatch.setattr(logistic, "check_glmer", lambda: (True, "ok"))
+    monkeypatch.setattr(logistic.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(
+        a[0], 0, stdout=json.dumps(payload), stderr=""))
+    sep = fit_logistic(_binary_ratings(good_vals=[1] * 8, bad_vals=[0] * 8), backend="glmer")
+    # separation: the Wald p-value is withheld, the likelihood-ratio test still answers
+    assert sep.terms[0]["p"] is None and sep.significant_factors == ["method"]
+    assert "per-factor tests (likelihood ratio" in sep.show()
+
+
+def test_glmer_likelihood_ratio_tests_find_the_real_factor():
+    from cafe import fit_logistic
+    from cafe.stats.logistic import check_glmer
+
+    if not check_glmer()[0]:
+        pytest.skip("R + lme4 not installed")
+    r = _prefix_named_factor_ratings(binary=True)              # top_k matters, retrieve doesn't
+    log = fit_logistic(r, interactions=1, backend="glmer")
+    tests = {t["term"]: t for t in log.factor_tests}
+    assert set(tests) == {"retrieve", "retrieve.top_k"}
+    assert tests["retrieve.top_k"]["significant"] and not tests["retrieve"]["significant"]
+    assert fit_logistic(r, interactions=1, backend="glmer", lr_tests=False).factor_tests == []
+
+
 def test_glmer_no_spurious_significance_from_unconverged_fit():
     """30 questions; B has no effect. On this data lme4 reports "Model failed to converge
     with max|grad| = 0.049" (lme4 2.0) and SE 0.0014 instead of ~0.5, so p ≈ 0. Whatever

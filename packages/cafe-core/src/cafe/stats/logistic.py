@@ -65,9 +65,16 @@ class Logistic:
     #: "residual": π²/3, "icc": σ_u² / (σ_u² + π²/3)}``. ``None`` for the statsmodels
     #: backends, which fit no random intercept.
     variance_components: dict[str, float] | None = None
+    #: GLMM only: one Type-II likelihood-ratio test per factor / interaction ("does it matter
+    #: at all?"; valid under separation, unlike the Wald p-values) — see ``CLMMResult``.
+    factor_tests: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def significant_factors(self) -> list[str]:
+        """The terms that matter: from the per-factor likelihood-ratio tests when available
+        (interactions as ``"A × B"``), else the factors of the significant coefficients."""
+        if self.factor_tests:
+            return [t["term"] for t in self.factor_tests if t.get("significant")]
         return sorted({t["factor"] for t in self.terms if t.get("significant") and t.get("factor")})
 
     def to_df(self):
@@ -80,6 +87,7 @@ class Logistic:
 
     def show(self) -> str:
         from cafe.stats._format import SIG_LEGEND, sig_code
+        from cafe.stats.ordinal import _factor_tests_lines
 
         if not self.available:
             return f"logistic model unavailable: {self.reason}"
@@ -89,6 +97,7 @@ class Logistic:
             f"logistic — {self.formula}   (n={self.n_obs}, α={self.alpha})",
             f"  {self.model}",
             "",
+            *_factor_tests_lines(self.factor_tests),
             "fixed effects (log-odds of a PASS; + = more likely; OR = odds ratio):",
             f"  {'term':<{w}}{'log-odds':>10}{'OR':>10}{'p':>11}     ",
         ]
@@ -201,7 +210,8 @@ def _apply_convergence_guard(res: Logistic, optimizer: dict[str, Any] | None) ->
 
 
 def _fit_glmer(
-    df, factors: list[str], *, alpha: float, interactions: int, timeout: int
+    df, factors: list[str], *, alpha: float, interactions: int, timeout: int,
+    lr_tests: bool = True,
 ) -> Logistic | None:
     """Fit the logistic GLMM via R ``lme4::glmer``. Returns a :class:`Logistic`, or
     ``None`` if R produced no usable model (so the caller falls back to statsmodels)."""
@@ -221,7 +231,8 @@ def _fit_glmer(
         r_script = files("cafe.stats").joinpath("glmm.R")
         try:
             proc = subprocess.run(
-                ["Rscript", str(r_script), tmp.name, ",".join(factors), str(order)],
+                ["Rscript", str(r_script), tmp.name, ",".join(factors), str(order),
+                 "1" if lr_tests else "0"],
                 capture_output=True, text=True, timeout=timeout,
             )
         except subprocess.TimeoutExpired:
@@ -264,9 +275,12 @@ def _fit_glmer(
         })
     _apply_convergence_guard(res, payload.get("optimizer"))
     _apply_separation_guard(res)
-    from cafe.stats.ordinal import _set_random_intercept
+    from cafe.stats.ordinal import _parse_factor_tests, _set_random_intercept
 
     _set_random_intercept(res, payload)  # variance_components (σ_u², ICC) + singular note
+    res.factor_tests, note = _parse_factor_tests(payload, alpha)
+    if note:
+        res.warnings.append(note)
     return res
 
 
@@ -361,7 +375,7 @@ def _separation_result(res: Logistic, factors: list[str]) -> Logistic:
 
 def fit_logistic(
     ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 2,
-    backend: str = "auto", timeout: int = 120,
+    backend: str = "auto", timeout: int = 120, lr_tests: bool = True,
 ) -> Logistic:
     """Fit a logistic model of pass/fail (``verdict`` ∈ {0,1}) on the factors.
 
@@ -372,6 +386,12 @@ def fit_logistic(
     result's ``formula`` and ``warnings`` say so. Returns a :class:`Logistic`;
     ``available=False`` with a ``reason`` when the rubric isn't binary, there's no variance,
     or no engine is available.
+
+    ``lr_tests`` (GLMM backend) adds one Type-II likelihood-ratio test per factor and
+    interaction (``factor_tests``) — "does it matter at all?", and unlike the Wald p-values
+    still valid when a factor separates pass from fail. Each reduced model is refit, trying
+    several optimizers until one converges; pass ``False`` to skip. The statsmodels
+    backends have no such tests.
 
     Returns
     -------
@@ -422,7 +442,8 @@ def fit_logistic(
     if want_glmer:
         ok, msg = check_glmer()
         if ok:
-            glmm = _fit_glmer(df, usable, alpha=alpha, interactions=interactions, timeout=timeout)
+            glmm = _fit_glmer(df, usable, alpha=alpha, interactions=interactions, timeout=timeout,
+                              lr_tests=lr_tests)
             if glmm is not None:
                 return glmm
             fallback_note = "R GLMM did not converge; used the statsmodels logistic instead"

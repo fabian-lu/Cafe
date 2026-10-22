@@ -22,7 +22,7 @@ PROGRESS: dict[int, dict[str, Any]] = {}
 #: Bump whenever cafe-core's statistics change what a stored results payload contains (e.g. the
 #: linear layer's F-tests now block by question). A stored payload with an older version is
 #: recomputed from its own records the next time it's opened — see :func:`refresh_payload`.
-STATS_VERSION = 3  # 3: CLMM per-factor likelihood-ratio tests
+STATS_VERSION = 4  # 3: CLMM per-factor likelihood-ratio tests · 4: same for the logistic GLMM
 
 
 def _build_rubric(row: models.Rubric) -> cafe.Rubric:
@@ -229,6 +229,7 @@ def _results_payload(ev) -> dict[str, Any]:
                     "converged": getattr(log, "converged", None),
                     "variance_components": getattr(log, "variance_components", None),
                     "notes": list(log.warnings),
+                    "factor_tests": [dict(t) for t in getattr(log, "factor_tests", [])],
                 }
         except Exception:  # noqa: BLE001
             pass
