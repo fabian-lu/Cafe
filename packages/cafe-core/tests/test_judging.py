@@ -146,6 +146,29 @@ def test_parse_json_verdict_ok_and_fences():
     assert n == 5
 
 
+def test_parse_json_verdict_ignores_braces_in_surrounding_prose():
+    r = cafe.ANSWER_QUALITY_1_5
+    for raw in ('{"reasoning": "ok", "grade": 4} Note: the {grade} key is set.',
+                '{"reasoning": "ok", "grade": 4}\n\n(Scale used: {1..5})',
+                'Using the {reasoning, grade} format: {"reasoning": "ok", "grade": 4}',
+                '{"reasoning": {"steps": ["a"]}, "grade": 4} {done}'):
+        v, n, _ = st.parse_json_verdict(raw, r)
+        assert (v, n) == (4, 4), raw
+    # two complete objects are ambiguous: not guessed, so the caller's fallback decides
+    two = '{"reasoning": "draft", "grade": 2}\n{"reasoning": "final", "grade": 4}'
+    assert st.parse_json_verdict(two, r) == (None, None, None)
+
+
+def test_structured_score_keeps_json_verdict_followed_by_prose(monkeypatch):
+    async def fake_complete(model, messages, **kwargs):
+        return '{"reasoning": "Correct and complete.", "grade": 4} (as {"grade": n})'
+
+    monkeypatch.setattr("cafe.judging.judge.complete", fake_complete)
+    judge = cafe.LLMJudge("m", structured=True)
+    out = asyncio.run(judge.score(cafe.ANSWER_QUALITY_1_5, "Q?", "A."))
+    assert (out.value, out.value_numeric, out.reasoning) == (4, 4, "Correct and complete.")
+
+
 def test_parse_json_verdict_failures_signal_fallback():
     r = cafe.ANSWER_QUALITY_1_5
     assert st.parse_json_verdict("not json at all", r) == (None, None, None)   # → regex fallback
