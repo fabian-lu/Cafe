@@ -38,6 +38,11 @@ The preset chooses the prompt scaffold:
 `"reference"` key for it (`{"text": ..., "reference": ...}`). The others are
 reference-free.
 
+Each preset ends by asking for a final `GRADE: <…>` line. When the judge asks for a
+structured (JSON) verdict instead (see below), that closing instruction is replaced by the
+request for JSON, so the judge is never asked for both. A custom `prompt_template` keeps
+its own wording, and the JSON request that follows it says that it replaces the GRADE line.
+
 ### Auditing every verdict
 
 Each judge call is stored in full — the exact prompt sent and the raw model response

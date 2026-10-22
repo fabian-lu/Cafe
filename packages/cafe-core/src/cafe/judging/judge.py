@@ -145,9 +145,9 @@ class LLMJudge:
         """Score by asking for a JSON verdict. Returns ``None`` only if the provider
         rejects ``response_format`` (so the caller falls back to a plain call); a parsed
         result — even an unparseable one — is returned with its raw response for audit."""
-        from cafe.judging.structured import JSON_INSTRUCTION, parse_json_verdict
+        from cafe.judging.structured import build_json_prompt, parse_json_verdict
 
-        json_prompt = prompt + JSON_INSTRUCTION.format(grade=rubric.grade_hint())
+        json_prompt = build_json_prompt(prompt, rubric)
         json_messages = [messages[0], {"role": "user", "content": json_prompt}]
         try:
             raw = await complete(

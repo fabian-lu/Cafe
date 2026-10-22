@@ -269,6 +269,42 @@ def test_structured_validates():
         cafe.LLMJudge("m", structured="sometimes")
 
 
+def test_structured_prompt_asks_for_json_instead_of_a_grade_line(monkeypatch):
+    sent = []
+
+    async def fake_complete(model, messages, **kwargs):
+        sent.append((messages[-1]["content"], "response_format" in kwargs))
+        return '{"reasoning": "ok", "grade": 4}' if sent[-1][1] else "ok\nGRADE: 4"
+
+    monkeypatch.setattr("cafe.judging.judge.complete", fake_complete)
+    r = cafe.ANSWER_QUALITY_1_5
+    json_line = st.JSON_INSTRUCTION.format(grade=r.grade_hint())
+    for preset in cafe.judging.JUDGE_PRESETS:
+        ref = None if preset == "single_answer" else "R"
+        plain = cafe.judging.build_judge_prompt(r, "Q?", "A.", ref, preset=preset)
+        for structured in (False, True):
+            sent.clear()
+            out = asyncio.run(cafe.LLMJudge("m", preset=preset, structured=structured)
+                              .score(r, "Q?", "A.", ref))
+            assert out.value_numeric == 4
+            prompt, used_json = sent[-1]
+            assert used_json is structured
+            if not structured:
+                assert prompt == plain          # plain mode: unchanged, byte for byte
+                continue
+            # structured: the preset's closing "finish with GRADE: <...>" paragraph is
+            # replaced by the JSON instruction; everything before it is kept as is
+            assert "GRADE:" in plain and "GRADE:" not in prompt, preset
+            assert prompt.endswith(json_line) and out.prompt == prompt
+            assert plain.startswith(prompt[: -len(json_line)] + "\n\n")
+    # a custom template keeps its own wording; the JSON instruction says it replaces it
+    custom = "{instruction}\nQ: {question}\nA: {answer}\n{scale}\nGRADE: <{grade}>"
+    sent.clear()
+    asyncio.run(cafe.LLMJudge("m", structured=True, prompt_template=custom).score(r, "Q?", "A."))
+    plain = cafe.judging.build_judge_prompt(r, "Q?", "A.", template=custom)
+    assert sent[-1][0] == plain + st.JSON_INSTEAD_INSTRUCTION.format(grade=r.grade_hint())
+
+
 def test_preview_shows_both_messages():
     study = cafe.Study(
         name="t",
