@@ -58,6 +58,13 @@
   <header class="hero">
     <div class="container hero-grid">
       <div>
+        <a class="venue-badge" href="https://arxiv.org/abs/2607.10380" target="_blank" rel="noopener">
+          <span class="venue-badge-mark">
+            <span class="material-symbols-outlined" aria-hidden="true">workspace_premium</span>
+            EMNLP 2026
+          </span>
+          <span class="venue-badge-text"><span class="venue-badge-accepted">Accepted · </span>System Demonstrations</span>
+        </a>
         <div class="hero-pretitle">
           <span class="material-symbols-outlined" style="font-size:14px;color:var(--primary-container);">CAFE - </span>
           <span>Compound AI Factorial Evaluation</span>
@@ -262,7 +269,8 @@ result = study.evaluate()  <span class="code-cmt"># answers → judge → attrib
       <div>
         <h2 class="section-title">Explore a real study</h2>
         <p class="section-subtitle">
-          Browse an actual CAFE evaluation — a HotpotQA RAG study over 18 configurations.
+          Browse an actual CAFE evaluation: the HotpotQA RAG study from the paper, with 18
+          configurations and 900 judged answers on a 0–2 scale.
         </p>
         <ul class="checklist">
           <li><span class="material-symbols-outlined">check_box</span> Every verdict is auditable: prompt + raw response stored</li>
@@ -283,38 +291,38 @@ result = study.evaluate()  <span class="code-cmt"># answers → judge → attrib
           <table class="demo-table">
             <thead>
               <tr>
-                <th>Config</th>
-                <th>Mean</th>
-                <th>η²</th>
-                <th>p</th>
+                <th>Factor</th>
+                <th class="sym">η²<sub>p</sub></th>
+                <th class="sym">p</th>
               </tr>
             </thead>
             <tbody>
               <tr>
-                <td>dense_rerank · large</td>
-                <td class="best">2.71</td>
-                <td class="sig">0.23</td>
+                <td>retrieve<span class="sub">best: dense_rerank · 1.71</span></td>
+                <td class="sig">0.33</td>
                 <td class="sig">&lt;0.001</td>
               </tr>
               <tr>
-                <td>dense · large</td>
-                <td>2.45</td>
-                <td class="sig">0.05</td>
+                <td>model<span class="sub">best: gpt-oss-120b · 1.51</span></td>
+                <td class="sig">0.08</td>
                 <td class="sig">&lt;0.001</td>
               </tr>
               <tr>
-                <td>none · large</td>
-                <td>1.98</td>
-                <td>-</td>
-                <td>-</td>
+                <td>retrieve × model<span class="sub">retrieval helps the small model most</span></td>
+                <td class="sig">0.03</td>
+                <td class="sig">&lt;0.001</td>
               </tr>
               <tr>
-                <td>dense_rerank · small</td>
-                <td>1.62</td>
-                <td>-</td>
-                <td>-</td>
+                <td>finalize<span class="sub">placebo step · no effect</span></td>
+                <td>0.00</td>
+                <td>0.61</td>
               </tr>
             </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="3">best config: dense_rerank · gpt-oss-120b <span class="best">→ 1.78</span> <span class="scale">/ 2</span></td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       </div>
