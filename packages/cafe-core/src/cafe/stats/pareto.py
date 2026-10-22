@@ -32,7 +32,12 @@ _DIRECTION = {"quality": +1, "cost": -1, "latency": -1, "tokens": -1}
 
 @dataclass
 class ParetoResult:
-    """Per-configuration objective values and which configs are Pareto-optimal."""
+    """Per-configuration objective values and which configs are Pareto-optimal.
+
+    A row's ``quality`` is the mean over the configuration's *answers*: judge replications
+    of an answer are averaged first (as in :func:`cafe.attribute`), so each answer counts
+    once however many of its judge calls succeeded.
+    """
 
     objectives: list[str]
     rows: list[dict[str, Any]] = field(default_factory=list)  # config, label, <objectives>, pareto_optimal
@@ -122,14 +127,30 @@ def _dominates(a: dict, b: dict, objectives: list[str]) -> bool:
 
 
 def _quality_by_config(ratings: "Ratings") -> tuple[dict[str, list[float]], dict[str, dict]]:
-    quality: dict[str, list[float]] = defaultdict(list)
+    """One quality value per *answer* for each configuration. Judge replications of the same
+    answer are technical replicates, so — exactly as in :func:`cafe.stats._frame.analysis_frame`
+    — they are averaged first (rounded half-up to a scale point for ordinal/binary rubrics),
+    keeping Pareto quality equal to :func:`cafe.attribute`'s configuration mean."""
+    import math
+    import statistics
+
+    from cafe.judging.rubric import ScaleType
+
+    per_answer: dict[tuple[str, str, int], list[float]] = defaultdict(list)
     configs: dict[str, dict] = {}
     for r in ratings.items:
         if r.value_numeric is None:
             continue
         label = config_label(r.config)
         configs[label] = dict(r.config)
-        quality[label].append(float(r.value_numeric))
+        per_answer[(label, r.input_id, r.rep)].append(float(r.value_numeric))
+    scale = getattr(getattr(ratings, "rubric", None), "scale_type", None)
+    quality: dict[str, list[float]] = defaultdict(list)
+    for (label, _input_id, _rep), values in per_answer.items():
+        verdict = statistics.fmean(values)
+        if scale in (ScaleType.ordinal, ScaleType.binary):
+            verdict = float(math.floor(verdict + 0.5))
+        quality[label].append(verdict)
     return quality, configs
 
 
