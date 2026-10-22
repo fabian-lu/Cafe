@@ -3,6 +3,9 @@ import asyncio
 
 from cafe import Factor, Study, run_study
 from cafe.execution import Checkpoint
+from cafe.evaluation import Preflight
+from cafe.execution.results import Observation, Results
+from cafe.execution.runner import estimate
 
 
 def _counting_study(fail_on=None):
@@ -50,6 +53,31 @@ async def test_smoke_runs_one_input_one_rep():
     # 2 configs x 1 input x 1 rep
     assert len(results) == 2
     assert {o.input_id for o in results.observations} == {"in0"}
+
+
+def _obs(elapsed_s, metadata):
+    return Observation(
+        config={"m": "a"}, input_id="q0", rep=0, output="x", elapsed_s=elapsed_s, metadata=metadata
+    )
+
+
+def test_estimate_keeps_measured_zero_cost_and_time():
+    # A 0.0 mean (free / cached / local model) is a measurement, not "unavailable".
+    results = Results(study_name="t", factors=["m"], observations=[_obs(0.0, {"cost_usd": 0.0})])
+    est = estimate(results, total_cells=10)
+    assert est["est_total_cost_usd"] == 0.0
+    assert est["est_total_compute_s"] == 0.0
+    text = Preflight(answers=results, estimate=est).show()
+    assert "est. compute ~0.0s, est. cost ~$0.0" in text
+
+
+def test_estimate_treats_none_cost_as_not_reported():
+    obs = [_obs(1.0, {"cost_usd": None}), _obs(1.0, {"cost_usd": 0.02}), _obs(1.0, {})]
+    est = estimate(Results(study_name="t", factors=["m"], observations=obs), total_cells=10)
+    assert est["est_total_cost_usd"] == 0.2  # mean over the one cell that reported a cost
+    assert est["est_total_compute_s"] == 10.0
+    only_none = Results(study_name="t", factors=["m"], observations=[_obs(1.0, {"cost_usd": None})])
+    assert estimate(only_none, total_cells=10)["est_total_cost_usd"] is None
 
 
 async def test_checkpoint_resume_skips_done(tmp_path):
