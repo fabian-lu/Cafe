@@ -86,11 +86,17 @@ JUDGE_PRESETS: dict[str, str] = {
 }
 
 # Greedy: capture the LAST marker, so grades mentioned mid-reasoning don't fool us.
-# The presets display the marker as `GRADE: <...>`, so `<4>` (and `[4]`) are accepted. The
-# whole number is captured — sign and fractional part included — so `GRADE: 4.5` is
-# rejected as off-scale instead of being truncated to 4, and negative levels parse.
-_GRADE_RE = re.compile(r"(?is)GRADE\s*:\s*[<\[]?\s*(-?[0-9]+(?:\.[0-9]+)?)")
-_BRACKET_RE = re.compile(r"\[\[\s*(-?[0-9]+(?:\.[0-9]+)?)\s*\]\]")
+# The presets display the marker as `GRADE: <...>`, so `<4>` (and `[4]`, `[[4]]`) are
+# accepted, as is Markdown emphasis around it (`**GRADE:** 4`, `GRADE: **4**`). The whole
+# number is captured — sign and fractional part, with a decimal point or comma — so
+# `GRADE: 4.5` / `4,5` is rejected as off-scale instead of being truncated to 4, and
+# negative levels parse. An "out of" denominator on the same line (`4/5`, `4 out of 5`) is
+# captured so parse_verdict can check it against the rubric's maximum.
+_GRADE_RE = re.compile(
+    r"(?is)[*_]*GRADE[*_]*\s*:[*_\s]*(?:\[\[|[<\[])?\s*(-?[0-9]+(?:[.,][0-9]+)?)"
+    r"(?:[*_]*[ \t]*(?:/|out[ \t]+of)[ \t]*(?P<out_of>[0-9]+))?"
+)
+_BRACKET_RE = re.compile(r"\[\[\s*(-?[0-9]+(?:[.,][0-9]+)?)\s*\]\]")
 
 #: Placeholders a custom judge ``prompt_template`` must contain to be a valid grading prompt.
 REQUIRED_PLACEHOLDERS = ("{question}", "{answer}", "{scale}", "{grade}")
@@ -196,8 +202,9 @@ def build_judge_prompt(
 def parse_verdict(raw: str, rubric: Rubric) -> tuple[Any, int | None, str | None]:
     """Extract (raw_value, numeric, reasoning) from a reason-then-GRADE response.
 
-    The last ``GRADE: <n>`` marker wins (``GRADE: n``, ``GRADE: [n]`` and an MT-Bench
-    style ``[[n]]`` are accepted too).
+    The last ``GRADE: <n>`` marker wins (``GRADE: n``, ``GRADE: [n]``, ``GRADE: [[n]]``
+    and an MT-Bench style ``[[n]]`` are accepted too, as is Markdown emphasis such as
+    ``**GRADE:** n`` or ``GRADE: **n**``).
 
     Returns
     -------
@@ -205,9 +212,13 @@ def parse_verdict(raw: str, rubric: Rubric) -> tuple[Any, int | None, str | None
         ``(value, numeric, reasoning)``. On success ``numeric`` is the rubric scale point
         and ``reasoning`` the prose before the marker. Otherwise ``numeric`` is ``None``
         and the third element is the error message. Grades must be whole numbers on the
-        rubric's scale: a fractional grade (``GRADE: 4.5``) is kept as ``value`` but
-        rejected like any off-scale grade — never rounded or truncated. An integral
-        decimal (``GRADE: 4.0``) counts as 4.
+        rubric's scale: a fractional grade (``GRADE: 4.5``, or ``4,5`` with a decimal
+        comma) is kept as ``value`` but rejected like any off-scale grade — never rounded
+        or truncated. An integral decimal (``GRADE: 4.0``) counts as 4. A grade written
+        "out of" something (``GRADE: 4/5``, ``4 out of 5``) counts only when the
+        denominator is the rubric's maximum; any other denominator (``4/10`` on a 1–5
+        scale) is rejected, with ``value`` the text as written (``"4/10"``) — it is never
+        rescaled or read as 4.
     """
     if not raw or not raw.strip():
         return None, None, "empty judge response"
@@ -215,9 +226,13 @@ def parse_verdict(raw: str, rubric: Rubric) -> tuple[Any, int | None, str | None
     if not matches:
         return None, None, f"no GRADE marker in judge output: {raw[:120]!r}"
     last = matches[-1]
-    number = float(last.group(1))
+    number = float(last.group(1).replace(",", "."))  # a decimal comma: 4,5 is 4.5
     value: Any = int(number) if number.is_integer() else number  # 4.5 stays 4.5 (off-scale)
     reasoning = raw[: last.start()].strip() or None  # the prose before the verdict
+    out_of = last.groupdict().get("out_of")
+    if out_of is not None and int(out_of) != rubric.max_value:
+        scale = f"{rubric.min_value}-{rubric.max_value}"
+        return f"{value}/{out_of}", None, f"verdict {value}/{out_of} not on scale {scale}"
     numeric = rubric.numeric(value)
     if numeric is None:
         return value, None, f"verdict {value} not on scale {rubric.min_value}-{rubric.max_value}"
