@@ -73,7 +73,7 @@ class Logistic:
     def significant_factors(self) -> list[str]:
         """The terms that matter: from the per-factor likelihood-ratio tests when available
         (interactions as ``"A × B"``), else the factors of the significant coefficients."""
-        if self.factor_tests:
+        if any(t.get("p") is not None for t in self.factor_tests):
             return [t["term"] for t in self.factor_tests if t.get("significant")]
         return sorted({t["factor"] for t in self.terms if t.get("significant") and t.get("factor")})
 
@@ -229,14 +229,24 @@ def _fit_glmer(
         df[keep].to_csv(tmp.name, index=False)
         tmp.close()
         r_script = files("cafe.stats").joinpath("glmm.R")
-        try:
-            proc = subprocess.run(
+        def _run(with_lr: bool):
+            return subprocess.run(
                 ["Rscript", str(r_script), tmp.name, ",".join(factors), str(order),
-                 "1" if lr_tests else "0"],
+                 "1" if with_lr else "0"],
                 capture_output=True, text=True, timeout=timeout,
             )
+
+        lr_skipped = False
+        try:
+            proc = _run(lr_tests)
         except subprocess.TimeoutExpired:
-            return None
+            if not lr_tests:
+                return None
+            try:  # the per-term refits took too long: keep the model without them
+                proc = _run(False)
+                lr_skipped = True
+            except subprocess.TimeoutExpired:
+                return None
     finally:
         try:
             os.unlink(tmp.name)
@@ -281,6 +291,9 @@ def _fit_glmer(
     res.factor_tests, note = _parse_factor_tests(payload, alpha)
     if note:
         res.warnings.append(note)
+    if lr_skipped:
+        res.warnings.append(f"per-factor likelihood-ratio tests skipped: with them R took "
+                            f"longer than {timeout}s (pass a larger timeout to get them)")
     return res
 
 

@@ -122,10 +122,18 @@ def _parse_factor_tests(payload: dict[str, Any], alpha: float) -> tuple[list[dic
             "interaction": len(fs) > 1, "df": t.get("df"), "chisq": t.get("chisq"), "p": p,
             "significant": p is not None and p < alpha,
         })
-    failed = [t["term"] for t in tests if t["p"] is None]
-    note = (f"no likelihood-ratio test for {', '.join(failed)} (a reduced model didn't converge "
-            "with any optimizer); read its coefficients instead") if failed else None
-    return tests, note
+    raw = {(" × ".join(t.get("factors") or []) or str(t.get("term", ""))): t
+           for t in payload.get("factor_tests") or []}
+    aliased = [t["term"] for t in tests if raw.get(t["term"], {}).get("estimable") is False]
+    failed = [t["term"] for t in tests if t["p"] is None and t["term"] not in aliased]
+    notes = []
+    if failed:
+        notes.append(f"no likelihood-ratio test for {', '.join(failed)} (a reduced model didn't "
+                     "converge); read its coefficients instead")
+    if aliased:
+        notes.append(f"{', '.join(aliased)}: not estimable — confounded with other terms in this "
+                     "design, so it adds no parameters of its own")
+    return tests, "; ".join(notes) or None
 
 
 def _factor_tests_lines(tests: list[dict[str, Any]]) -> list[str]:
@@ -182,7 +190,7 @@ class CLMMResult:
     def significant_factors(self) -> list[str]:
         """The terms that matter: from the per-factor likelihood-ratio tests when available
         (interactions as ``"A × B"``), else the factors of the significant coefficients."""
-        if self.factor_tests:
+        if any(t.get("p") is not None for t in self.factor_tests):
             return [t["term"] for t in self.factor_tests if t.get("significant")]
         return sorted({c["factor"] for c in self.coefficients if c.get("significant") and c.get("factor")})
 
@@ -322,15 +330,28 @@ def fit_clmm(
                 "interactions; for a fractional factorial below resolution V, read the "
                 "interaction terms as confounded (or pass interactions=1)"
             )
-        try:
-            proc = subprocess.run(
+        def _run(with_lr: bool):
+            return subprocess.run(
                 ["Rscript", str(r_script), tmp.name, ",".join(factors), str(order),
-                 "1" if lr_tests else "0"],
+                 "1" if with_lr else "0"],
                 capture_output=True, text=True, timeout=timeout,
             )
+
+        try:
+            proc = _run(lr_tests)
         except subprocess.TimeoutExpired:
-            res.reason = f"R timed out after {timeout}s"
-            return res
+            # the per-factor tests refit the model per term; on a big design they can take
+            # longer than the model itself — keep the model rather than lose it
+            if not lr_tests:
+                res.reason = f"R timed out after {timeout}s"
+                return res
+            try:
+                proc = _run(False)
+            except subprocess.TimeoutExpired:
+                res.reason = f"R timed out after {timeout}s"
+                return res
+            res.warnings.append(f"per-factor likelihood-ratio tests skipped: with them R took "
+                                f"longer than {timeout}s (pass a larger timeout to get them)")
     finally:
         try:
             os.unlink(tmp.name)

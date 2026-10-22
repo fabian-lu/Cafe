@@ -357,15 +357,16 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
         rhs = f"({main_terms})**{o}" if o >= 2 and len(usable) >= 2 else main_terms
         return f"verdict ~ {block} + {rhs}" if blocked and block else f"verdict ~ {rhs}"
 
-    def _display_formula(o: int) -> str:
+    def _display_formula(o: int, blocked: bool = True) -> str:
         fixed = f"({' + '.join(usable)})^{o}" if o >= 2 and len(usable) >= 2 else " + ".join(usable)
-        return f"verdict ~ question + {fixed}" if block else f"verdict ~ {fixed}"
+        return f"verdict ~ question + {fixed}" if blocked and block else f"verdict ~ {fixed}"
 
     res.formula = _display_formula(order)
 
     if not multi_q:
         res.warnings.append("only one question group; using one-way ANOVA")
         res.model = "one-way ANOVA (need ≥2 questions to block by question)"
+        res.formula = " · ".join(f"verdict ~ {c}" for c in usable)  # one test per factor
         res.terms = _oneway(df, usable, res.warnings, alpha)
         return res
     if not crossed:
@@ -396,38 +397,57 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
     # below (rank, exact fit) turn the ones that matter into clear notes.
     import warnings as _warnings
 
+    confounded_note = (
+        "a factor is confounded with the questions (configurations answered different "
+        "questions), so the F-tests can't be blocked by question: question difficulty stays "
+        "in the error term, which makes them conservative"
+    )
+
+    def _ols(o: int, blocked: bool):
+        """OLS fit at interaction order ``o`` and whether its design is rank-deficient."""
+        f = smf.ols(_formula(o, blocked), dfs).fit()
+        x = f.model.exog
+        return f, bool(np.linalg.matrix_rank(x) < x.shape[1])
+
     with _warnings.catch_warnings():
         _warnings.simplefilter("ignore")
         # Per-term F / p / partial η² via Type-II ANOVA, blocked by question, at the requested
-        # interaction order — falling back to main effects if it won't estimate.
-        order_used, table, exact = order, None, False
+        # interaction order. A rank-deficient design can't separate its terms (statsmodels would
+        # silently split their variance into meaningless parts), so: if the question block is
+        # what breaks it, drop the block; if interactions are aliased (a fractional factorial
+        # below resolution V: at resolution IV model×sabotage IS verbosity×hedge), fit main
+        # effects only.
+        order_used, table, exact, use_block = order, None, False, bool(block)
         try:
-            fit = smf.ols(_formula(order), dfs).fit()
-            # A fractional factorial (or any aliased design) makes interaction columns
-            # collinear — e.g. at resolution IV model×sabotage IS verbosity×hedge. statsmodels
-            # would silently split their variance into meaningless separate terms, so detect
-            # the rank deficiency and drop to main effects rather than report bogus interactions.
-            if order >= 2:
-                exog = fit.model.exog
-                if np.linalg.matrix_rank(exog) < exog.shape[1]:
-                    order_used = 1
-                    res.formula = _display_formula(1)
-                    res.warnings.append(
-                        "interactions are aliased in this design (e.g. a fractional factorial "
-                        "below resolution V) — they can't be separated, so only main effects are "
-                        "fit; read the design's alias structure to interpret them"
-                    )
-                    fit = smf.ols(_formula(1), dfs).fit()
+            fit, deficient = _ols(order, use_block)
+            if deficient and use_block and not _ols(order, False)[1]:
+                use_block, (fit, deficient) = False, _ols(order, False)
+                res.warnings.append(confounded_note)
+            if deficient and order >= 2:
+                order_used = 1
+                res.warnings.append(
+                    "interactions are aliased in this design (e.g. a fractional factorial "
+                    "below resolution V) — they can't be separated, so only main effects are "
+                    "fit; read the design's alias structure to interpret them"
+                )
+                fit, deficient = _ols(1, use_block)
+                if deficient and use_block and not _ols(1, False)[1]:
+                    use_block, (fit, deficient) = False, _ols(1, False)
+                    res.warnings.append(confounded_note)
+            if deficient:
+                res.warnings.append(
+                    "some factors are confounded with each other in this design (one determines "
+                    "another), so their separate effects can't be estimated — read them together"
+                )
             table = sm.stats.anova_lm(fit, typ=2)
         except Exception:  # noqa: BLE001
             if order_used >= 2:
                 order_used = 1
-                res.formula = _display_formula(1)
                 res.warnings.append("interactions not estimable on this data — main effects only")
                 try:
                     # Rebind `fit`: the residuals/fitted attached below must come from the
                     # main-effects model the table reports, not the abandoned interaction fit.
-                    fit = smf.ols(_formula(1), dfs).fit()
+                    fit = smf.ols(_formula(1, use_block), dfs).fit()
                     table = sm.stats.anova_lm(fit, typ=2)
                 except Exception as exc:  # noqa: BLE001
                     res.warnings.append(f"ANOVA failed ({exc})")
@@ -438,16 +458,35 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
             res.model = "ANOVA failed"
             res.terms = _oneway(df, usable, res.warnings, alpha)
         else:
+            ss_resid = float(table.loc["Residual", "sum_sq"])
+            ss_total = float(((dfs["verdict"] - dfs["verdict"].mean()) ** 2).sum())
+            # Exact fit: the model explains every score, so the residual variance is zero and the
+            # table's F-tests are 0/0 (NaN) or rounding noise (needs residual df to mean anything).
+            exact = (float(table.loc["Residual", "df"]) > 0
+                     and ss_resid <= _EXACT_FIT_RTOL * ss_total)
+            if exact and use_block:
+                # With few answers per question the block alone can make the fit exact by chance
+                # (a null factor would read F=inf); unless the factors alone fit exactly too,
+                # test without the block instead.
+                fit_u = smf.ols(_formula(order_used, False), dfs).fit()
+                if float(fit_u.ssr) > _EXACT_FIT_RTOL * ss_total:
+                    use_block, fit, exact = False, fit_u, False
+                    table = sm.stats.anova_lm(fit, typ=2)
+                    ss_resid = float(table.loc["Residual", "sum_sq"])
+                    res.warnings.append(
+                        "with the question as a block the model explains every score exactly "
+                        "(too few answers per question to test that way), so the F-tests don't "
+                        "block by question"
+                    )
+            res.formula = _display_formula(order_used, use_block)
             # Per-answer residuals / fitted (aligned to the analysis frame rows).
             try:
                 res.residuals = [float(x) for x in np.asarray(fit.resid)]
                 res.fitted = [float(x) for x in np.asarray(fit.fittedvalues)]
             except Exception:  # noqa: BLE001
                 pass
-            res.model = ("Type-II ANOVA, blocked by question" if block else "Type-II ANOVA")
+            res.model = ("Type-II ANOVA, blocked by question" if use_block else "Type-II ANOVA")
             res.model += f", up to {order_used}-way" if order_used >= 2 else ""
-            ss_resid = float(table.loc["Residual", "sum_sq"])
-            ss_total = float(((dfs["verdict"] - dfs["verdict"].mean()) ** 2).sum())
             # R² of the factors alone (no question block): the share of verdict variance the
             # configuration explains.
             try:
@@ -456,21 +495,17 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
                     res.r_squared = max(0.0, 1.0 - ssr_f / ss_total)
             except Exception:  # noqa: BLE001
                 pass
-            # Exact fit: the factors (and questions) explain every score, so the residual
-            # variance is zero and the table's F-tests are 0/0 (NaN) or rounding noise. Score
-            # each term from its exact Type-II SS instead (needs residual df to mean anything).
-            exact = (float(table.loc["Residual", "df"]) > 0
-                     and ss_resid <= _EXACT_FIT_RTOL * ss_total)
             if exact:
-                exact_ss = _exact_fit_ss(dfs, usable, safe, order_used, block=block)
+                # Score each term from its exact Type-II SS instead of the degenerate table.
+                exact_ss = _exact_fit_ss(dfs, usable, safe, order_used,
+                                         block=block if use_block else "")
                 res.model += " — exact fit (zero residual variance)"
                 res.warnings.append(
                     "zero residual variance: the factors"
-                    + (" and the questions" if block else "")
+                    + (" and the questions" if use_block else "")
                     + " explain every score exactly, so the F-tests are degenerate — a term "
                     "with any effect is reported as F=inf, p=0, partial η²=1 and a term with "
-                    "none as undefined (not significant); Cohen's d is undefined too, so "
-                    "compare the configuration means directly"
+                    "none as undefined (not significant); compare the configuration means directly"
                 )
             for name in table.index:
                 if name in ("Residual", "Intercept"):

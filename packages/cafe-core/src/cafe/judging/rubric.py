@@ -92,6 +92,11 @@ class Rubric:
         """
         if isinstance(value, bool):  # bool is an int subclass: int(True) would read as 1
             return None
+        if isinstance(value, str):  # a JSON grade given as text: "4" or "4.0" (not "4.5")
+            try:
+                value = float(value.strip())
+            except ValueError:
+                return None
         if isinstance(value, float) and not value.is_integer():
             return None
         try:

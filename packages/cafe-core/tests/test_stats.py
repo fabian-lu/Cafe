@@ -99,6 +99,43 @@ def test_fit_effects_exact_fit_separates_real_from_null_terms():
         assert not any("near-singular" in w for w in eff.warnings)  # replaced by the note above
 
 
+def _two_factor_ratings(cells: dict[tuple[str, str, str], int]) -> Ratings:
+    """Ratings from {(question, A, B): score}."""
+    items = [Rating(obs_key=f"{q}{a}{b}", config={"A": a, "B": b}, input_id=q, rep=0, judge_rep=0,
+                    value=v, value_numeric=v) for (q, a, b), v in cells.items()]
+    return Ratings(rubric=ANSWER_QUALITY_1_5, judge_model="fake", factors=["A", "B"], items=items)
+
+
+def test_fit_effects_drops_the_question_block_when_a_factor_is_confounded_with_it():
+    """B's levels split the questions (q0-q4 only saw b1, q5-q9 only b2): blocking by question
+    would absorb B, so the ANOVA must not block (and say why) rather than report a bogus F."""
+    import random
+
+    rng = random.Random(3)
+    cells = {(f"q{q}", a, "b1" if q < 5 else "b2"): rng.choice([2, 3, 4]) + (a == "a2")
+             for q in range(10) for a in ("a1", "a2")}
+    eff = fit_effects(_two_factor_ratings(cells), interactions=1)
+    assert "blocked" not in eff.model and eff.formula == "verdict ~ A + B"
+    assert any("confounded with the questions" in w for w in eff.warnings)
+    assert {t["factor"] for t in eff.terms} == {"A", "B"}
+
+
+def test_fit_effects_tiny_design_is_not_declared_exact_by_the_question_block():
+    """2 questions x 1 answer: question + A explain every score, but A alone doesn't — the
+    blocked fit is exact by construction, so the test falls back to the unblocked ANOVA
+    instead of reporting A as F=inf, p=0."""
+    import math
+
+    cells = {("q0", "a1", "b1"): 2, ("q0", "a2", "b1"): 3, ("q1", "a1", "b1"): 4,
+             ("q1", "a2", "b1"): 5, ("q0", "a1", "b2"): 2, ("q0", "a2", "b2"): 3,
+             ("q1", "a1", "b2"): 4, ("q1", "a2", "b2"): 5}
+    eff = fit_effects(_two_factor_ratings(cells), interactions=1)
+    a = next(t for t in eff.terms if t["factor"] == "A")
+    assert a["F"] is not None and not math.isinf(a["F"])
+    assert "exact fit" not in eff.model and "blocked" not in eff.model
+    assert any("too few answers per question" in w for w in eff.warnings)
+
+
 def test_fit_effects_exact_fit_pure_interaction():
     """An exact fit where only the a2·b2 cell is bad: every Type-II term has a real effect."""
     import math
@@ -394,6 +431,24 @@ def test_clmm_likelihood_ratio_tests_find_the_real_factor():
     assert tests["retrieve.top_k"]["significant"] and not tests["retrieve"]["significant"]
     assert tests["retrieve.top_k"]["df"] == 1 and tests["retrieve.top_k"]["chisq"] > 0
     assert fit_clmm(r, interactions=1, lr_tests=False).factor_tests == []
+
+
+def test_single_factor_studies_get_their_likelihood_ratio_test():
+    """The reduced model of a one-factor study is intercept-only; it must still be fitted
+    (it used to get the cache key "", which R can't look up -> no test + a false note)."""
+    from cafe import fit_logistic
+    from cafe.stats.logistic import check_glmer
+    from cafe.stats.ordinal import check_r
+
+    if not check_r()[0]:
+        pytest.skip("R + ordinal not installed")
+    clmm = fit_clmm(_ratings({"good": 5, "bad": 2}), interactions=1)
+    assert len(clmm.factor_tests) == 1 and clmm.factor_tests[0]["p"] is not None
+    assert not any("didn't converge" in w for w in clmm.warnings)
+    if check_glmer()[0]:
+        log = fit_logistic(_binary_ratings(good_vals=[1, 1, 1, 0] * 3, bad_vals=[0, 0, 1, 0] * 3),
+                           backend="glmer")
+        assert len(log.factor_tests) == 1 and log.factor_tests[0]["p"] is not None
 
 
 def test_clmm_withholds_pvalues_when_optimizer_did_not_converge(monkeypatch):

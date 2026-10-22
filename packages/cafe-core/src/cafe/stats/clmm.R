@@ -50,7 +50,7 @@ lr_term_tests <- function(d, ord, full) {
   cache <- list()
   fit_terms <- function(idx) {                     # idx: indices into `labels`
     if (length(idx) == length(labels)) return(full)
-    key <- paste(sort(idx), collapse = ",")
+    key <- paste0("k", paste(sort(idx), collapse = ","))   # never "": R can't look that name up
     if (is.null(cache[[key]])) {
       rhs <- if (length(idx)) paste(labels[idx], collapse = " + ") else "1"
       f <- stats::as.formula(paste("verdict ~ (1|input_id) +", rhs))
@@ -70,10 +70,13 @@ lr_term_tests <- function(d, ord, full) {
     out <- list(term = gsub("`", "", labels[j]), factors = I(gsub("`", "", sets[[j]])))
     if (!ok(mp) || !ok(mm)) return(c(out, list(df = NA, chisq = NA, p = NA, converged = FALSE)))
     lp <- logLik(mp); lm0 <- logLik(mm)
-    chisq <- max(0, 2 * (as.numeric(lp) - as.numeric(lm0)))
     df <- attr(lp, "df") - attr(lm0, "df")
+    # no parameters added: the term is confounded with the others (aliased), not testable
+    if (df <= 0) return(c(out, list(df = df, chisq = NA, p = NA, converged = TRUE,
+                                     estimable = FALSE)))
+    chisq <- max(0, 2 * (as.numeric(lp) - as.numeric(lm0)))
     c(out, list(df = df, chisq = chisq, p = stats::pchisq(chisq, df, lower.tail = FALSE),
-                converged = TRUE))
+                converged = TRUE, estimable = TRUE))
   })
 }
 
