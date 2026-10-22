@@ -137,9 +137,17 @@ class CLMMResult:
     #: ``{"random_intercept": σ_u², "random_intercept_sd": σ_u, "residual": π²/3,
     #: "icc": σ_u² / (σ_u² + π²/3)}``, or ``None`` when no model was fit.
     variance_components: dict[str, float] | None = None
+    #: One Type-II likelihood-ratio test per model term — "does this factor (or interaction)
+    #: matter at all?": ``{"term": "A" | "A × B", "factors", "interaction", "df", "chisq",
+    #: "p", "significant"}``. Empty when not computed (``lr_tests=False``, no convergence).
+    factor_tests: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def significant_factors(self) -> list[str]:
+        """The terms that matter: from the per-factor likelihood-ratio tests when available
+        (interactions as ``"A × B"``), else the factors of the significant coefficients."""
+        if self.factor_tests:
+            return [t["term"] for t in self.factor_tests if t.get("significant")]
         return sorted({c["factor"] for c in self.coefficients if c.get("significant") and c.get("factor")})
 
     def to_df(self):
@@ -161,6 +169,18 @@ class CLMMResult:
         lines = [
             f"ordinal CLMM — {self.formula}   (n={self.n_obs}, logLik={ll}, α={self.alpha})",
             "",
+        ]
+        if self.factor_tests:
+            tw = max([len("term")] + [len(t["term"]) for t in self.factor_tests])
+            lines.append("per-factor tests (likelihood ratio, Type II — does the factor matter at all?):")
+            lines.append(f"  {'term':<{tw}}{'χ²':>10}{'df':>5}{'p':>11}     ")
+            for t in sorted(self.factor_tests, key=lambda t: -(t.get("chisq") or 0)):
+                chisq = "-" if t.get("chisq") is None else f"{t['chisq']:.2f}"
+                df = "-" if t.get("df") is None else f"{t['df']:.0f}"
+                p = "-" if t.get("p") is None else f"{t['p']:.4f}"
+                lines.append(f"  {t['term']:<{tw}}{chisq:>10}{df:>5}{p:>11}   {sig_code(t.get('p'))}")
+            lines.append("")
+        lines += [
             "fixed effects (ordinal log-odds of a higher score; + = better):",
             f"  {'term':<{w}}{'estimate':>11}{'p':>11}     ",
         ]
@@ -188,12 +208,20 @@ class CLMMResult:
 
 
 def fit_clmm(
-    ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 2, timeout: int = 120
+    ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 2, timeout: int = 120,
+    lr_tests: bool = True,
 ) -> CLMMResult:
     """Fit an ordinal CLMM (``verdict ~ factors + (1|question)``) via R.
 
     ``interactions`` is the maximum interaction order (1 = main effects, 2 = also two-way,
     …); R falls back to main effects if the interaction model doesn't converge.
+
+    ``lr_tests`` adds one Type-II likelihood-ratio test per factor and interaction
+    (``factor_tests``): the model with every term that doesn't contain it vs. the same model
+    without it — one p-value for "does this factor matter?", where the coefficients only
+    compare levels with the baseline. It refits the model a few times (paper study: ~4 s
+    more); pass ``False`` to skip. With few questions (≲ 10) these tests are somewhat
+    liberal, like any likelihood-ratio test for fixed effects in a mixed model.
 
     Returns
     -------
@@ -269,7 +297,8 @@ def fit_clmm(
             )
         try:
             proc = subprocess.run(
-                ["Rscript", str(r_script), tmp.name, ",".join(factors), str(order)],
+                ["Rscript", str(r_script), tmp.name, ",".join(factors), str(order),
+                 "1" if lr_tests else "0"],
                 capture_output=True, text=True, timeout=timeout,
             )
         except subprocess.TimeoutExpired:
@@ -309,6 +338,20 @@ def fit_clmm(
         c["significant"] = c.get("p") is not None and c["p"] < alpha
     res.coefficients = coeffs
     _apply_convergence_guard(res, payload.get("optimizer"))
+    for t in payload.get("factor_tests") or []:
+        fs = list(t.get("factors") or [])
+        p = t.get("p")
+        res.factor_tests.append({
+            "term": " × ".join(fs) or str(t.get("term", "")), "factors": fs,
+            "interaction": len(fs) > 1, "df": t.get("df"), "chisq": t.get("chisq"), "p": p,
+            "significant": p is not None and p < alpha,
+        })
+    failed = [t["term"] for t in res.factor_tests if t["p"] is None]
+    if failed:
+        res.warnings.append(
+            "no likelihood-ratio test for " + ", ".join(failed) + " (a reduced model didn't "
+            "converge); read its coefficients instead"
+        )
     return res
 
 

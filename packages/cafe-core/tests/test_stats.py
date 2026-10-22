@@ -346,6 +346,56 @@ def _canned_clmm(monkeypatch, optimizer):
     return fit_clmm(_ratings({"good": 5, "bad": 2}))
 
 
+def test_clmm_parses_per_factor_likelihood_ratio_tests(monkeypatch):
+    """clmm.R's per-term LR tests become factor_tests: interactions labelled "A × B",
+    significance from p, a note for a term whose reduced model didn't converge."""
+    import json
+    import subprocess
+
+    from cafe.stats import ordinal
+
+    payload = {"available": True, "n_obs": 20, "logLik": -10.0, "thresholds": [],
+               "formula": "verdict ~ (1 | input_id) + method", "coefficients": [],
+               "optimizer": {"convergence": 0, "message": "relative convergence (4)"},
+               "factor_tests": [
+                   {"term": "method", "factors": ["method"], "df": 1, "chisq": 12.5, "p": 0.0004,
+                    "converged": True},
+                   {"term": "method:other", "factors": ["method", "other"], "df": 2,
+                    "chisq": None, "p": None, "converged": False}]}
+    sent = []
+    monkeypatch.setattr(ordinal, "check_r", lambda: (True, "ok"))
+
+    def fake_run(cmd, **kwargs):
+        sent.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(payload), stderr="")
+
+    monkeypatch.setattr(ordinal.subprocess, "run", fake_run)
+    res = fit_clmm(_ratings({"good": 5, "bad": 2}))
+    assert sent[-1][-1] == "1"                              # LR tests requested by default
+    tests = {t["term"]: t for t in res.factor_tests}
+    assert tests["method"]["significant"] and tests["method"]["df"] == 1
+    assert tests["method × other"]["interaction"] and tests["method × other"]["p"] is None
+    assert res.significant_factors == ["method"]
+    assert any("no likelihood-ratio test for method × other" in w for w in res.warnings)
+    assert "per-factor tests (likelihood ratio" in res.show()
+    fit_clmm(_ratings({"good": 5, "bad": 2}), lr_tests=False)
+    assert sent[-1][-1] == "0"
+
+
+def test_clmm_likelihood_ratio_tests_find_the_real_factor():
+    from cafe.stats.ordinal import check_r
+
+    if not check_r()[0]:
+        pytest.skip("R + ordinal not installed")
+    r = _prefix_named_factor_ratings(binary=False)            # top_k matters, retrieve doesn't
+    clmm = fit_clmm(r, interactions=1)
+    tests = {t["term"]: t for t in clmm.factor_tests}
+    assert set(tests) == {"retrieve", "retrieve.top_k"}
+    assert tests["retrieve.top_k"]["significant"] and not tests["retrieve"]["significant"]
+    assert tests["retrieve.top_k"]["df"] == 1 and tests["retrieve.top_k"]["chisq"] > 0
+    assert fit_clmm(r, interactions=1, lr_tests=False).factor_tests == []
+
+
 def test_clmm_withholds_pvalues_when_optimizer_did_not_converge(monkeypatch):
     """clmm doesn't check nlminb's status; after a false convergence its standard errors
     are ~100x too small (p ≈ 0). Such a fit must not report p-values."""

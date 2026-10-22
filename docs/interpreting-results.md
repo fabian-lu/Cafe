@@ -152,7 +152,25 @@ matters: without it, this variation would count as noise and every F would be sm
 
 When the rubric is **ordinal** (ordered categories like 0 < 1 < 2), CAFE also fits a
 cumulative-link mixed model (CLMM) — the statistically correct model for ordered
-verdicts, which the linear view only approximates:
+verdicts, which the linear view only approximates. It first answers *which factor
+matters* with one **likelihood-ratio test** per factor and interaction (Type II: the model
+with every term that doesn't contain it, with vs. without the term):
+
+```text
+per-factor tests (likelihood ratio, Type II — does the factor matter at all?):
+  term                             chi^2   df          p
+  retrieve                       334.17    2     0.0000   ***
+  generate.model                  80.57    2     0.0000   ***
+  generate.model x retrieve       16.36    4     0.0026   **
+  finalize                         0.50    1     0.4792
+  finalize x generate.model        0.49    2     0.7835
+  finalize x retrieve              0.05    2     0.9772
+```
+
+Same verdict as the linear layer — retrieval and the model matter, they interact, the
+placebo `finalize` doesn't — now on the scale-correct model. (`result.clmm.factor_tests`;
+skip them with `fit_clmm(..., lr_tests=False)` — they refit the model a few times. With
+very few questions, roughly under 10, such tests are somewhat liberal.) Then, per level:
 
 ```text
 fixed effects (ordinal log-odds of a higher score; + = better):

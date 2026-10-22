@@ -34,6 +34,7 @@ const G = {
   eta: <><b>Partial η².</b> Share of variance a factor explains, holding the others fixed. Rules of thumb: <span className="mono">0.01</span> small · <span className="mono">0.06</span> medium · <span className="mono">0.14</span> large.<br /><b>Example:</b> <span className="mono">η²=0.23</span> ⇒ this factor accounts for ~23% of the variance.</>,
   r2: <><b>R² (variance explained).</b> The share of <i>all</i> verdict variance the factors capture. The rest is question difficulty + noise.<br /><b>Example:</b> <span className="mono">R²=0.27</span> ⇒ the factors jointly explain 27%.</>,
   thr: <><b>Thresholds (cut-points).</b> Where the latent quality scale is cut into the rubric's levels, e.g. <span className="mono">0|1</span> is the boundary between verdict 0 and 1. They locate the levels; the factor effects above shift answers along this scale.</>,
+  lr: <><b>Likelihood-ratio test.</b> One test per factor (or interaction): does the model fit clearly worse without it? χ² is the improvement, df its number of parameters. Answers “does this factor matter at all?” in one number — the rows below only compare single levels with the baseline.</>,
   icc: <><b>ICC (intra-class correlation).</b> The share of variance that is just <i>which question</i> it was — how much harder some questions are than others, independent of the configuration. On the logit scale the residual variance is fixed at π²/3.</>,
   d: <><b>Cohen's d.</b> Size of the gap between two levels, in standard deviations (scale-free). <span className="mono">0.2</span> small · <span className="mono">0.5</span> medium · <span className="mono">0.8</span> large. Sign shows which level scored higher.<br /><b>Example:</b> <span className="mono">d=+0.9</span> ⇒ a large improvement.</>,
   ci: <><b>95% confidence interval.</b> The plausible range for the true effect. If it doesn't cross 0, the effect is statistically significant.</>,
@@ -280,8 +281,26 @@ function CLMMTable({ clmm }) {
   if (!clmm.available) return <div className="card" style={{ marginBottom: 16 }}>
     <div className="hint">ordinal model not fitted{clmm.reason ? ` — ${clmm.reason}` : ""}. Install R + the <span className="mono">ordinal</span> package (<span className="mono">cafe doctor</span>) to enable it.</div></div>;
   const coefs = [...clmm.coefficients].sort((a, b) => Math.abs(b.estimate || 0) - Math.abs(a.estimate || 0));
+  const tests = [...(clmm.factor_tests || [])].sort((a, b) => (b.chisq || 0) - (a.chisq || 0));
   return (
     <div className="card" style={{ marginBottom: 16 }}>
+      {tests.length > 0 && <>
+        <div className="section-label" style={{ marginTop: 0 }}>per factor — <InfoTip label="likelihood-ratio tests">{G.lr}</InfoTip></div>
+        <table className="list-table" style={{ marginBottom: 18 }}>
+          <thead><tr><th>Factor</th><th style={{ textTransform: "none" }}>χ²</th><th>df</th><th><InfoTip label="p">{G.p}</InfoTip></th></tr></thead>
+          <tbody>
+            {tests.map((t, i) => (
+              <tr key={i}>
+                <td className="mono" style={{ color: t.significant ? "var(--green)" : undefined }}>{t.term}{t.interaction ? <span className="muted"> ×</span> : ""}</td>
+                <td className="mono">{fmt(t.chisq, 2)}</td>
+                <td className="mono">{t.df ?? "—"}</td>
+                <td className="mono">{fmt(t.p, 4)} <span style={{ color: "var(--amber)" }}>{sig(t.p)}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="section-label">per level — vs. the baseline</div>
+      </>}
       <table className="list-table">
         <thead><tr><th>Term</th>
           <th><InfoTip label="log-odds (β)">{G.beta}</InfoTip></th>

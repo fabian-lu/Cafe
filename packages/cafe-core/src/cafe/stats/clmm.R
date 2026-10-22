@@ -1,7 +1,7 @@
 #!/usr/bin/env Rscript
 # Fit a cumulative link mixed model (ordinal regression) and print the result as JSON.
 #
-# Usage:  Rscript clmm.R <csv_path> <comma,separated,factor,columns>
+# Usage:  Rscript clmm.R <csv_path> <comma,separated,factor,columns> [order] [lr_tests: 1|0]
 # The CSV must contain: `verdict` (integer ordinal score), `input_id` (the grouping
 # variable for the random intercept), and one column per factor.
 #
@@ -31,10 +31,50 @@ csv_path <- args[[1]]
 factors <- strsplit(args[[2]], ",")[[1]]
 order <- if (length(args) >= 3) suppressWarnings(as.integer(args[[3]])) else 1L
 if (is.na(order)) order <- 1L
+lr_tests <- length(args) >= 4 && identical(args[[4]], "1")
 
 fixed_terms <- function(ord) {
   terms <- paste(sprintf("`%s`", factors), collapse = " + ")
   if (ord >= 2 && length(factors) >= 2) sprintf("(%s)^%d", terms, ord) else terms
+}
+
+# Type-II likelihood-ratio test per model term T: the model with every term that doesn't
+# contain T (T itself included) vs. the same model without T. One test per factor or
+# interaction — "does it matter at all?" — where the coefficients only compare a level with
+# the baseline. `full` is the already fitted model with all terms (reused, not refit).
+lr_term_tests <- function(d, ord, full) {
+  tt <- stats::terms(stats::as.formula(paste("~", fixed_terms(ord))))
+  labels <- attr(tt, "term.labels")
+  inc <- attr(tt, "factors")                       # rows: variables, cols: terms
+  sets <- lapply(seq_along(labels), function(j) rownames(inc)[inc[, j] > 0])
+  cache <- list()
+  fit_terms <- function(idx) {                     # idx: indices into `labels`
+    if (length(idx) == length(labels)) return(full)
+    key <- paste(sort(idx), collapse = ",")
+    if (is.null(cache[[key]])) {
+      rhs <- if (length(idx)) paste(labels[idx], collapse = " + ") else "1"
+      f <- stats::as.formula(paste("verdict ~ (1|input_id) +", rhs))
+      fm <- tryCatch(suppressWarnings(ordinal::clmm(f, data = d, Hess = FALSE)),
+                     error = function(e) NULL)
+      cache[[key]] <<- list(fit = fm)
+    }
+    cache[[key]]$fit
+  }
+  ok <- function(fm) !is.null(fm) && isTRUE(fm$optRes$convergence == 0)
+  lapply(seq_along(labels), function(j) {
+    bigger <- which(vapply(sets, function(s) length(s) > length(sets[[j]]) &&
+                             all(sets[[j]] %in% s), logical(1)))
+    with_t <- setdiff(seq_along(labels), bigger)
+    mp <- fit_terms(with_t)
+    mm <- fit_terms(setdiff(with_t, j))
+    out <- list(term = gsub("`", "", labels[j]), factors = I(gsub("`", "", sets[[j]])))
+    if (!ok(mp) || !ok(mm)) return(c(out, list(df = NA, chisq = NA, p = NA, converged = FALSE)))
+    lp <- logLik(mp); lm0 <- logLik(mm)
+    chisq <- max(0, 2 * (as.numeric(lp) - as.numeric(lm0)))
+    df <- attr(lp, "df") - attr(lm0, "df")
+    c(out, list(df = df, chisq = chisq, p = stats::pchisq(chisq, df, lower.tail = FALSE),
+                converged = TRUE))
+  })
 }
 
 build_formula <- function(ord) {
@@ -108,12 +148,16 @@ result <- tryCatch({
   vc <- ordinal::VarCorr(m)$input_id   # 1x1 random-intercept variance (+ "stddev" attribute)
   random_intercept <- list(variance = vc[1, 1], sd = unname(attr(vc, "stddev"))[1])
 
+  # per-term likelihood-ratio tests — only for a converged fit (its logLik is the reference)
+  factor_tests <- if (lr_tests && isTRUE(optimizer$convergence == 0))
+    lr_term_tests(d, used_order, m) else NULL
+
   # deparse() splits long formulas into several strings (a JSON array); join them into one
   formula <- paste(trimws(deparse(form, width.cutoff = 500L)), collapse = " ")
   list(available = TRUE, n_obs = nrow(d), formula = formula,
        logLik = as.numeric(logLik(m)), coefficients = coeffs, thresholds = thresholds,
        used_order = used_order,   # < the requested order when interactions fell back
-       random_intercept = random_intercept)
+       random_intercept = random_intercept, factor_tests = factor_tests)
 }, error = function(e) list(available = FALSE, error = conditionMessage(e)))
 if (isTRUE(result$available)) result$optimizer <- optimizer
 
