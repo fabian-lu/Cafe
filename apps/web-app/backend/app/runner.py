@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import time
 import traceback
 from typing import Any
 
@@ -17,6 +18,11 @@ from app.pipeline_loader import get_pipeline
 
 # In-memory progress, read by the SSE endpoint. {study_id: {"phase","done","total","status"}}
 PROGRESS: dict[int, dict[str, Any]] = {}
+
+#: Bump whenever cafe-core's statistics change what a stored results payload contains (e.g. the
+#: linear layer's F-tests now block by question). A stored payload with an older version is
+#: recomputed from its own records the next time it's opened — see :func:`refresh_payload`.
+STATS_VERSION = 2
 
 
 def _build_rubric(row: models.Rubric) -> cafe.Rubric:
@@ -131,6 +137,8 @@ def _results_payload(ev) -> dict[str, Any]:
         "effects_model": None, "r_squared": None,
         "timing": _timing(ev.answers),
         "energy": None,
+        "stats_version": STATS_VERSION,
+        "computed_at": time.time(),  # tells cached views of an older computation apart
     }
     try:
         out["records"] = [
@@ -165,8 +173,12 @@ def _results_payload(ev) -> dict[str, Any]:
             out["pairwise_d"] = [dict(d) for d in eff.pairwise_d]
             out["variance_components"] = dict(eff.variance_components) if eff.variance_components else None
             out["effects_model"] = eff.model
-            # R² — total share of verdict variance the model explains (observed = fitted + residual)
-            if eff.residuals and eff.fitted and len(eff.residuals) == len(eff.fitted):
+            out["effects_notes"] = list(eff.warnings)
+            # R² — the share of verdict variance the factors explain (cafe-core leaves question
+            # difficulty out of it); older cafe-core: recompute from the fit's residuals
+            if getattr(eff, "r_squared", None) is not None:
+                out["r_squared"] = round(eff.r_squared, 4)
+            elif eff.residuals and eff.fitted and len(eff.residuals) == len(eff.fitted):
                 obs = [f + r for f, r in zip(eff.fitted, eff.residuals)]
                 mean = sum(obs) / len(obs)
                 ss_tot = sum((o - mean) ** 2 for o in obs)
@@ -198,6 +210,10 @@ def _results_payload(ev) -> dict[str, Any]:
                     "n_obs": clmm.n_obs, "formula": clmm.formula, "log_lik": clmm.log_lik,
                     "coefficients": [dict(c) for c in clmm.coefficients],
                     "thresholds": [dict(t) for t in clmm.thresholds],
+                    # why p-values may be missing (no convergence), and how much questions differ
+                    "converged": getattr(clmm, "converged", None),
+                    "variance_components": getattr(clmm, "variance_components", None),
+                    "notes": list(clmm.warnings),
                 }
         except Exception:  # noqa: BLE001
             pass
@@ -209,6 +225,9 @@ def _results_payload(ev) -> dict[str, Any]:
                     "available": bool(log.available), "reason": log.reason,
                     "n_obs": log.n_obs, "formula": log.formula,
                     "terms": [dict(t) for t in log.terms],
+                    "converged": getattr(log, "converged", None),
+                    "variance_components": getattr(log, "variance_components", None),
+                    "notes": list(log.warnings),
                 }
         except Exception:  # noqa: BLE001
             pass
@@ -511,7 +530,8 @@ def record_output(rec: dict) -> Any:
     return rec["output"] if "output" in rec else rec.get("answer")
 
 
-def _evaluation_from_payload(payload: dict, items: list[dict], keep_ids: set[str]):
+def _evaluation_from_payload(payload: dict, items: list[dict], keep_ids: set[str],
+                             name: str = "filtered"):
     """Reconstruct a minimal cafe Evaluation from a stored results payload, restricted to
     the question ids in ``keep_ids`` — enough for the full stats stack to run again."""
     import cafe
@@ -541,22 +561,24 @@ def _evaluation_from_payload(payload: dict, items: list[dict], keep_ids: set[str
         obs = Observation(config=config, input_id=r["input_id"], rep=rep, output=record_output(r),
                           elapsed_s=r.get("elapsed_s"), metadata=meta)
         observations.setdefault(obs.key(), obs)
-        if r.get("verdict") is not None or r.get("reasoning") is not None:
+        # a judged study stores one record per verdict — keep the unusable ones as error
+        # ratings too, so the "judged → usable" funnel matches the original run
+        if payload.get("rubric") or r.get("verdict") is not None or r.get("reasoning") is not None:
             ratings_items.append(Rating(
                 obs_key=obs.key(), config=config, input_id=r["input_id"], rep=rep,
                 judge_rep=int(r.get("judge_rep") or 0),
                 value=r.get("verdict"), value_numeric=r.get("verdict"),
                 reasoning=r.get("reasoning"),
-                error=None if r.get("verdict") is not None else "unusable in subset view",
+                error=None if r.get("verdict") is not None else "no usable verdict",
             ))
 
     from cafe.stats import attribute
 
-    results = Results(study_name="filtered", factors=factors,
+    results = Results(study_name=name, factors=factors,
                       observations=list(observations.values()))
     ratings = Ratings(rubric=rubric, judge_model="", factors=factors, items=ratings_items)
     return Evaluation(
-        study_name="filtered", answers=results, ratings=ratings,
+        study_name=name, answers=results, ratings=ratings,
         attribution=attribute(ratings) if ratings_items else None,
         items=[it for it in (items or []) if str(it.get("id")) in keep_ids],
         questions={r["input_id"]: r.get("question") or "" for r in payload.get("records") or []
@@ -564,6 +586,17 @@ def _evaluation_from_payload(payload: dict, items: list[dict], keep_ids: set[str
         references={r["input_id"]: r.get("reference") or "" for r in payload.get("records") or []
                     if r.get("input_id") in keep_ids},
     )
+
+
+def refresh_payload(payload: dict, items: list[dict]) -> dict:
+    """Recompute a stored results payload with the current statistics code, from its own
+    records — no LLM calls. Used when the payload's ``stats_version`` is older than
+    :data:`STATS_VERSION`. Keeps the one part the records can't reproduce: the full run's
+    wall-clock / per-stage timing."""
+    keep_ids = {r.get("input_id") for r in payload.get("records") or []}
+    out = _results_payload(_evaluation_from_payload(payload, items, keep_ids, name="study"))
+    out["timing"] = payload.get("timing")
+    return out
 
 
 def filtered_payload(payload: dict, items: list[dict], fkey: str, fval: str) -> dict:

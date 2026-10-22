@@ -132,16 +132,26 @@ async def get_results(id_: int, dimension: str | None = None,
     if res is None:
         raise HTTPException(404, "no results yet — run the study first"
                             if dimension is None else f"no results for dimension {dimension!r}")
+    study = await db.get(models.Study, id_)
+    dataset = await db.get(models.Dataset, study.dataset_id) if study and study.dataset_id else None
+    items = list(dataset.items) if dataset else []
+
+    # Stored by an older statistics version (a run/import before an update, the bundled demo
+    # seed): recompute once from the stored records — no LLM calls — and keep the result.
+    if res.payload.get("stats_version") != runner.STATS_VERSION:
+        try:
+            res.payload = await asyncio.to_thread(runner.refresh_payload, res.payload, items)
+            await db.commit()
+        except Exception:  # noqa: BLE001 — serve what's stored rather than fail the page
+            await db.rollback()
     if not fkey or fval is None:
         return res.payload
 
     # question-subset view: recompute the whole stats stack on the filtered questions
-    cache_key = (id_, res.id, res.dimension, fkey, fval)
+    # (keyed by when the stored payload was computed, so a re-run doesn't serve stale views)
+    cache_key = (id_, res.id, res.dimension, res.payload.get("computed_at"), fkey, fval)
     if cache_key in _FILTER_CACHE:
         return _FILTER_CACHE[cache_key]
-    study = await db.get(models.Study, id_)
-    dataset = await db.get(models.Dataset, study.dataset_id) if study and study.dataset_id else None
-    items = list(dataset.items) if dataset else []
     if not items:
         raise HTTPException(400, "this study's dataset carries no question metadata to filter by")
     try:

@@ -32,7 +32,9 @@ const G = {
   F: <><b>F-statistic.</b> How much a factor moves quality relative to noise (between-group ÷ within-group variance). Bigger ⇒ a stronger, less-noisy effect.<br /><b>Example:</b> <span className="mono">F=130</span> ⇒ this factor's levels differ far more than chance would produce.</>,
   p: <><b>p-value.</b> The chance of seeing an effect this large if the factor truly did nothing. Below <span className="mono">0.05</span> ⇒ unlikely to be a fluke.<br /><b>Example:</b> <span className="mono">p=0.0001</span> ⇒ the effect is almost certainly real.</>,
   eta: <><b>Partial η².</b> Share of variance a factor explains, holding the others fixed. Rules of thumb: <span className="mono">0.01</span> small · <span className="mono">0.06</span> medium · <span className="mono">0.14</span> large.<br /><b>Example:</b> <span className="mono">η²=0.23</span> ⇒ this factor accounts for ~23% of the variance.</>,
-  r2: <><b>R² (variance explained).</b> The share of <i>all</i> verdict variance the whole model captures. The rest is question difficulty + noise.<br /><b>Example:</b> <span className="mono">R²=0.27</span> ⇒ the factors jointly explain 27%.</>,
+  r2: <><b>R² (variance explained).</b> The share of <i>all</i> verdict variance the factors capture. The rest is question difficulty + noise.<br /><b>Example:</b> <span className="mono">R²=0.27</span> ⇒ the factors jointly explain 27%.</>,
+  thr: <><b>Thresholds (cut-points).</b> Where the latent quality scale is cut into the rubric's levels, e.g. <span className="mono">0|1</span> is the boundary between verdict 0 and 1. They locate the levels; the factor effects above shift answers along this scale.</>,
+  icc: <><b>ICC (intra-class correlation).</b> The share of variance that is just <i>which question</i> it was — how much harder some questions are than others, independent of the configuration. On the logit scale the residual variance is fixed at π²/3.</>,
   d: <><b>Cohen's d.</b> Size of the gap between two levels, in standard deviations (scale-free). <span className="mono">0.2</span> small · <span className="mono">0.5</span> medium · <span className="mono">0.8</span> large. Sign shows which level scored higher.<br /><b>Example:</b> <span className="mono">d=+0.9</span> ⇒ a large improvement.</>,
   ci: <><b>95% confidence interval.</b> The plausible range for the true effect. If it doesn't cross 0, the effect is statistically significant.</>,
   beta: <><b>Log-odds (β).</b> The ordinal model's coefficient. <span className="mono">β&gt;0</span> ⇒ this level raises the odds of a <i>better</i> verdict; <span className="mono">β&lt;0</span> lowers them.<br /><b>Example:</b> <span className="mono">β=+1.15</span> shifts scores upward vs the baseline level.</>,
@@ -92,7 +94,16 @@ function Bar({ label, value, valueText, n, max, color = "var(--amber)", labelCol
 }
 
 // ── attribution (F / p / η²) ─────────────────────────────────────────────────────
-function EffectsTable({ effects, model, r2 }) {
+// an exact fit's F is infinite (sent as null next to p = 0)
+const fmtF = (e) => (e.F == null && e.p === 0 ? "∞" : fmt(e.F, 2));
+
+// cafe-core's notes on a fit (convergence, boundary fits, aliasing, …)
+function Notes({ notes }) {
+  if (!notes || !notes.length) return null;
+  return notes.map((n, i) => <div key={i} className="hint" style={{ marginTop: 4 }}>note: {n}</div>);
+}
+
+function EffectsTable({ effects, model, r2, notes }) {
   return (
     <div className="card" style={{ marginBottom: 16 }}>
       <table className="list-table">
@@ -107,7 +118,7 @@ function EffectsTable({ effects, model, r2 }) {
           {[...effects].sort((a, b) => (b.partial_eta_sq || 0) - (a.partial_eta_sq || 0)).map((e, i) => (
             <tr key={i}>
               <td className="mono">{e.factor}{e.interaction ? <span className="muted"> ×</span> : ""}</td>
-              <td className="mono">{fmt(e.F, 2)}</td>
+              <td className="mono">{fmtF(e)}</td>
               <td className="mono">{fmt(e.p, 4)} <span style={{ color: "var(--amber)" }}>{sig(e.p)}</span></td>
               <td className="mono">{fmt(e.partial_eta_sq, 3)}</td>
               <td>
@@ -123,8 +134,9 @@ function EffectsTable({ effects, model, r2 }) {
         </tbody>
       </table>
       <div className="hint"><span style={{ color: "var(--green)" }}>■</span> significant at α=0.05 · <SigLegend />
-        {r2 != null && <> · <InfoTip label="R²">{G.r2}</InfoTip> = <span className="mono" style={{ color: "var(--amber-soft)" }}>{pct(r2)}</span> of variance explained by the model</>}</div>
+        {r2 != null && <> · <InfoTip label="R²">{G.r2}</InfoTip> = <span className="mono" style={{ color: "var(--amber-soft)" }}>{pct(r2)}</span> of variance explained by the factors</>}</div>
       {model && <div className="hint mono" style={{ marginTop: 2 }}>model: {model}</div>}
+      <Notes notes={notes} />
     </div>
   );
 }
@@ -289,8 +301,19 @@ function CLMMTable({ clmm }) {
         </tbody>
       </table>
       <div className="hint"><span style={{ color: "var(--green)" }}>■</span> significant at α=0.05 · <SigLegend /> · β &gt; 0 ⇒ higher odds of a better verdict · {clmm.n_obs} obs{clmm.log_lik != null ? ` · logLik ${fmt(clmm.log_lik, 1)}` : ""}</div>
+      {clmm.thresholds?.length > 0 && <div className="hint mono" style={{ marginTop: 4 }}>
+        <InfoTip label="thresholds">{G.thr}</InfoTip>: {clmm.thresholds.map((t) => `${t.term} ${fmt(t.estimate, 2)}`).join(" · ")}</div>}
+      <RandomIntercept vc={clmm.variance_components} />
+      <Notes notes={clmm.notes} />
     </div>
   );
+}
+
+// the R models' per-question random intercept (latent logit scale)
+function RandomIntercept({ vc }) {
+  if (!vc || vc.random_intercept == null) return null;
+  return <div className="hint mono" style={{ marginTop: 4 }}>
+    between-question σ² = {fmt(vc.random_intercept, 3)} (σ = {fmt(vc.random_intercept_sd, 2)}) · <InfoTip label="ICC">{G.icc}</InfoTip> = {fmt(vc.icc, 2)}</div>;
 }
 
 // ── binary logistic ──────────────────────────────────────────────────────────────
@@ -317,6 +340,8 @@ function LogisticTable({ logistic }) {
         </tbody>
       </table>
       <div className="hint"><span style={{ color: "var(--green)" }}>■</span> significant at α=0.05 · <SigLegend /> · {logistic.n_obs} obs</div>
+      <RandomIntercept vc={logistic.variance_components} />
+      <Notes notes={logistic.notes} />
     </div>
   );
 }
@@ -677,8 +702,8 @@ export default function Results() {
 
           {res.effects?.length > 0 && (
             <Section title="Attribution — which factor drives quality"
-              hint="linear mixed-effects model (verdict ~ factors + random question). The correct model for a numeric scale, and the general effect-size view for any scale; the scale-matched model is below.">
-              <EffectsTable effects={res.effects} model={res.effects_model} r2={res.r_squared} />
+              hint="linear model with questions as blocks (verdict ~ question + factors): configurations are compared within each question. The correct model for a numeric scale, and the general effect-size view for any scale; the scale-matched model is below.">
+              <EffectsTable effects={res.effects} model={res.effects_model} r2={res.r_squared} notes={res.effects_notes} />
             </Section>
           )}
 
@@ -719,7 +744,7 @@ export default function Results() {
             </Section>
           )}
           {scale === "numeric" && (
-            <div className="hint" style={{ marginBottom: 16 }}>For your numeric rubric, the linear mixed-effects model above is the statistically-correct model.</div>
+            <div className="hint" style={{ marginBottom: 16 }}>For your numeric rubric, the linear model above is the statistically-correct model.</div>
           )}
 
           {res.variance_components && (
