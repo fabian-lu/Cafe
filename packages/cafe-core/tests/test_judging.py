@@ -173,8 +173,32 @@ def test_parse_json_verdict_failures_signal_fallback():
     r = cafe.ANSWER_QUALITY_1_5
     assert st.parse_json_verdict("not json at all", r) == (None, None, None)   # → regex fallback
     assert st.parse_json_verdict('{"reasoning": "x"}', r) == (None, None, None)  # no grade key
-    v, n, _ = st.parse_json_verdict('{"grade": 99}', r)
-    assert (v, n) == (99, None)  # off-scale → numeric None (caller still falls back)
+    # off-scale → an error verdict that keeps the grade (not the fallback sentinel)
+    assert st.parse_json_verdict('{"grade": 99}', r) == (99, None, "verdict 99 not on scale 1-5")
+
+
+def test_structured_off_scale_grade_is_not_reparsed_from_the_reasoning(monkeypatch):
+    replies = {
+        # the judge's grade is 7 (off a 1-5 scale); "grade: 3" only appears in its reasoning
+        "fabricated": '{"reasoning": "strictly I would give grade: 3, but overall", "grade": 7}',
+        "plain": '{"reasoning": "far better than the scale allows", "grade": 7}',
+        "not_a_number": '{"reasoning": "between good and excellent", "grade": "4-5"}',
+        "not_json": "The answer is fine.\nGRADE: 4",  # genuinely non-JSON → regex fallback
+    }
+
+    def score(kind):
+        async def fake_complete(model, messages, **kwargs):
+            return replies[kind]
+
+        monkeypatch.setattr("cafe.judging.judge.complete", fake_complete)
+        judge = cafe.LLMJudge("m", structured=True)
+        out = asyncio.run(judge.score(cafe.ANSWER_QUALITY_1_5, "Q", "A"))
+        return out.value, out.value_numeric, out.reasoning
+
+    assert score("fabricated") == (7, None, "verdict 7 not on scale 1-5")
+    assert score("plain") == (7, None, "verdict 7 not on scale 1-5")
+    assert score("not_a_number") == ("4-5", None, "verdict '4-5' not on scale 1-5")
+    assert score("not_json") == (4, 4, "The answer is fine.")
 
 
 def test_structured_forced_decisions_need_no_llm():

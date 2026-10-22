@@ -11,8 +11,11 @@ Capability is decided **per model**, robustly:
      ``response_format`` without being in the map (e.g. Ollama-served models like gpt-oss);
   3. if the probe also fails, the judge uses the ``GRADE:`` parser instead.
 
-On any per-call failure (provider error, non-JSON, off-scale grade) the judge falls back
-to the regex parser, so structured mode can never do worse than the default.
+If the provider rejects ``response_format`` the judge makes a plain call instead, and a
+reply that isn't usable JSON with a ``grade`` goes to the regex parser, so structured mode
+can never do worse than the default. A JSON verdict whose grade is off the rubric's scale
+is an error rating: the regex is not re-run over the JSON text, where it could pick up a
+``grade: N`` from inside the reasoning.
 """
 
 from __future__ import annotations
@@ -103,13 +106,22 @@ def _loads(raw: str) -> Any:
 def parse_json_verdict(raw: str, rubric: Rubric) -> tuple[Any, int | None, str | None]:
     """Extract ``(value, numeric, reasoning)`` from a JSON verdict.
 
-    Returns ``(None, None, None)`` if ``raw`` isn't usable JSON with a ``grade`` — the
-    signal for the caller to fall back to the ``GRADE:`` regex parser.
+    Returns
+    -------
+    tuple
+        ``(None, None, None)`` if ``raw`` isn't usable JSON with a ``grade`` — the only
+        signal for the caller to fall back to the ``GRADE:`` regex parser. If the grade
+        is present but not on the rubric's scale, ``(grade, None, <error message>)`` —
+        an error verdict, as from :func:`cafe.judging.prompts.parse_verdict`. Otherwise
+        ``(grade, scale point, reasoning)``.
     """
     try:
         data = _loads(raw)
         grade = data["grade"]
     except (json.JSONDecodeError, TypeError, KeyError):
         return None, None, None
+    numeric = rubric.numeric(grade)
+    if numeric is None:
+        return grade, None, f"verdict {grade!r} not on scale {rubric.min_value}-{rubric.max_value}"
     reasoning = data.get("reasoning") if isinstance(data, dict) else None
-    return grade, rubric.numeric(grade), reasoning
+    return grade, numeric, reasoning
