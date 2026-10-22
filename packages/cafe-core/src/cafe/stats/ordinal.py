@@ -176,6 +176,10 @@ class CLMMResult:
                          "(separation or a ceiling in the scores); the estimates are unstable.")
         else:
             lines.append(f"  {SIG_LEGEND}")
+        if self.thresholds:  # where the latent scale is cut into the rubric's levels
+            cuts = " · ".join(f"{t['term']} {t['estimate']:+.3f}" for t in self.thresholds
+                              if t.get("estimate") is not None)
+            lines.append(f"  thresholds (cut-points between levels):  {cuts}")
         if self.variance_components:
             lines.append(f"  {_variance_line(self.variance_components)}")
         for w in self.warnings:
