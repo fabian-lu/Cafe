@@ -166,6 +166,48 @@ def test_preview_includes_system_and_user():
     assert j.render_messages(cafe.ANSWER_QUALITY_1_5, "Q?", "A.", reference="ref")[1]["content"] in out
 
 
+def test_preview_shows_the_call_each_structured_mode_makes(monkeypatch):
+    sent = []
+
+    async def fake_complete(model, messages, **kwargs):
+        sent.append(messages)
+        return '{"reasoning": "ok", "grade": 4}' if "response_format" in kwargs else "ok\nGRADE: 4"
+
+    monkeypatch.setattr("cafe.judging.judge.complete", fake_complete)
+    monkeypatch.setattr("cafe.judging.structured.complete", fake_complete)  # capability probe
+    r, args = cafe.ANSWER_QUALITY_1_5, ("Q?", "A.", "R")
+
+    def labelled(messages):
+        return "\n\n".join(f"[{m['role'].upper()}]\n{m['content']}" for m in messages)
+
+    for structured in (False, True):
+        j = cafe.LLMJudge("m", structured=structured)
+        shown, text = j.render_messages(r, *args), j.preview(r, *args)
+        asyncio.run(j.score(r, *args))
+        assert shown == sent[-1] and text == labelled(sent[-1]), structured
+    # "auto" before the model's capability is known: no call is made, render_messages gives
+    # the plain call, and the preview shows both user prompts (plain first)
+    model = "preview-auto-model"
+    monkeypatch.delitem(st._support_cache, model, raising=False)
+    j = cafe.LLMJudge(model, structured="auto")
+    sent.clear()
+    plain = j.render_messages(r, *args, structured=False)
+    as_json = j.render_messages(r, *args, structured=True)
+    assert plain != as_json and j.render_messages(r, *args) == plain
+    text = j.preview(r, *args)
+    assert sent == []
+    assert text.startswith(labelled(plain) + "\n\n[USER, structured mode")
+    assert text.endswith("]\n" + as_json[1]["content"])
+    assert j.preview(r, *args, structured=True) == labelled(as_json)
+    # once the capability is known (here: cached), only the call that is made is shown
+    monkeypatch.setitem(st._support_cache, model, True)
+    assert j.render_messages(r, *args) == as_json and j.preview(r, *args) == labelled(as_json)
+    asyncio.run(j.score(r, *args))
+    assert sent == [as_json]
+    with pytest.raises(ValueError, match="structured"):
+        j.render_messages(r, *args, structured="auto")
+
+
 def test_numeric_rubric_prompt_shows_anchors_and_full_range():
     out = cafe.LLMJudge(model="m").preview(cafe.rubrics.HELPFULNESS_0_10, "Q?", "A.")
     assert "0 = useless" in out and "10 = ideal" in out   # anchor levels

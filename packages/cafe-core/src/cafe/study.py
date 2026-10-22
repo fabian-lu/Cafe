@@ -304,7 +304,9 @@ class Study:
         Shows the messages exactly as sent, with role labels (``[SYSTEM]`` / ``[USER]``)
         so the system framing and the rubric-derived user prompt are both visible. Uses
         the study's rubric + judge and, by default, the first dataset item. Print it to
-        verify the judging before spending any tokens.
+        verify the judging before spending any tokens. While an ``LLMJudge`` with
+        ``structured="auto"`` hasn't yet decided whether its model gets the JSON prompt,
+        both user prompts are shown (see :meth:`cafe.LLMJudge.preview`).
         """
         if self.judge is None or self.rubric is None:
             raise ValueError("study has no judge/rubric set to preview")

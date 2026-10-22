@@ -24,6 +24,17 @@ study = cafe.Study(..., rubric=cafe.rubrics.CORRECTNESS_0_3, judge=judge)
 result = study.evaluate()
 ```
 
+To check the prompt before spending tokens, print
+`judge.preview(rubric, question, answer, reference)` or
+`study.preview_judge_prompt(answer)`. It shows the judge's input, the `[SYSTEM]` message
+and the `[USER]` prompt, without an LLM call. With `structured="auto"` (the default, see
+below), whether the model gets the JSON prompt is decided when judging starts. Until then
+the preview shows both user prompts: the plain one, then the structured one, which is sent
+instead if the model supports JSON output. Once the model has been checked (by a run, or
+earlier in the same Python session by another judge on that model), the preview shows only
+the prompt that is sent. Pass `structured=True` or `False` to `preview()` to see one mode's
+prompt.
+
 ### Presets
 
 The preset chooses the prompt scaffold:
