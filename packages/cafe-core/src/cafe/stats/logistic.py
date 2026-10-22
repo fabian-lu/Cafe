@@ -157,7 +157,7 @@ def _fit_glmer(
     import tempfile
     from importlib.resources import files
 
-    from cafe.stats.ordinal import _readable_term
+    from cafe.stats.ordinal import _readable_term, _term_factor
 
     order = max(1, min(interactions, len(factors)))
     keep = ["verdict", "input_id", *factors]
@@ -197,7 +197,7 @@ def _fit_glmer(
         p = c.get("p")
         res.terms.append({
             "label": _readable_term(term, factors),
-            "factor": next((f for f in factors if term.startswith(f)), None),
+            "factor": _term_factor(term, factors),
             "interaction": ":" in term,
             "coef": est,
             "odds_ratio": math.exp(est) if est is not None and abs(est) < 30 else None,

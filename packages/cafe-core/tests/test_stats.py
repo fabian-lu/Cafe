@@ -184,6 +184,64 @@ def test_readable_clmm_term():
     assert _readable_term("retrievekeyword:reranknone", fs) == "retrieve=keyword × rerank=none"
 
 
+def test_r_term_factor_is_longest_matching_name():
+    from cafe.stats.ordinal import _term_factor
+
+    fs = ["retrieve", "retrieve.top_k", "rerank"]
+    assert _term_factor("retrieve.top_k2", fs) == "retrieve.top_k"   # not "retrieve"
+    assert _term_factor("retrievekeyword", fs) == "retrieve"
+    assert _term_factor("retrieve.top_k2:reranknone", fs) == "retrieve.top_k"
+    assert _term_factor("(Intercept)", fs) is None
+
+
+def _prefix_named_factor_ratings(binary: bool) -> Ratings:
+    """Factors ``retrieve`` and ``retrieve.top_k`` (a stage and its parameter factor, so one
+    name is a prefix of the other). Only ``retrieve.top_k`` moves the score; a per-question
+    difficulty gives the random intercept something to fit."""
+    import random
+
+    from cafe.rubrics import CORRECT_PASS_FAIL
+
+    rng = random.Random(3)
+    items = []
+    for q in range(30):
+        hard = rng.gauss(0, 0.7)
+        for retrieve in ("bm25", "dense"):
+            for top_k in (2, 4):
+                eta = (1.5 if top_k == 4 else -1.0) + hard + rng.gauss(0, 1)
+                v = int(eta > 0) if binary else max(1, min(5, round(3 + eta)))
+                items.append(Rating(obs_key=f"{q}{retrieve}{top_k}",
+                                    config={"retrieve": retrieve, "retrieve.top_k": top_k},
+                                    input_id=f"q{q}", rep=0, judge_rep=0, value=v, value_numeric=v))
+    return Ratings(rubric=CORRECT_PASS_FAIL if binary else ANSWER_QUALITY_1_5, judge_model="x",
+                   factors=["retrieve", "retrieve.top_k"], items=items)
+
+
+def test_clmm_credits_coefficient_to_longest_factor_name():
+    from cafe.stats.ordinal import check_r
+
+    if not check_r()[0]:
+        pytest.skip("R + ordinal not installed")
+    clmm = fit_clmm(_prefix_named_factor_ratings(binary=False), interactions=1)
+    assert clmm.available, clmm.reason
+    top_k = next(c for c in clmm.coefficients if c["term"] == "retrieve.top_k4")
+    assert top_k["factor"] == "retrieve.top_k" and top_k["label"] == "retrieve.top_k=4"
+    assert clmm.significant_factors == ["retrieve.top_k"]
+
+
+def test_glmer_credits_coefficient_to_longest_factor_name():
+    from cafe import fit_logistic
+    from cafe.stats.logistic import check_glmer
+
+    if not check_glmer()[0]:
+        pytest.skip("R + lme4 not installed")
+    log = fit_logistic(_prefix_named_factor_ratings(binary=True), interactions=1, backend="glmer")
+    assert log.available and "glmer" in log.model
+    top_k = next(t for t in log.terms if t["label"] == "retrieve.top_k=4")
+    assert top_k["factor"] == "retrieve.top_k"
+    assert log.significant_factors == ["retrieve.top_k"]
+
+
 def test_report_has_all_three_layers():
     from cafe.evaluation import Evaluation
     from cafe.execution.results import Results
