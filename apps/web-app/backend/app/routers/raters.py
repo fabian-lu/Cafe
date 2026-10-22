@@ -78,8 +78,16 @@ class HumanRatingsIn(BaseModel):
     scores: dict[str, float]   # {answer_key: score}
 
 
+async def _require_study(db: AsyncSession, study_id: int) -> None:
+    # SQLite doesn't enforce foreign keys here, so without this check ratings for a missing
+    # study are stored as orphans (and inherited by a later study that reuses the id).
+    if await db.get(models.Study, study_id) is None:
+        raise HTTPException(404, "study not found")
+
+
 @router.post("/studies/{id_}/human-ratings", status_code=201)
 async def submit_ratings(id_: int, body: HumanRatingsIn, db: AsyncSession = Depends(get_session)):
+    await _require_study(db, id_)
     # replace this rater's prior scores for the study
     existing = (await db.execute(select(models.HumanRating).where(
         models.HumanRating.study_id == id_, models.HumanRating.rater == body.rater))).scalars()
@@ -93,6 +101,7 @@ async def submit_ratings(id_: int, body: HumanRatingsIn, db: AsyncSession = Depe
 
 @router.get("/studies/{id_}/raters")
 async def list_raters(id_: int, db: AsyncSession = Depends(get_session)):
+    await _require_study(db, id_)
     rows = (await db.execute(select(models.HumanRating).where(models.HumanRating.study_id == id_))).scalars()
     counts: dict[str, int] = {}
     for r in rows:
