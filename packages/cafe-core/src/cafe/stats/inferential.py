@@ -121,6 +121,41 @@ def _design_rank_deficient(df, factors: list[str], order: int) -> bool:
     return bool(np.linalg.matrix_rank(exog) < exog.shape[1])
 
 
+#: Relative to the total sum of squares, a residual (or term) sum of squares at or below this
+#: counts as zero: floating-point rounding leaves ~1e-30 where the exact value is 0.
+_EXACT_FIT_RTOL = 1e-10
+
+
+def _exact_fit_ss(dfs, factors: list[str], safe: dict[str, str], order: int) -> dict:
+    """Type-II sum of squares per model term (keyed by its set of factors), from nested
+    least-squares refits — for a model that fits the verdicts exactly (zero residual SS).
+
+    statsmodels backs each term's SS out of its F-test, which divides by the residual
+    variance: an exact zero gives an all-NaN table, and rounding noise gives F-ratios of
+    noise over noise (a term with no effect at all can come out "significant"). Here
+    SS(term) = SSR(model without the term and the terms containing it) − SSR(model without
+    the terms containing it), which needs no variance estimate.
+    """
+    from itertools import combinations
+
+    import statsmodels.formula.api as smf
+
+    top = order if order >= 2 and len(factors) >= 2 else 1
+    terms = [frozenset(c) for k in range(1, top + 1) for c in combinations(factors, k)]
+
+    def ssr(model_terms: list[frozenset]) -> float:
+        rhs = " + ".join(
+            ":".join(f"C(Q('{safe[c]}'))" for c in factors if c in t) for t in model_terms
+        )
+        return float(smf.ols(f"verdict ~ {rhs or '1'}", dfs).fit().ssr)
+
+    out = {}
+    for term in terms:
+        kept = [t for t in terms if not term < t]  # drop the higher-order terms containing it
+        out[term] = ssr([t for t in kept if t != term]) - ssr(kept)
+    return out
+
+
 def _degenerate(w) -> bool:
     """Whether a captured warning indicates a near-singular / non-converged fit."""
     msg = str(getattr(w, "message", w)).lower()
@@ -217,6 +252,16 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
     only, ``2`` = also two-way (e.g. model×prompt — the default, since two-way captures
     most), ``3`` = up to three-way. It's auto-capped at the number of factors, and falls
     back to main-effects-only if the interaction model can't be estimated on the data.
+
+    Returns
+    -------
+    Effects
+        Per-term ``F`` / ``p`` / ``partial_eta_sq`` / ``significant``, pairwise Cohen's d,
+        variance components and notes. On an **exact fit** (zero residual variance: every
+        answer within a configuration got the same score) the F-tests are degenerate, so a
+        term with any effect is reported as ``F=inf``, ``p=0.0``, ``partial_eta_sq=1.0``
+        (significant) and a term with no effect as ``None`` (not significant); ``model``
+        and ``warnings`` say so.
     """
     import numpy as np  # noqa: F401
 
@@ -304,7 +349,7 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
 
         # Per-term F / p / partial η² via Type-II ANOVA on the OLS counterpart, at the
         # requested interaction order — falling back to main effects if it won't estimate.
-        order_used, table = order, None
+        order_used, table, exact = order, None, False
         try:
             fit = smf.ols(_formula(order), dfs).fit()
             # A fractional factorial (or any aliased design) makes interaction columns
@@ -352,6 +397,22 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
             res.model = (f"{base} + Type-II ANOVA"
                          + (f", up to {order_used}-way" if order_used >= 2 else ""))
             ss_resid = float(table.loc["Residual", "sum_sq"])
+            ss_total = float(((dfs["verdict"] - dfs["verdict"].mean()) ** 2).sum())
+            # Exact fit: every answer in a configuration got the same score, so the residual
+            # variance is zero and the table's F-tests are 0/0 (NaN) or rounding noise. Score
+            # each term from its exact Type-II SS instead (needs residual df to mean anything).
+            exact = (float(table.loc["Residual", "df"]) > 0
+                     and ss_resid <= _EXACT_FIT_RTOL * ss_total)
+            if exact:
+                exact_ss = _exact_fit_ss(dfs, usable, safe, order_used)
+                res.model += " — exact fit (zero residual variance)"
+                res.warnings.append(
+                    "zero residual variance: every answer within a configuration got the same "
+                    "score, so the F-tests are degenerate — a term with any effect is reported "
+                    "as F=inf, p=0, partial η²=1 and a term with none as undefined (not "
+                    "significant); Cohen's d is undefined too, so compare the configuration "
+                    "means directly"
+                )
             for name in table.index:
                 if name in ("Residual", "Intercept"):
                     continue
@@ -362,6 +423,12 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
                 F = float(table.loc[name, "F"])
                 p = float(table.loc[name, "PR(>F)"])
                 eta = ss / (ss + ss_resid) if (ss + ss_resid) > 0 else None
+                if exact:
+                    # SS/0: an effect is infinitely large against zero noise; no effect is 0/0.
+                    if exact_ss.get(frozenset(cols), 0.0) > _EXACT_FIT_RTOL * ss_total:
+                        F, p, eta = float("inf"), 0.0, 1.0
+                    else:
+                        F, p, eta = float("nan"), float("nan"), None
                 res.terms.append(
                     {
                         "factor": " × ".join(cols),
@@ -374,7 +441,7 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
                     }
                 )
 
-    if any(_degenerate(w) for w in caught):
+    if not exact and any(_degenerate(w) for w in caught):  # an exact fit has its own note
         res.warnings.append(
             "model was near-singular (little between-question variance) — treat p-values as "
             "unstable; the effect sizes (Cohen's d) are the more reliable signal here"

@@ -63,6 +63,55 @@ def test_fit_effects_null_when_no_difference():
     assert eff.significant_factors == []
 
 
+def _exact_two_factor_ratings(score: dict[tuple[str, str], int], b_levels: int = 2) -> Ratings:
+    """Factors A × B where every answer of a configuration gets the same score on every
+    question — the model fits exactly (zero residual variance)."""
+    items = []
+    for q in range(8):
+        for a in ("a1", "a2"):
+            for b in (f"b{i}" for i in range(1, b_levels + 1)):
+                s = score[(a, b)]
+                items.append(Rating(obs_key=f"{a}{b}{q}", config={"A": a, "B": b},
+                                    input_id=f"q{q}", rep=0, judge_rep=0, value=s, value_numeric=s))
+    return Ratings(rubric=ANSWER_QUALITY_1_5, judge_model="fake", factors=["A", "B"], items=items)
+
+
+def test_fit_effects_exact_fit_separates_real_from_null_terms():
+    """Zero residual variance: A decides the score, B has exactly no effect. A must be
+    significant (F=inf, p=0, η²=1); B and A×B have zero SS *and* zero residual SS (0/0) and
+    must not be — before, their F was a ratio of rounding noise and B could reach p<0.001."""
+    import math
+
+    score = {(a, f"b{i}"): (3 if a == "a1" else 2) for a in ("a1", "a2") for i in (1, 2, 3)}
+    r = _exact_two_factor_ratings(score, b_levels=3)
+    for order in (1, 2):
+        eff = fit_effects(r, interactions=order)
+        terms = {t["factor"]: t for t in eff.terms}
+        assert eff.significant_factors == ["A"]
+        assert math.isinf(terms["A"]["F"]) and terms["A"]["p"] == 0.0
+        assert terms["A"]["partial_eta_sq"] == 1.0
+        null_terms = ["B"] + (["A × B"] if order == 2 else [])
+        for name in null_terms:
+            assert terms[name]["p"] is None and terms[name]["F"] is None
+            assert terms[name]["partial_eta_sq"] is None and not terms[name]["significant"]
+        assert "exact fit" in eff.model
+        assert any("zero residual variance" in w for w in eff.warnings)
+        assert not any("near-singular" in w for w in eff.warnings)  # replaced by the note above
+
+
+def test_fit_effects_exact_fit_pure_interaction():
+    """An exact fit where only the a2·b2 cell is bad: every Type-II term has a real effect."""
+    import math
+
+    score = {("a1", "b1"): 5, ("a1", "b2"): 5, ("a2", "b1"): 5, ("a2", "b2"): 2}
+    eff = fit_effects(_exact_two_factor_ratings(score), interactions=2)
+    terms = {t["factor"]: t for t in eff.terms}
+    assert set(terms) == {"A", "B", "A × B"}
+    for t in terms.values():
+        assert t["significant"] and t["p"] == 0.0
+        assert math.isinf(t["F"]) and t["partial_eta_sq"] == 1.0
+
+
 @pytest.mark.skipif(shutil.which("Rscript") is None, reason="R not installed")
 def test_fit_clmm_runs_when_r_present():
     res = fit_clmm(_ratings({"good": 5, "bad": 2}))

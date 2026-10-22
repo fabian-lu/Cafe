@@ -122,6 +122,13 @@ straddles 0 (like `finalize`) is not.
     (Cohen's d) are the more reliable signal here."* Take these seriously: they tell
     you which numbers to trust when the design is small or sparse.
 
+    A tiny study can also fit **exactly**: every answer within a configuration got the
+    same score, so there is zero residual variance and the F-tests are degenerate. The
+    model line then ends in *"exact fit (zero residual variance)"*, a term with any effect
+    shows `F = inf`, `p = 0`, partial eta^2 = 1, and a term with no effect shows `-` (not
+    significant). Cohen's d is undefined too (zero spread), so compare the configuration
+    means directly — and add questions if you expect real variation.
+
 ### 3 · Ordinal — the scale-correct model
 
 When the rubric is **ordinal** (ordered categories like 0 < 1 < 2), CAFE also fits a
