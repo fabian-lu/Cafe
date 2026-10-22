@@ -217,7 +217,7 @@ The rubric's scale type selects the model automatically — you do not choose:
 | Rubric scale | Model fitted | Report section |
 |---|---|---|
 | `ordinal` (e.g. `CORRECTNESS_0_3`) | linear approximation **+** cumulative-link mixed model | Inferential + Ordinal |
-| `numeric` (e.g. `HELPFULNESS_0_10`) | linear (Gaussian) mixed model | Linear |
+| `numeric` (e.g. `HELPFULNESS_0_10`) | linear model, questions as blocks (+ random-intercept variance components) | Linear |
 | `binary` (e.g. `CORRECT_PASS_FAIL`) | logistic mixed model (log-odds, odds ratios) | Logistic |
 
 The logistic mixed model (R `lme4::glmer`) comes with lme4's own convergence checks. When

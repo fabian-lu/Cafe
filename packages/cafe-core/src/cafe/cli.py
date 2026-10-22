@@ -195,7 +195,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     print()
 
     # --- Statistics engine (R) -----------------------------------------------
-    print("Statistics engine  (required — the mixed-effects models run in R)")
+    print("Statistics engine  (R — runs the ordinal and logistic mixed models)")
     if shutil.which("Rscript") is None:
         print("  ✗  R not found")
         print("       fix →  install R (e.g. `sudo apt install r-base` or `brew install r`),")

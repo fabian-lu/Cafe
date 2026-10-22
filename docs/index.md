@@ -19,8 +19,8 @@ verifiers. CAFE answers what aggregate benchmarks can't:
 
 CAFE treats each pipeline knob as an experimental **factor**, generates factorial
 designs, executes configurations with **replication**, collects quality judgments
-(LLM judge + humans), and attributes the variance with mixed-effects models matched
-to the rubric's scale.
+(LLM judge + humans), and attributes the variance with models that account for
+question difficulty, matched to the rubric's scale.
 
 !!! note "CAFE measures; it does not build"
     Bring your system as a **black box** — `run(config, item) -> output` — or compose it
@@ -37,6 +37,6 @@ to the rubric's scale.
 ## Status
 
 CAFE is open-source and under active development. The Python library (`cafe-core`),
-the LLM judge and mixed-effects statistics layers, and the self-hostable web platform
+the LLM judge and statistics layers, and the self-hostable web platform
 are all shipped. See the [roadmap](https://cafe-ai.de/roadmap.html) for what is coming
 next.

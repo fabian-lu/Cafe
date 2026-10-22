@@ -141,9 +141,14 @@ async def _require_study(db: AsyncSession, study_id: int) -> None:
 @router.post("/studies/{id_}/human-ratings", status_code=201)
 async def submit_ratings(id_: int, body: HumanRatingsIn, db: AsyncSession = Depends(get_session)):
     await _require_study(db, id_)
+    keys = {str(k) for k in body.scores}
+    # only answers of this study can be rated (a stray key would just pile up as "stale")
+    unknown = keys - set(_answer_keys(await _results(db, id_)))
+    if unknown:
+        raise HTTPException(400, f"{len(unknown)} answer key(s) don't belong to this study's "
+                                 f"answers (e.g. {sorted(unknown)[0]!r}) — reload the rating sheet")
     # replace this rater's prior scores for the answers scored now; their other ratings stay
     # (a returning rater submitting a partial sheet must not lose earlier work)
-    keys = {str(k) for k in body.scores}
     existing = (await db.execute(select(models.HumanRating).where(
         models.HumanRating.study_id == id_, models.HumanRating.rater == body.rater))).scalars()
     for row in existing:

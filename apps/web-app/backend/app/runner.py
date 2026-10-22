@@ -257,8 +257,9 @@ def _json_safe(obj: Any) -> Any:
 
 
 def _factor_keys(ev) -> list[str]:
+    """The study's factors — from the ratings, or from the answers when it wasn't judged."""
     try:
-        return list(ev.ratings.factors) if ev.ratings else []
+        return list(ev.ratings.factors if ev.ratings else ev.answers.factors)
     except Exception:  # noqa: BLE001
         return []
 
@@ -596,8 +597,13 @@ def refresh_payload(payload: dict, items: list[dict]) -> dict:
     records — no LLM calls. Used when the payload's ``stats_version`` is older than
     :data:`STATS_VERSION`. Keeps the one part the records can't reproduce: the full run's
     wall-clock / per-stage timing."""
-    keep_ids = {r.get("input_id") for r in payload.get("records") or []}
+    records = payload.get("records") or []
+    keep_ids = {r.get("input_id") for r in records}
     out = _results_payload(_evaluation_from_payload(payload, items, keep_ids, name="study"))
+    # the refreshed payload replaces the stored one — never let it lose a single record
+    if len(out.get("records") or []) != len(records):
+        raise ValueError(f"refresh would change the record count ({len(records)} -> "
+                         f"{len(out.get('records') or [])}); keeping the stored results")
     out["timing"] = payload.get("timing")
     return out
 

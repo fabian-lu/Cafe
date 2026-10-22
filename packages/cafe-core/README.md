@@ -7,8 +7,8 @@ no web stack, no database required.
 CAFE generates full and **fractional** factorial designs, runs each configuration
 with replication (resumable checkpoints), scores answers with a configurable
 **LLM judge** and/or human raters, and attributes quality to the factors with
-**mixed-effects models** matched to the rubric's scale (linear · cumulative-link ·
-logistic) plus **inter-rater reliability** (Krippendorff's α). See the `examples/`
+**models that account for question difficulty**, matched to the rubric's scale (linear ·
+cumulative-link · logistic) plus **inter-rater reliability** (Krippendorff's α). See the `examples/`
 notebooks for the full walkthrough.
 
 ## Install (dev)

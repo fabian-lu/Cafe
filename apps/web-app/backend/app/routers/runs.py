@@ -137,25 +137,29 @@ async def get_results(id_: int, dimension: str | None = None,
     items = list(dataset.items) if dataset else []
 
     # Stored by an older statistics version (a run/import before an update, the bundled demo
-    # seed): recompute once from the stored records — no LLM calls — and keep the result.
-    if res.payload.get("stats_version") != runner.STATS_VERSION:
+    # seed): recompute once from the stored records — no LLM calls — and keep the result. Only
+    # judged results have statistics to recompute; an unjudged study's payload is left alone.
+    payload, res_id, res_dimension = res.payload, res.id, res.dimension  # read before any rollback
+    if payload.get("stats_version") != runner.STATS_VERSION and payload.get("rubric"):
         try:
-            res.payload = await asyncio.to_thread(runner.refresh_payload, res.payload, items)
+            fresh = await asyncio.to_thread(runner.refresh_payload, payload, items)
+            res.payload = fresh
             await db.commit()
+            payload = fresh
         except Exception:  # noqa: BLE001 — serve what's stored rather than fail the page
-            await db.rollback()
+            await db.rollback()  # (`payload` is the copy read before; `res` is expired now)
     if not fkey or fval is None:
-        return res.payload
+        return payload
 
     # question-subset view: recompute the whole stats stack on the filtered questions
     # (keyed by when the stored payload was computed, so a re-run doesn't serve stale views)
-    cache_key = (id_, res.id, res.dimension, res.payload.get("computed_at"), fkey, fval)
+    cache_key = (id_, res_id, res_dimension, payload.get("computed_at"), fkey, fval)
     if cache_key in _FILTER_CACHE:
         return _FILTER_CACHE[cache_key]
     if not items:
         raise HTTPException(400, "this study's dataset carries no question metadata to filter by")
     try:
-        payload = runner.filtered_payload(res.payload, items, fkey, fval)
+        payload = runner.filtered_payload(payload, items, fkey, fval)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(500, f"filtered recompute failed: {exc}")
     if len(_FILTER_CACHE) > 64:
