@@ -97,11 +97,31 @@ result <- tryCatch({
   # code (0 = success, ?lmerControl) and lme4's derivative checks (?convergence; a negative
   # code, e.g. "Model failed to converge with max|grad| = ..."). After such a failure the
   # standard errors can be ~100x too small. Added to the result after the tryCatch.
+  converged <- function(fit) {
+    cv <- fit@optinfo$conv
+    msgs <- as.character(unlist(cv$lme4$messages))
+    isTRUE(cv$opt == 0) && !any(as.integer(cv$lme4$code) < 0) &&
+      !any(grepl("failed to converge", msgs, fixed = TRUE))
+  }
+  # lme4's derivative checks raise false alarms (?convergence), and a different optimizer
+  # often lands on a proper optimum: refit once with bobyqa before giving up on the SEs.
+  refit <- NULL
+  if (!converged(m)) {
+    m2 <- tryCatch(suppressWarnings(suppressMessages(
+      lme4::glmer(build_formula(used_order), data = d, family = stats::binomial(),
+                  control = lme4::glmerControl(optimizer = "bobyqa"))
+    )), error = function(e) NULL)
+    if (!is.null(m2) && converged(m2)) {
+      m <- m2
+      refit <- "bobyqa"
+    }
+  }
   conv <- m@optinfo$conv
   optimizer <- list(convergence = as.integer(conv$opt),
                     message = as.character(c(m@optinfo$message, "")[1]),
                     lme4_code = I(as.integer(conv$lme4$code)),
-                    lme4_messages = I(as.character(unlist(conv$lme4$messages))))
+                    lme4_messages = I(as.character(unlist(conv$lme4$messages))),
+                    refit = if (is.null(refit)) NA else refit)  # "bobyqa": default fit failed
 
   info <- coef_info(d, order)
   ct <- as.data.frame(summary(m)$coefficients)   # Estimate, Std. Error, z value, Pr(>|z|)

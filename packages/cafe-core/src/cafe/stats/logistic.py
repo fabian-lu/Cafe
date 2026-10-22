@@ -183,6 +183,11 @@ def _apply_convergence_guard(res: Logistic, optimizer: dict[str, Any] | None) ->
     res.converged = (code == 0 and not any(c < 0 for c in lme4_codes)
                      and not any("failed to converge" in m for m in msgs))
     if res.converged:
+        if optimizer.get("refit"):  # glmm.R refit after the default optimizer's fit failed
+            res.warnings.append(
+                f"lme4's default optimizer did not converge; refit with {optimizer['refit']}, "
+                "which did — the results are from that fit"
+            )
         return
     for t in res.terms:
         t["p"] = None

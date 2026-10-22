@@ -664,6 +664,15 @@ def test_glmer_withholds_pvalues_when_lme4_reports_no_convergence(monkeypatch):
     assert sep.converged is False and "separates pass from fail" in sep.show()
 
 
+def test_glmer_reports_a_bobyqa_refit_that_converged(monkeypatch):
+    """glmm.R refits once with bobyqa when the default optimizer's fit fails lme4's checks;
+    when that refit converges its SEs are valid, so p-values stay and a note says so."""
+    log = _canned_glmer(monkeypatch, {"convergence": 0, "message": "ok", "lme4_code": [],
+                                      "lme4_messages": [], "refit": "bobyqa"})
+    assert log.converged is True and log.terms[0]["p"] == 0.0
+    assert any("refit with bobyqa" in w for w in log.warnings)
+
+
 def test_glmer_no_spurious_significance_from_unconverged_fit():
     """30 questions; B has no effect. On this data lme4 reports "Model failed to converge
     with max|grad| = 0.049" (lme4 2.0) and SE 0.0014 instead of ~0.5, so p ≈ 0. Whatever
@@ -685,6 +694,8 @@ def test_glmer_no_spurious_significance_from_unconverged_fit():
     log = fit_logistic(r, interactions=1, backend="glmer")
     assert log.available and "B" not in log.significant_factors
     assert log.converged is not None                      # glmm.R reports lme4's verdict
+    if any("refit with bobyqa" in w for w in log.warnings):  # the bobyqa refit converged
+        assert log.converged is True and all(t["p"] is not None for t in log.terms)
     if log.converged is False:
         assert all(t["p"] is None for t in log.terms)
         assert any("did not converge" in w for w in log.warnings)
