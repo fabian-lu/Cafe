@@ -103,8 +103,9 @@ def _set_random_intercept(res: Any, payload: dict[str, Any]) -> None:
     }
     if sd < _SINGULAR_SD:
         res.warnings.append(
-            "model was near-singular (random-intercept variance ≈ 0: little between-question "
-            "variance) — treat p-values as unstable"
+            "model was near-singular (random-intercept variance ≈ 0: the questions don't differ "
+            "beyond what the factors explain) — a boundary fit, not a failure: the estimates and "
+            "p-values are valid and equal those of the same model without a question effect"
         )
 
 
