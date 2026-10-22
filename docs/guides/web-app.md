@@ -67,8 +67,10 @@ uvicorn app.main:app --reload
 cd apps/web-app/frontend && npm install && npm run dev
 ```
 
-Requires Python ≥ 3.11 + R (for the stats layer) and Node for the front-end, plus a
-reachable Postgres — the Docker path bundles all of these, which is why it is the
+Requires Python ≥ 3.11 + R (for the stats layer) and Node for the front-end. Without a
+`DATABASE_URL` the backend keeps its data in a local SQLite file, `./cafe.db` (a file
+from an older version is upgraded in place on startup); set `DATABASE_URL` to use
+Postgres like the Docker setup. The Docker path bundles all of these, which is why it is the
 recommended way to run the app.
 
 Run a **single** backend process per database (no `--workers`): runs and their live
