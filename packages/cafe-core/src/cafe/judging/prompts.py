@@ -92,11 +92,46 @@ _BRACKET_RE = re.compile(r"\[\[\s*([0-9]+)\s*\]\]")
 #: Placeholders a custom judge ``prompt_template`` must contain to be a valid grading prompt.
 REQUIRED_PLACEHOLDERS = ("{question}", "{answer}", "{scale}", "{grade}")
 
+# Stand-ins for every placeholder build_judge_prompt fills (same types: text, int min/max),
+# used to trial-render a custom template as soon as it is set.
+_TRIAL_VALUES: dict[str, Any] = dict(
+    instruction="x", question="x", answer="x", reference="x", scale="x", grade="x", min=0, max=1
+)
+_TEMPLATE_HELP = (
+    "Placeholders are {instruction} {question} {answer} {reference} {scale} {grade} {min} "
+    "{max}; any other brace must be doubled to appear literally, e.g. a JSON example is "
+    'written {{"grade": 4}}.'
+)
+
+
+def _render(template: str, values: dict[str, Any], where: str) -> str:
+    """``template.format(**values)``, with a format failure turned into an actionable error."""
+    try:
+        return template.format(**values)
+    except (KeyError, IndexError, ValueError, AttributeError, TypeError) as exc:
+        raise ValueError(
+            f"{where} cannot be rendered ({type(exc).__name__}: {exc}). {_TEMPLATE_HELP}"
+        ) from exc
+
 
 def check_template_placeholders(template: str, *, where: str = "prompt_template") -> None:
-    """Warn if a custom judge ``template`` is missing a placeholder needed for a valid
-    grading prompt — e.g. a template with no ``{answer}`` would ask the judge to grade
-    nothing. Called once when the template is set (on the Rubric or the LLMJudge)."""
+    """Validate a custom judge ``template``. Called once when the template is set (on the
+    Rubric or the LLMJudge), so a broken template fails when the study is defined — not
+    at the first judge call, after the answers were already generated and paid for.
+
+    Raises
+    ------
+    ValueError
+        If the template cannot be rendered: an unknown placeholder (e.g. ``{questions}``)
+        or an unescaped literal brace — a JSON example must be written ``{{"grade": 4}}``.
+
+    Warns
+    -----
+    UserWarning
+        If a placeholder needed for a valid grading prompt is missing — e.g. a template
+        with no ``{answer}`` would ask the judge to grade nothing.
+    """
+    _render(template, _TRIAL_VALUES, where)
     missing = [p for p in REQUIRED_PLACEHOLDERS if p not in template]
     if missing:
         import warnings
@@ -122,6 +157,12 @@ def build_judge_prompt(
 
     Precedence for the template: an explicit ``template`` (the judge's own) →
     ``rubric.prompt_template`` → the named ``preset``.
+
+    Raises
+    ------
+    ValueError
+        If the chosen template cannot be rendered (an unknown placeholder or an unescaped
+        literal brace). Templates set on a Rubric or LLMJudge are already checked when set.
     """
     chosen = template or rubric.prompt_template or JUDGE_PRESETS.get(preset, _REFERENCE_QA)
     if reference and "{reference}" not in chosen:
@@ -136,7 +177,7 @@ def build_judge_prompt(
             "(reference_qa / criterion) or add {reference} to your template.",
             stacklevel=2,
         )
-    return chosen.format(
+    values = dict(
         instruction=rubric.instruction,
         question=question,
         answer=answer,
@@ -146,6 +187,7 @@ def build_judge_prompt(
         min=rubric.min_value,
         max=rubric.max_value,
     )
+    return _render(chosen, values, "judge prompt template")
 
 
 def parse_verdict(raw: str, rubric: Rubric) -> tuple[Any, int | None, str | None]:
