@@ -103,7 +103,7 @@ from cafe.stats import (
 from cafe.study import Factor, FactorType, Study
 from cafe.system import System, as_system
 
-__version__ = "0.0.1"
+__version__ = "0.1.0"
 
 __all__ = [
     # ── data ──
