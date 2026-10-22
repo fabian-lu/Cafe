@@ -172,6 +172,8 @@ class Pipeline:
         per-stage trace + total cost/tokens as metadata (same contract as any system)."""
         if self._compose is None:
             raise ValueError("this Pipeline has no compose function — decorate one with @pipe.compose")
+        # A fresh Context, and with it an empty stage cache, for every cell: steps are
+        # memoized within this run only, never across configurations, items or reps.
         ctx = Context(self._techniques, config)
         result = await self._compose(config, item, ctx)
         output = result["output"] if isinstance(result, dict) and "output" in result else result

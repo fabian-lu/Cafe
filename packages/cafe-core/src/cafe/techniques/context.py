@@ -4,8 +4,15 @@ When your system calls ``await ctx.run("retriever", query=q)``, CAFE:
   - reads the active config to see which technique fills that stage,
   - resolves the technique's tunable params from the config,
   - runs it, **times it**, captures its **cost** and **output**,
-  - appends a step to a **trace**, and **caches** the result so configurations that
-    share an upstream sub-path don't recompute it.
+  - appends a step to a **trace**, and **caches** the result for the rest of this run:
+    an identical call later in the same run (same stage, technique, params and inputs)
+    returns the cached output without re-running the technique — it is traced again
+    with ``cached: True``, and its cost, tokens and energy are counted once.
+
+The cache lives on the ``Context``, and a ``Pipeline`` creates a fresh one for every
+(config, item, replication) cell, so nothing is shared between cells: each configuration
+executes, and pays for, every stage it reaches — even a stage another configuration ran
+with identical inputs.
 
 The control flow around these calls is just your Python — branches, cascades,
 loops — so the topology is entirely yours; CAFE only watches the calls.

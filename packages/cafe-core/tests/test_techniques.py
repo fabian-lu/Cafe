@@ -157,3 +157,44 @@ def test_programmatic_add_matches_decorator():
     pipe.add("answer", "prog", gen, cost_usd=0.003)
     assert pipe.names_for("answer") == ["prog"]
     assert pipe.get("answer", "prog").cost_usd == 0.003
+
+
+def test_stage_cache_is_per_run_not_across_configurations():
+    # Documented behaviour: an identical ctx.run repeated within ONE run is served from
+    # the cache (counted once); a stage shared by several configurations is NOT shared —
+    # every (config, item, rep) cell starts with an empty cache and runs it itself.
+    calls = {"retrieve": 0}
+    pipe = cafe.Pipeline()
+
+    @pipe.technique("retrieve", "bm25", cost_usd=0.01)   # fixed stage, same inputs
+    async def bm25(ctx, query):
+        calls["retrieve"] += 1
+        return f"docs({query})"
+
+    @pipe.technique("generate", "small")
+    async def small(ctx, docs):
+        return f"small[{docs}]"
+
+    @pipe.technique("generate", "large")
+    async def large(ctx, docs):
+        return f"large[{docs}]"
+
+    @pipe.compose
+    async def system(config, item, ctx):
+        docs = await ctx.run("retrieve", query=item)
+        again = await ctx.run("retrieve", query=item)   # identical call → cache hit
+        assert again == docs
+        return await ctx.run("generate", docs=docs)
+
+    study = cafe.Study(
+        name="t", system=pipe, factors=[pipe.factor("generate")],
+        dataset=["q1", "q2"], replications=2,
+    )
+    res = study.run()
+    assert len(res) == 8                        # 2 configs x 2 items x 2 reps
+    assert calls["retrieve"] == 8               # once per cell, never across cells
+    for o in res.observations:
+        retrieves = [s for s in o.metadata["trace"] if s["stage"] == "retrieve"]
+        assert [s["cached"] for s in retrieves] == [False, True]
+        assert o.metadata["cost_usd"] == 0.01   # the cached repeat is not charged again
+    assert {r["stage"]: r["calls"] for r in stage_report(res)}["retrieve"] == 8

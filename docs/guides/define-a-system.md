@@ -86,6 +86,13 @@ catalog, register techniques programmatically with `pipe.add(stage, name, fn)`.)
 A stage with **several** techniques needs a factor to choose one (`pipe.factor("rerank")`). A
 stage with a **single** technique is *fixed* — it needs no factor of its own; CAFE just runs it.
 
+Within one run (one configuration on one input), a repeated `ctx.run` with the same stage,
+technique, parameters and inputs returns the first result without running the technique again;
+the trace marks the repeat `cached: True` and its cost and tokens count once. Nothing is shared
+*between* runs: every configuration, input and replication starts with an empty cache, so a
+stage several configurations have in common (the same retriever under two generators) runs, and
+is paid for, once per configuration. Plan the budget per configuration, not per distinct stage.
+
 ### Skipping a stage — the `None` level
 
 To ask *"does this stage help at all?"*, add a **`None`** level to the stage's factor.
