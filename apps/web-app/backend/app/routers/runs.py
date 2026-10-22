@@ -7,7 +7,7 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import models, runner
@@ -28,11 +28,16 @@ async def run_study(id_: int, db: AsyncSession = Depends(get_session)):
     study = await db.get(models.Study, id_)
     if study is None:
         raise HTTPException(404, "study not found")
-    if study.status == "running":
-        raise HTTPException(409, "study is already running")
-    study.status = "running"
-    study.progress = 0
+    # Claim the study with ONE conditional UPDATE, so the check and the write are atomic in the
+    # DB: a separate read-check-write let two requests arriving together (double-click, two
+    # tabs) both see "not running" and both launch a full run.
+    claimed = await db.execute(
+        update(models.Study)
+        .where(models.Study.id == id_, models.Study.status != "running")
+        .values(status="running", progress=0))
     await db.commit()
+    if claimed.rowcount == 0:
+        raise HTTPException(409, "study is already running")
     runner.launch(id_)
     return {"status": "running"}
 
