@@ -99,6 +99,26 @@ def test_interactions_detected_and_toggleable():
     assert "A × B" not in main_only and {"A", "B"} <= main_only
 
 
+def test_interaction_fallback_residuals_come_from_reported_model():
+    """One usable answer per cell makes the two-way model saturated (0 residual df), so its
+    ANOVA fails and fit_effects falls back to main effects. The residuals/fitted must then
+    describe that main-effects model, not the abandoned (exactly fitting) interaction model."""
+    cells = {("a1", "b1"): ("q0", 5), ("a1", "b2"): ("q1", 4),
+             ("a2", "b1"): ("q2", 3), ("a2", "b2"): ("q0", 1)}
+    items = [Rating(obs_key=f"{a}{b}", config={"A": a, "B": b}, input_id=q, rep=0, judge_rep=0,
+                    value=s, value_numeric=s) for (a, b), (q, s) in cells.items()]
+    r = Ratings(rubric=ANSWER_QUALITY_1_5, judge_model="fake", factors=["A", "B"], items=items)
+
+    eff = fit_effects(r, interactions=2)
+    assert any("main effects only" in w for w in eff.warnings)          # the fallback path
+    assert not any(t.get("interaction") for t in eff.terms)
+    # main-effects fit of 5,4,3,1: fitted 5.25,3.75,2.75,1.25 -> residuals ±0.25 (SSR 0.25);
+    # the saturated interaction fit would leave all-zero residuals
+    assert sorted(eff.fitted) == pytest.approx([1.25, 2.75, 3.75, 5.25])
+    assert sum(e * e for e in eff.residuals) == pytest.approx(0.25)
+    assert sorted(f + e for f, e in zip(eff.fitted, eff.residuals)) == pytest.approx([1, 3, 4, 5])
+
+
 @pytest.mark.skipif(shutil.which("Rscript") is None, reason="R not installed")
 def test_clmm_accepts_interaction_order():
     res = fit_clmm(_two_factor_interaction_ratings(), interactions=2)
