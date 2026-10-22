@@ -35,9 +35,10 @@ def check_factor_name(name: str) -> None:
     """Raise ``ValueError`` if ``name`` is one of :data:`RESERVED_FACTOR_NAMES`."""
     if name in RESERVED_FACTOR_NAMES:
         raise ValueError(
-            f"factor name {name!r} is reserved — CAFE's results tables already have a {name!r} "
-            f"column, so the factor would be confused with it; rename the factor (reserved: "
-            f"{', '.join(sorted(RESERVED_FACTOR_NAMES))})"
+            f"factor name {name!r} is reserved — CAFE's results tables already have a column "
+            f"named {name!r}, so the factor would be confused with it; rename the factor (a "
+            f"factor from pipe.factor(...) is named after its stage, so rename the stage) "
+            f"(reserved: {', '.join(sorted(RESERVED_FACTOR_NAMES))})"
         )
 
 
