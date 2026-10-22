@@ -175,6 +175,48 @@ def test_clmm_accepts_interaction_order():
     assert res.available or res.reason
 
 
+def test_glmer_interaction_fallback_reports_the_fitted_formula():
+    """On this data the A×B glmer fails (PIRLS / VtV errors) and glmm.R refits main effects;
+    the result must show the main-effects formula and say interactions weren't fit."""
+    from cafe import fit_logistic
+    from cafe.rubrics import CORRECT_PASS_FAIL
+    from cafe.stats.logistic import check_glmer
+
+    if not check_glmer()[0]:
+        pytest.skip("R + lme4 not installed")
+    cells = [(a, b) for a in ("a1", "a2", "a3") for b in ("b1", "b2", "b3")]
+    passes = {"q0": "101001111", "q1": "101101111", "q2": "100001011", "q3": "100101011"}
+    items = [Rating(obs_key=f"{q}{a}{b}", config={"A": a, "B": b}, input_id=q, rep=0,
+                    judge_rep=0, value=int(v), value_numeric=int(v))
+             for q, row in passes.items() for (a, b), v in zip(cells, row)]
+    r = Ratings(rubric=CORRECT_PASS_FAIL, judge_model="x", factors=["A", "B"], items=items)
+    log = fit_logistic(r, interactions=2, backend="glmer")
+    assert log.available and "glmer" in log.model
+    assert not any(t["interaction"] for t in log.terms)
+    assert log.formula == "verdict ~ (1 | input_id) + A + B"
+    assert any("main effects only" in w for w in log.warnings)
+    assert "main effects only" in log.show()
+
+
+def test_clmm_interaction_fallback_is_reported(monkeypatch):
+    """clmm.R reports the order it actually fit; a fallback must surface as a warning."""
+    import json
+    import subprocess
+
+    from cafe.stats import ordinal
+
+    payload = {"available": True, "n_obs": 32, "used_order": 1, "logLik": -30.0,
+               "formula": "verdict ~ (1 | input_id) + A + B", "thresholds": [],
+               "coefficients": [{"term": "Aa2", "estimate": -1.0, "std_error": 0.5, "z": -2.0,
+                                 "p": 0.04}]}
+    monkeypatch.setattr(ordinal, "check_r", lambda: (True, "ok"))
+    monkeypatch.setattr(ordinal.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(
+        a[0], 0, stdout=json.dumps(payload), stderr=""))
+    res = fit_clmm(_two_factor_interaction_ratings(), interactions=2)
+    assert res.available and res.formula == "verdict ~ (1 | input_id) + A + B"
+    assert any("main effects only" in w for w in res.warnings)
+
+
 def test_readable_clmm_term():
     from cafe.stats.ordinal import _readable_term
 

@@ -79,9 +79,11 @@ result <- tryCatch({
 
   form <- build_formula(order)
   m <- tryCatch(ordinal::clmm(form, data = d, Hess = TRUE), error = function(e) NULL)
+  used_order <- order
   if (is.null(m) && order >= 2) {   # interactions not estimable -> fall back to main effects
     form <- build_formula(1L)
     m <- ordinal::clmm(form, data = d, Hess = TRUE)
+    used_order <- 1L
   }
   if (is.null(m)) stop("model did not converge")
 
@@ -101,7 +103,8 @@ result <- tryCatch({
   })
 
   list(available = TRUE, n_obs = nrow(d), formula = deparse(form),
-       logLik = as.numeric(logLik(m)), coefficients = coeffs, thresholds = thresholds)
+       logLik = as.numeric(logLik(m)), coefficients = coeffs, thresholds = thresholds,
+       used_order = used_order)   # < the requested order when interactions fell back
 }, error = function(e) list(available = FALSE, error = conditionMessage(e)))
 
 emit(result)

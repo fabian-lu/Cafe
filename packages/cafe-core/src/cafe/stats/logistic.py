@@ -189,7 +189,12 @@ def _fit_glmer(
 
     res = Logistic(alpha=alpha, available=True, n_obs=payload.get("n_obs", len(df)))
     res.model = "logistic GLMM (binomial, logit link; random intercept: question) [R lme4::glmer]"
-    res.formula = _display_formula(factors, order)
+    # Show what R fit: glmm.R refits main effects when the interaction model fails, and the
+    # requested ^2 formula would make the missing interaction rows read as "estimated".
+    used_order = payload.get("used_order", order)
+    res.formula = _display_formula(factors, used_order)
+    if used_order < order:
+        res.warnings.append("interactions not estimable on this data — main effects only")
     for c in payload.get("coefficients", []):
         label, factor, interaction = _r_coef_term(c, factors)
         est = c.get("estimate")
@@ -305,8 +310,10 @@ def fit_logistic(
     ``backend`` selects the engine: ``"glmer"`` (logistic GLMM via R lme4), ``"statsmodels"``
     (self-contained GEE / logistic), or ``"auto"`` (default — GLMM when R+lme4 are present,
     else statsmodels). ``interactions`` is the max interaction order (1 = main effects,
-    2 = also two-way). Returns a :class:`Logistic`; ``available=False`` with a ``reason``
-    when the rubric isn't binary, there's no variance, or no engine is available.
+    2 = also two-way); if the GLMM can't fit the interactions, R refits main effects and the
+    result's ``formula`` and ``warnings`` say so. Returns a :class:`Logistic`;
+    ``available=False`` with a ``reason`` when the rubric isn't binary, there's no variance,
+    or no engine is available.
     """
     from cafe.stats._frame import analysis_frame
 
