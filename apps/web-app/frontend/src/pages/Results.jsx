@@ -334,25 +334,28 @@ function Distribution({ records, rubric }) {
   const total = Object.values(counts).reduce((a, b) => a + b, 0) || 1;
   const max = Math.max(...levels.map((l) => counts[l.value] || 0), 1);
   const H = 200;
+  // many levels (e.g. a 0–10 numeric rubric): tighter gaps and no % labels, so the bars fit the card
+  const dense = levels.length > 8;
+  const gap = dense ? 6 : 28;
   return (
     <div className="card" style={{ marginBottom: 16 }}>
       <div style={{ display: "flex", gap: 12 }}>
         <div className="mono muted" style={{ fontSize: 11, writingMode: "vertical-rl", transform: "rotate(180deg)", textAlign: "center" }}>count →</div>
         <div style={{ flex: 1 }}>
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 28, height: H, borderBottom: "1px solid var(--outline-variant)" }}>
+          <div style={{ display: "flex", alignItems: "flex-end", gap, height: H, borderBottom: "1px solid var(--outline-variant)" }}>
             {levels.map((l) => {
               const n = counts[l.value] || 0;
               return (
-                <div key={l.value} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" }}>
-                  <div className="mono" style={{ fontSize: 12, marginBottom: 6 }}>{n} <span className="muted">· {pct(n / total)}</span></div>
-                  <div style={{ width: 72, maxWidth: "72%", height: `${(n / max) * 100}%`, minHeight: n ? 3 : 0, background: "var(--amber)", borderRadius: "6px 6px 0 0", boxShadow: "0 0 8px var(--amber-dim)" }} />
+                <div key={l.value} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" }}>
+                  <div className="mono" style={{ fontSize: dense ? 11 : 12, marginBottom: 6 }} title={pct(n / total)}>{n}{!dense && <span className="muted"> · {pct(n / total)}</span>}</div>
+                  <div style={{ width: "72%", maxWidth: 72, height: `${(n / max) * 100}%`, minHeight: n ? 3 : 0, background: "var(--amber)", borderRadius: "6px 6px 0 0", boxShadow: "0 0 8px var(--amber-dim)" }} />
                 </div>
               );
             })}
           </div>
-          <div style={{ display: "flex", gap: 28, marginTop: 8 }}>
-            {levels.map((l) => <div key={l.value} className="mono" style={{ flex: 1, textAlign: "center", fontSize: 12 }}>
-              <span style={{ color: "var(--amber-soft)" }}>{l.value}</span>{l.label ? ` ${l.label}` : ""}</div>)}
+          <div style={{ display: "flex", gap, marginTop: 8 }}>
+            {levels.map((l) => <div key={l.value} className="mono" style={{ flex: 1, minWidth: 0, textAlign: "center", fontSize: dense ? 11 : 12, overflowWrap: "anywhere" }} title={l.label || undefined}>
+              <span style={{ color: "var(--amber-soft)" }}>{l.value}</span>{l.label && !dense ? ` ${l.label}` : ""}</div>)}
           </div>
           <AxisCap>verdict level →</AxisCap>
         </div>
