@@ -11,7 +11,7 @@ export default function ViewDataset() {
   const { id } = useParams();
   const [ds, setDs] = useState(null);
   const [err, setErr] = useState(null);
-  const [fsel, setFsel] = useState({});   // metadata key -> selected value ("" = alle)
+  const [fsel, setFsel] = useState({});   // metadata key -> selected value ("" = all)
 
   useEffect(() => { api.dataset(id).then(setDs).catch((e) => setErr(e.message)); }, [id]);
 
@@ -55,7 +55,7 @@ export default function ViewDataset() {
                   {k}
                   <select className="select" style={{ width: "auto", padding: "4px 8px", fontSize: 12 }}
                     value={fsel[k] || ""} onChange={(e) => setFsel((s) => ({ ...s, [k]: e.target.value }))}>
-                    <option value="">alle</option>
+                    <option value="">all</option>
                     {metaKeys[k].map((v) => <option key={v} value={v}>{v}</option>)}
                   </select>
                 </label>

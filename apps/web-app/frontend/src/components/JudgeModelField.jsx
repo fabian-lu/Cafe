@@ -6,9 +6,9 @@ import { useState } from "react";
 // the hood, plus a "Custom…" escape hatch for any other LiteLLM model string.
 const PRESETS = [
   { id: "ollama_cloud/deepseek-v4-pro", label: "deepseek-v4-pro — recommended judge (different family)" },
-  { id: "ollama_cloud/gpt-oss-120b", label: "gpt-oss-120b" },
-  { id: "ollama_cloud/gpt-oss-20b", label: "gpt-oss-20b" },
-  { id: "ollama_cloud/gemma3:4b", label: "gemma3-4b" },
+  { id: "ollama_cloud/gpt-oss:120b", label: "gpt-oss-120b" },
+  { id: "ollama_cloud/gpt-oss:20b", label: "gpt-oss-20b" },
+  { id: "ollama_cloud/gemma4:31b", label: "gemma4-31b" },
 ];
 
 export default function JudgeModelField({ value, onChange }) {

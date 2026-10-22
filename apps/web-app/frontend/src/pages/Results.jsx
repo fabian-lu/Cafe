@@ -579,7 +579,7 @@ export default function Results() {
   const [dims, setDims] = useState([]);   // judged dimensions (rubric names); >1 shows the selector
   const [dim, setDim] = useState("");
   const [qFilters, setQFilters] = useState({});   // question-metadata keys -> possible values
-  const [qSel, setQSel] = useState(null);         // active filter {key, value} | null = alle
+  const [qSel, setQSel] = useState(null);         // active filter {key, value} | null = all
   const viewReq = useRef(0);   // only the latest results request may update the page
 
   useEffect(() => { api.studies().then((all) => {
@@ -688,16 +688,16 @@ export default function Results() {
               <select className="select" style={{ width: "auto", padding: "4px 8px", fontSize: 12 }}
                 value={qSel?.key === key ? qSel.value : ""}
                 onChange={(e) => switchFilter(key, e.target.value)}>
-                <option value="">alle</option>
+                <option value="">all</option>
                 {values.map((v) => <option key={v} value={v}>{v}</option>)}
               </select>
             </label>
           ))}
           {res?.filtered && (
             <span className="hint" style={{ margin: 0 }}>
-              → gefilterte Ansicht: <span className="mono" style={{ color: "var(--amber-soft)" }}>
-              {res.filtered.key} = {res.filtered.value}</span> · Statistiken neu berechnet auf{" "}
-              <span className="mono">{res.filtered.n_questions}/{res.filtered.n_total}</span> Fragen
+              → filtered view: <span className="mono" style={{ color: "var(--amber-soft)" }}>
+              {res.filtered.key} = {res.filtered.value}</span> · statistics recomputed on{" "}
+              <span className="mono">{res.filtered.n_questions}/{res.filtered.n_total}</span> questions
             </span>
           )}
         </div>
