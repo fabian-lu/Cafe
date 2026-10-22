@@ -28,24 +28,23 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from cafe.judging.ratings import Ratings
 
-_TERM_RE = re.compile(r"Q\('([^']+)'\)[^:]*?\[T\.([^\]]+)\]")
+# One ``C(Q('<column>'))[T.<level>]`` group of a statsmodels term; interaction terms join
+# groups with ':'. A level may itself contain ':' or ']' (ollama tags like ``llama3:8b``), so
+# a group ends only at a ']' that is followed by the next group or by the end of the name.
+_TERM_RE = re.compile(r"C\(Q\('([^']+)'\)\)\[T\.(.*?)\](?=:C\(Q\('|$)")
 
 
 def _parse_statsmodels_term(name: str, back: dict[str, str]) -> tuple[str, str | None, bool]:
     """Turn a statsmodels term like ``C(Q('cafe_f0'))[T.good]`` into
     (``"model=good"``, ``"model"``, is_interaction), mapping the safe column name back to the
-    real factor via ``back`` (safe->real). Interactions (``a:b``) join with ×."""
-    pieces = name.split(":")
-    labels, first_factor = [], None
-    for piece in pieces:
-        m = _TERM_RE.search(piece)
-        if m:
-            factor, level = back.get(m.group(1), m.group(1)), m.group(2)
-            first_factor = first_factor or factor
-            labels.append(f"{factor}={level}")
-        else:
-            labels.append(piece)
-    return " × ".join(labels), first_factor, len(pieces) > 1
+    real factor via ``back`` (safe->real). Interactions (``a:b``) join with ×. The groups are
+    matched whole rather than split on ``:``, so ``[T.llama3:8b]`` stays one level."""
+    groups = list(_TERM_RE.finditer(name))
+    if not groups:
+        return name, None, False
+    labels = [f"{back.get(g.group(1), g.group(1))}={g.group(2)}" for g in groups]
+    first_factor = back.get(groups[0].group(1), groups[0].group(1))
+    return " × ".join(labels), first_factor, len(groups) > 1
 
 
 @dataclass
@@ -157,7 +156,7 @@ def _fit_glmer(
     import tempfile
     from importlib.resources import files
 
-    from cafe.stats.ordinal import _readable_term, _term_factor
+    from cafe.stats.ordinal import _r_coef_term
 
     order = max(1, min(interactions, len(factors)))
     keep = ["verdict", "input_id", *factors]
@@ -192,13 +191,13 @@ def _fit_glmer(
     res.model = "logistic GLMM (binomial, logit link; random intercept: question) [R lme4::glmer]"
     res.formula = _display_formula(factors, order)
     for c in payload.get("coefficients", []):
-        term = str(c.get("term", ""))
+        label, factor, interaction = _r_coef_term(c, factors)
         est = c.get("estimate")
         p = c.get("p")
         res.terms.append({
-            "label": _readable_term(term, factors),
-            "factor": _term_factor(term, factors),
-            "interaction": ":" in term,
+            "label": label,
+            "factor": factor,
+            "interaction": interaction,
             "coef": est,
             "odds_ratio": math.exp(est) if est is not None and abs(est) < 30 else None,
             "p": p,

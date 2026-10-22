@@ -45,6 +45,20 @@ def _readable_term(term: str, factors: list[str]) -> str:
     return " × ".join(parts)
 
 
+def _r_coef_term(c: dict[str, Any], factors: list[str]) -> tuple[str, str | None, bool]:
+    """``(label, factor, is_interaction)`` for one coefficient reported by clmm.R / glmm.R.
+
+    The R scripts send each coefficient's ``factors`` and ``levels``. That is exact even when
+    a level contains ``:`` (``model="llama3:8b"`` has the R name ``modelllama3:8b``, which
+    reads like an interaction) and when R back-quotes a non-syntactic factor name
+    (`` `top-k`5 ``). Only if they are missing is R's concatenated name parsed instead."""
+    fs, lv = c.get("factors") or [], c.get("levels") or []
+    if fs and len(fs) == len(lv):
+        return " × ".join(f"{f}={v}" for f, v in zip(fs, lv)), fs[0], len(fs) > 1
+    term = str(c.get("term", ""))
+    return _readable_term(term, factors), _term_factor(term, factors), ":" in term  # R names interactions a:b
+
+
 def check_r() -> tuple[bool, str]:
     """Return ``(ok, message)`` describing R + ``ordinal`` availability."""
     if shutil.which("Rscript") is None:
@@ -211,10 +225,8 @@ def fit_clmm(
     res.thresholds = payload.get("thresholds", [])
     coeffs = payload.get("coefficients", [])
     for c in coeffs:
-        term = str(c.get("term", ""))
-        c["interaction"] = ":" in term  # R names interaction coefficients a:b
-        c["factor"] = _term_factor(term, factors)
-        c["label"] = _readable_term(term, factors)  # "retrieve=keyword × rerank=none"
+        # "retrieve=keyword × rerank=none", its first factor, and whether it's an interaction
+        c["label"], c["factor"], c["interaction"] = _r_coef_term(c, factors)
         c["significant"] = c.get("p") is not None and c["p"] < alpha
     res.coefficients = coeffs
     return res
