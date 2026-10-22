@@ -104,6 +104,33 @@ def test_numeric_scale_accepts_any_in_range_between_anchors():
     assert cafe.rubrics.ANSWER_QUALITY_1_5.numeric(3) == 3
 
 
+def test_parse_verdict_accepts_the_displayed_grade_delimiters():
+    # every preset ends with `GRADE: <{grade}>`, so a judge copying it writes `GRADE: <4>`
+    parse, r = cafe.judging.parse_verdict, cafe.ANSWER_QUALITY_1_5
+    for raw in ("Fine.\nGRADE: <4>", "Fine.\nGRADE: [4]", "Fine.\nGRADE: 4",
+                "Fine.\nGRADE: 4.", "Fine. [[4]]"):
+        assert parse(raw, r) == (4, 4, "Fine."), raw
+    assert parse("GRADE: <2> at first, but\nGRADE: <5>", r)[:2] == (5, 5)  # last marker wins
+    likert = cafe.Rubric(name="likert", levels=[cafe.Level(v, str(v), "") for v in range(-2, 3)])
+    assert parse("Meh.\nGRADE: <-1>", likert)[:2] == (-1, -1)
+
+
+def test_fractional_grades_are_rejected_not_truncated():
+    parse, r = cafe.judging.parse_verdict, cafe.ANSWER_QUALITY_1_5
+    for raw in ("Mostly right.\nGRADE: 4.5", "Mostly right.\nGRADE: <4.5>", "Mostly. [[4.5]]"):
+        value, numeric, why = parse(raw, r)
+        assert (value, numeric) == (4.5, None), raw
+        assert "not on scale" in why
+    assert parse("ok\nGRADE: 7.8", cafe.rubrics.HELPFULNESS_0_10)[:2] == (7.8, None)
+    assert parse("ok\nGRADE: 4.0", r)[:2] == (4, 4)  # an integral decimal is that integer
+    # Rubric.numeric is the shared mapping (the JSON verdict path goes through it too)
+    assert r.numeric(4.9) is None and r.numeric(4.0) == 4
+    assert r.numeric(float("inf")) is None and r.numeric(float("nan")) is None
+    assert cafe.rubrics.HELPFULNESS_0_10.numeric(7.8) is None
+    v, n, _ = st.parse_json_verdict('{"reasoning": "x", "grade": 4.5}', r)
+    assert (v, n) == (4.5, None)
+
+
 def test_preview_includes_system_and_user():
     j = cafe.LLMJudge(model="m", system_prompt="You are terse.")
     out = j.preview(cafe.ANSWER_QUALITY_1_5, "Q?", "A.", reference="ref")
