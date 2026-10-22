@@ -65,6 +65,8 @@ CLAUDE.md
 # Paper: keep the LaTeX working tree local, but ship the built PDF.
 /paper/*
 !/paper/cafe.pdf
+# Poster and Demo Video
+/poster_and_demo
 # Evaluation notebook cache (sampled questions + KB embeddings — regenerable)
 examples/evaluation/data/
 # Case studies: keep the notebooks; ignore only generated data artifacts (exported study
@@ -87,6 +89,8 @@ apps/web-app/.env
 
 # DIVA testing work (local-only, never committed)
 examples/diva/
+# Scratch exports (e.g. study bundles) — never committed
+/tmp/
 
 # diva.cafe-ai.de server-side files (basic auth + keys) — never in git
 deploy/diva/htpasswd
