@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api } from "../lib/api.js";
+import { api, isJudgingPhase, phaseLabel } from "../lib/api.js";
 import NumberField from "../components/NumberField.jsx";
 import JudgeModelField from "../components/JudgeModelField.jsx";
 
@@ -30,7 +30,7 @@ function StudyRow({ s, archived = false }) {
   // a terminal stream event is newer than the list's snapshot of s.status (not refetched)
   const status = prog?.status === "done" || prog?.status === "failed" ? prog.status : s.status;
   const running = status === "running";
-  const judging = prog?.phase === "judging";
+  const judging = isJudgingPhase(prog?.phase);
   const go = () => nav(`/studies/${s.id}`);
 
   return (
@@ -46,7 +46,7 @@ function StudyRow({ s, archived = false }) {
         {running ? (
           <div>
             <div className="progress"><div className={"progress-fill" + (judging ? " judging" : "")} style={{ width: `${pct}%` }} /></div>
-            <div className="hint mono">{judging ? "judging" : "answering"} {prog?.total ? `${prog.done}/${prog.total}` : ""}</div>
+            <div className="hint mono">{phaseLabel(prog?.phase)} {prog?.total ? `${prog.done}/${prog.total}` : ""}</div>
           </div>
         ) : (
           <span className={"badge " + status}>{status}</span>

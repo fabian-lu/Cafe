@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { api } from "../lib/api.js";
+import { api, isJudgingPhase, phaseLabel } from "../lib/api.js";
 import Breadcrumb from "../components/Breadcrumb.jsx";
 import { useConfirm } from "../components/ConfirmModal.jsx";
 import Spinner from "../components/Spinner.jsx";
@@ -105,7 +105,7 @@ export default function StudyDetail() {
     () => { setErr(null); api.deleteStudy(id).then(() => nav("/studies")).catch((e) => setErr(e.message)); });
 
   const running = study?.status === "running" || prog?.status === "running";
-  const judging = prog?.phase === "judging";
+  const judging = isJudgingPhase(prog?.phase);
   const pct = prog && prog.total ? Math.round((prog.done / prog.total) * 100) : 0;
   const isDraft = study && study.status === "draft" && !running;
   const runTime = timing ? (timing.run_wall_s ?? timing.wall_s) : null;
@@ -139,7 +139,7 @@ export default function StudyDetail() {
             {running && (
               <div>
                 <div className="progress"><div className={"progress-fill" + (judging ? " judging" : "")} style={{ width: `${pct}%` }} /></div>
-                <div className="hint mono" style={{ marginTop: 6 }}>{judging ? "judging" : "answering"} {prog?.total ? `${prog.done}/${prog.total}` : "…"}</div>
+                <div className="hint mono" style={{ marginTop: 6 }}>{phaseLabel(prog?.phase)} {prog?.total ? `${prog.done}/${prog.total}` : "…"}</div>
               </div>
             )}
             {study.status === "done" && !running && (
