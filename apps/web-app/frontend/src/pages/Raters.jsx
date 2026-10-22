@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api.js";
 
 const band = (a) => (a == null ? "muted" : a >= 0.8 ? "green" : a >= 0.667 ? "amber" : "error");
@@ -44,6 +44,7 @@ function RubricPanel({ rubric, judgeModel }) {
 export default function Raters() {
   const [studies, setStudies] = useState([]);
   const [sel, setSel] = useState("");
+  const view = useRef(0);   // bumped on every study switch; responses from before it are dropped
   const [raters, setRaters] = useState([]);
   const [rel, setRel] = useState(null);
   // rating flow
@@ -58,10 +59,14 @@ export default function Raters() {
   }, []);
 
   const refresh = (id) => {
-    api.studyRaters(id).then(setRaters).catch(() => setRaters([]));
-    api.reliability(id).then(setRel).catch(() => setRel(null));
+    const v = view.current;
+    api.studyRaters(id).then((r) => { if (v === view.current) setRaters(r); })
+      .catch(() => { if (v === view.current) setRaters([]); });
+    api.reliability(id).then((r) => { if (v === view.current) setRel(r); })
+      .catch(() => { if (v === view.current) setRel(null); });
   };
   const pick = (id) => {
+    view.current += 1;
     setSel(id); setSheet(null); setScores({}); setRater(""); setMsg(null); setErr(null);
     setRel(null); setRaters([]);
     if (id) refresh(id);
@@ -70,16 +75,20 @@ export default function Raters() {
   const start = () => {
     setErr(null);
     if (!rater) { setErr("enter a rater name"); return; }
-    api.ratingSheet(sel).then((s) => { setSheet(s); setScores({}); }).catch((e) => setErr(e.message));
+    const v = view.current;
+    api.ratingSheet(sel).then((s) => { if (v === view.current) { setSheet(s); setScores({}); } })
+      .catch((e) => { if (v === view.current) setErr(e.message); });
   };
   const submit = async () => {
     setErr(null); setMsg(null);
+    const v = view.current;
     try {
       const r = await api.submitHumanRatings(sel, { rater, scores });
+      if (v !== view.current) return;   // another study is selected now; leave its view alone
       setMsg(`saved ${r.saved} ratings for “${rater}” — agreement updated`);
       setSheet(null); setRater("");
       refresh(sel);
-    } catch (e) { setErr(e.message); }
+    } catch (e) { if (v === view.current) setErr(e.message); }
   };
 
   const items = sheet?.items || [];
