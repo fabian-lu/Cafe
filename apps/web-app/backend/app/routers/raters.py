@@ -119,7 +119,7 @@ async def rating_sheet(id_: int, n: int = 40, db: AsyncSession = Depends(get_ses
     picked.sort()
     study = await db.get(models.Study, id_)
     items = [{"key": keys[i], "question": records[i].get("question") or records[i].get("input_id"),
-              "reference": records[i].get("reference"), "answer": records[i].get("answer")}
+              "reference": records[i].get("reference"), "answer": runner.record_output(records[i])}
              for i in picked]
     return {"rubric": await _study_rubric(db, id_),
             "judge_model": study.judge_model if study else "",

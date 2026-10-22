@@ -426,6 +426,11 @@ function Pareto({ pareto }) {
 }
 
 // ── answers (filterable; click a row for the full untruncated view) ───────────────
+// A record's answer text is `output`; results stored before that rename (the bundled demo
+// study among them) call it `answer`, which in a current record may be a factor of that name —
+// so test for the key, not for a value.
+const outputOf = (r) => ("output" in r ? r.output : r.answer);
+
 function AnswerDetail({ row, factors, onClose }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
@@ -455,7 +460,7 @@ function AnswerDetail({ row, factors, onClose }) {
         </div>
         <Block label="question">{row.question || row.input_id}</Block>
         {row.reference && <Block label="reference answer">{row.reference}</Block>}
-        <Block label="answer (full)">{row.output}</Block>
+        <Block label="answer (full)">{outputOf(row)}</Block>
         {row.reasoning && <Block label="judge reasoning">{row.reasoning}</Block>}
         <div className="hint mono" style={{ borderTop: "1px solid var(--outline-variant)", paddingTop: 10 }}>
           {row.elapsed_s != null && <>latency {Number(row.elapsed_s).toFixed(1)}s · </>}
@@ -493,7 +498,7 @@ function Records({ records, factors }) {
               <td title={r.question || r.input_id} style={{ maxWidth: 220 }}>{(r.question || r.input_id || "").slice(0, 110)}</td>
               <td className="muted mono" style={{ fontSize: 11 }} title={factors.map((f) => `${f}=${r[f]}`).join(" ")}>{factors.map((f) => `${f}=${r[f]}`).join(" ")}</td>
               <td style={{ maxWidth: 300 }}>
-                <div title={r.output || ""}>{(r.output || "").slice(0, 160)}</div>
+                <div title={outputOf(r) || ""}>{(outputOf(r) || "").slice(0, 160)}</div>
                 {r.reasoning && <div className="hint" title={r.reasoning} style={{ marginTop: 4, fontStyle: "italic" }}>{r.reasoning.slice(0, 160)}</div>}
               </td>
               <td className="mono" style={{ color: "var(--amber-soft)", fontSize: 15 }}>{r.verdict ?? "—"}</td>
