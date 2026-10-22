@@ -194,6 +194,45 @@ def test_fractional_design_caps_interactions_to_estimable():
         assert any("aliased" in w for w in clmm.warnings)
 
 
+def _uninstall(monkeypatch, *packages):
+    """Make importing these packages (and any submodule) fail, as if not installed."""
+    import sys
+
+    names = {m for m in sys.modules if m.split(".")[0] in packages}
+    names |= {"scipy.stats", "statsmodels.api", "statsmodels.formula.api", *packages}
+    for name in names:
+        if name.split(".")[0] in packages:
+            monkeypatch.setitem(sys.modules, name, None)   # import -> ImportError
+
+
+def test_fit_effects_without_statsmodels_or_scipy_returns_result(monkeypatch):
+    """pandas without the stats extra (e.g. cafe-core[llm,notebooks]): fit_effects' one-way
+    fallback must not raise ImportError for scipy; it reports no F / p and says why."""
+    from cafe.evaluation import Evaluation
+    from cafe.execution.results import Results
+
+    scores = {"good": [5, 4, 5, 5, 4, 5, 4, 5], "bad": [2, 1, 2, 3, 2, 1, 2, 2]}
+    items = [Rating(obs_key=f"{lvl}-{q}", config={"method": lvl}, input_id=f"q{q}", rep=0,
+                    judge_rep=0, value=s, value_numeric=s)
+             for lvl, ss in scores.items() for q, s in enumerate(ss)]
+    r = Ratings(rubric=ANSWER_QUALITY_1_5, judge_model="fake", factors=["method"], items=items)
+    _uninstall(monkeypatch, "statsmodels")          # scipy present: the fallback has p-values
+    term = fit_effects(r).terms[0]
+    assert term["p"] is not None and term["significant"]
+
+    _uninstall(monkeypatch, "statsmodels", "scipy")
+    eff = fit_effects(r)
+    assert eff.model == "one-way ANOVA (statsmodels unavailable)"
+    term = eff.terms[0]
+    assert term["factor"] == "method" and term["F"] is None and term["p"] is None
+    assert term["significant"] is False and term["partial_eta_sq"] > 0.5
+    assert eff.pairwise_d and any("scipy is not installed" in w for w in eff.warnings)
+    assert "scipy is not installed" in eff.show()
+    ev = Evaluation(study_name="t", answers=Results(study_name="t", factors=["method"]),
+                    ratings=r, attribution=attribute(r))
+    assert "INFERENTIAL" in ev.report()             # was: ModuleNotFoundError (scipy)
+
+
 def test_factor_named_like_patsy_builtin_does_not_crash():
     """A factor literally named 'C' or 'Q' collides with patsy's formula builtins; the stats
     layer must fit on safe internal names and still report the real names (screening designs
