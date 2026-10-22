@@ -57,6 +57,7 @@ class Logistic:
     model: str = ""
     formula: str = ""
     n_obs: int = 0
+    converged: bool | None = None    # GLMM: lme4's convergence verdict; False -> p is None
     terms: list[dict[str, Any]] = field(default_factory=list)  # label, factor, interaction, coef, odds_ratio, p, significant
     warnings: list[str] = field(default_factory=list)
     #: The GLMM's per-question random intercept on the latent logit scale (like R's
@@ -101,11 +102,12 @@ class Logistic:
                 orr = f"{t['odds_ratio']:.2f}"
             p = "-" if t.get("p") is None else f"{t['p']:.4f}"
             lines.append(f"  {t['label']:<{w}}{coef:>10}{orr:>10}{p:>11}   {sig_code(t.get('p'))}")
-        if self.terms and all(t.get("p") is None for t in self.terms):
+        withheld = self.converged is False and not _separated(self)  # the notes below say why
+        if self.terms and all(t.get("p") is None for t in self.terms) and not withheld:
             lines.append("")
             lines.append("  note: standard errors / p-values unavailable — the model is near-degenerate "
                          "(a factor separates pass from fail); the odds ratios are unstable.")
-        else:
+        elif not withheld:
             lines.append(f"  {SIG_LEGEND}")
         if self.variance_components:
             from cafe.stats.ordinal import _variance_line
@@ -146,14 +148,51 @@ def _display_formula(usable: list[str], order: int) -> str:
     return f"verdict ~ (1 | input_id) + {fixed}"
 
 
+def _separated(res: Logistic) -> bool:
+    """Whether a factor (near-)perfectly predicts pass/fail: |log-odds| > 10 (OR > ~22000)."""
+    return any(t["coef"] is not None and abs(t["coef"]) > 10 for t in res.terms)
+
+
 def _apply_separation_guard(res: Logistic) -> None:
     """A factor that (near-)perfectly predicts pass/fail makes |log-odds| explode with a
     spuriously tiny p. Suppress the p-values as unreliable (like the CLMM degeneracy note);
     the pass rates in the descriptive layer stand. |log-odds| > 10 is OR > ~22000."""
-    if any(t["coef"] is not None and abs(t["coef"]) > 10 for t in res.terms):
+    if _separated(res):
         for t in res.terms:
             t["p"] = None
             t["significant"] = False
+
+
+def _apply_convergence_guard(res: Logistic, optimizer: dict[str, Any] | None) -> None:
+    """Set ``res.converged`` from glmm.R's ``optimizer`` status, as lme4 itself judges it:
+    the optimizer's convergence code (0 = success, ``?lmerControl``) and lme4's derivative
+    checks (``?convergence``), which mark a failure with a negative code / "Model failed to
+    converge" (glmm.R must silence glmer's warnings, so they surface here). After such a
+    failure the Hessian behind the standard errors is meaningless; they can be ~100x too
+    small (p ≈ 0 for a factor with no effect). So the p-values are dropped and a note is
+    added, as ``fit_clmm`` does; the estimates are kept."""
+    code = (optimizer or {}).get("convergence")
+    if not isinstance(code, int):  # no status reported: leave converged=None
+        return
+    lme4_codes = [c for c in optimizer.get("lme4_code") or [] if isinstance(c, int)]
+    # first line of each message (lme4 appends a "See ?lme4::convergence" hint), de-duplicated
+    raw = [str(m).strip() for m in optimizer.get("lme4_messages") or []]
+    msgs = list(dict.fromkeys(m.splitlines()[0] for m in raw if m))
+    # lme4 may overwrite a gradient failure's code with a later Hessian check's, so its
+    # "failed to converge" wording counts too. A singular (boundary) fit is not a failure.
+    res.converged = (code == 0 and not any(c < 0 for c in lme4_codes)
+                     and not any("failed to converge" in m for m in msgs))
+    if res.converged:
+        return
+    for t in res.terms:
+        t["p"] = None
+        t["significant"] = False
+    why = "; ".join(msgs) if code == 0 else f"optimizer code {code}: {optimizer.get('message')}"
+    res.warnings.append(
+        f"R's optimizer did not converge (lme4: {why}) — the standard errors of this fit are "
+        "not valid, so no p-values are shown; treat the estimates as unreliable and read the "
+        "descriptive pass rates instead"
+    )
 
 
 def _fit_glmer(
@@ -218,6 +257,7 @@ def _fit_glmer(
             "p": p,
             "significant": p is not None and p < alpha,
         })
+    _apply_convergence_guard(res, payload.get("optimizer"))
     _apply_separation_guard(res)
     from cafe.stats.ordinal import _set_random_intercept
 
@@ -327,6 +367,15 @@ def fit_logistic(
     result's ``formula`` and ``warnings`` say so. Returns a :class:`Logistic`;
     ``available=False`` with a ``reason`` when the rubric isn't binary, there's no variance,
     or no engine is available.
+
+    Returns
+    -------
+    Logistic
+        ``converged`` is lme4's convergence verdict on the GLMM (``None`` for the statsmodels
+        backends and when nothing was fit). If the optimizer or lme4's own convergence checks
+        failed (``converged=False``), every term's ``p`` is ``None`` and ``significant`` is
+        ``False``, because the standard errors of such a fit are not valid; ``warnings``
+        says so.
     """
     from cafe.stats._frame import analysis_frame
 

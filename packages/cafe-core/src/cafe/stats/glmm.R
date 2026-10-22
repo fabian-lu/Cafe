@@ -93,6 +93,15 @@ result <- tryCatch({
     used_order <- 1L
   }
   if (is.null(m)) stop("model did not converge")
+  # glmer's own convergence verdict, which suppressWarnings() above hides: the optimizer's
+  # code (0 = success, ?lmerControl) and lme4's derivative checks (?convergence; a negative
+  # code, e.g. "Model failed to converge with max|grad| = ..."). After such a failure the
+  # standard errors can be ~100x too small. Added to the result after the tryCatch.
+  conv <- m@optinfo$conv
+  optimizer <- list(convergence = as.integer(conv$opt),
+                    message = as.character(c(m@optinfo$message, "")[1]),
+                    lme4_code = I(as.integer(conv$lme4$code)),
+                    lme4_messages = I(as.character(unlist(conv$lme4$messages))))
 
   info <- coef_info(d, order)
   ct <- as.data.frame(summary(m)$coefficients)   # Estimate, Std. Error, z value, Pr(>|z|)
@@ -113,5 +122,6 @@ result <- tryCatch({
        used_order = used_order,   # < the requested order when interactions fell back
        random_intercept = random_intercept)
 }, error = function(e) list(available = FALSE, error = conditionMessage(e)))
+if (isTRUE(result$available)) result$optimizer <- optimizer
 
 emit(result)
