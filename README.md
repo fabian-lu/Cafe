@@ -60,13 +60,23 @@ https://github.com/user-attachments/assets/f637191d-05f7-4e8f-b1c7-b146f3f0a87c
 ### The library
 
 Requires **Python ≥ 3.11** and **R** — the mixed-effects models (ordinal CLMM, logistic GLMM) run in R.
+There are two ways to install the library:
 
 ```bash
+# Option 1: from PyPI, if you just want to use the library
+pip install "cafe-core[all]"                # library + LLM judge + datasets + notebooks
+
+# Option 2: from the repository, if you also want the example notebooks, the example
+# techniques and the web app, or want to change the code (editable install)
 git clone https://github.com/fabian-lu/Cafe.git
 cd Cafe
-pip install -e "packages/cafe-core[all]"    # library + LLM judge + datasets + notebooks
+pip install -e "packages/cafe-core[all]"
+```
 
-# R + the model packages  (Debian/Ubuntu shown; macOS: `brew install r`)
+Either way, install R and its two model packages, then check the setup:
+
+```bash
+# Debian/Ubuntu shown; macOS: `brew install r`
 sudo apt install r-base
 Rscript -e 'install.packages(c("ordinal", "lme4"))'
 
@@ -128,7 +138,8 @@ fractional designs.
 ### The platform (web app)
 
 A self-hostable FastAPI + React platform over the same engine — set up a study, run it with live
-progress, and explore the full analytics in the browser.
+progress, and explore the full analytics in the browser. It needs the repository (option 2 above)
+and Docker; the containers bring their own Python and R.
 
 ```bash
 cd apps/web-app

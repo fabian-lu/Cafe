@@ -13,9 +13,10 @@ directly.
 
 ## Versioning (SemVer)
 
-The version lives in `packages/cafe-core/pyproject.toml` — that file is the **single
-source of truth**; the build reads the version from it (the git tag is just a label and
-the trigger).
+The version lives in `packages/cafe-core/pyproject.toml`; the build reads it from there
+(the git tag is just a label and the trigger). It is repeated as `__version__` in
+`packages/cafe-core/src/cafe/__init__.py`, which is what `cafe version` prints, so keep the
+two equal.
 
 | Bump | When | Example |
 |---|---|---|
@@ -30,7 +31,8 @@ the trigger).
 
 ## Cutting a release
 
-1. **Bump the version** in `packages/cafe-core/pyproject.toml`.
+1. **Bump the version** in `packages/cafe-core/pyproject.toml` and `__version__` in
+   `packages/cafe-core/src/cafe/__init__.py`.
 2. **Commit and push** to `main`.
 3. On GitHub: **Releases → Draft a new release → Choose a tag →** type `vX.Y.Z`
    (matching the pyproject version) **→ "Create new tag on publish" → Publish release.**

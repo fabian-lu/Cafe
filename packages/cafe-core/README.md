@@ -11,10 +11,26 @@ with replication (resumable checkpoints), scores answers with a configurable
 cumulative-link · logistic) plus **inter-rater reliability** (Krippendorff's α). See the `examples/`
 notebooks for the full walkthrough.
 
-## Install (dev)
+## Install
+
+Requires Python ≥ 3.11 and R; the mixed-effects models (ordinal CLMM, logistic GLMM) run in R.
 
 ```bash
-uv venv && uv pip install -e "packages/cafe-core[dev]"
+pip install "cafe-core[all]"    # library + LLM judge + datasets + notebooks
+
+# R + the model packages  (Debian/Ubuntu shown; macOS: `brew install r`)
+sudo apt install r-base
+Rscript -e 'install.packages(c("ordinal", "lme4"))'
+
+cafe doctor                     # verify the environment: Python, R engine, LLM access
+```
+
+To work on the code, or to get the example notebooks and the self-hostable web app, install from
+the [repository](https://github.com/fabian-lu/Cafe) instead:
+
+```bash
+git clone https://github.com/fabian-lu/Cafe.git && cd Cafe
+uv venv && uv pip install -e "packages/cafe-core[all,dev]"
 ```
 
 ## Try it (no API keys)

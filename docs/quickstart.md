@@ -4,12 +4,25 @@
 
 Requires **Python ≥ 3.11** and **R** — the mixed-effects models (ordinal CLMM, logistic GLMM) run in R.
 
+There are two ways to install the library. If you just want to use it, install it from PyPI:
+
+```bash
+pip install "cafe-core[all]"    # library + LLM judge + datasets + notebooks
+```
+
+If you also want the example notebooks, the example techniques and the web app, or want to change
+the code, clone the repository and install the library in editable mode:
+
 ```bash
 git clone https://github.com/fabian-lu/Cafe.git
 cd Cafe
-pip install -e "packages/cafe-core[all]"    # library + LLM judge + datasets + notebooks
+pip install -e "packages/cafe-core[all]"
+```
 
-# R + the model packages  (Debian/Ubuntu shown; macOS: `brew install r`)
+Either way, install R and its two model packages:
+
+```bash
+# Debian/Ubuntu shown; macOS: `brew install r`
 sudo apt install r-base
 Rscript -e 'install.packages(c("ordinal", "lme4"))'
 ```
