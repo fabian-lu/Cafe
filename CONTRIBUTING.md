@@ -50,7 +50,7 @@ Please add or update tests for any behavior change, and keep `ruff check` clean.
 
 ```bash
 cd apps/web-app
-cp .env.example .env   # add your LLM keys (never commit .env)
+cp ../../.env.example ../../.env   # add your LLM keys to the repo-root .env (never commit .env)
 docker compose up
 ```
 
