@@ -389,6 +389,12 @@ async def run_study_task(study_id: int) -> None:
             if existing:
                 existing.status = "done"
                 existing.progress = 100
+            # index-keyed (legacy) human ratings point into the results about to be replaced
+            from app.routers.raters import pin_legacy_rating_keys
+            try:  # best effort: never lose a finished run over legacy rating keys
+                await pin_legacy_rating_keys(db, study_id)
+            except Exception:  # noqa: BLE001
+                traceback.print_exc()
             # upsert one cached result row per dimension
             from sqlalchemy import select
             for dim_name, dim_payload in dim_payloads.items():

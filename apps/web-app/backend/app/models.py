@@ -97,7 +97,7 @@ class HumanRating(Base):
     __tablename__ = "human_ratings"
     id: Mapped[int] = mapped_column(primary_key=True)
     study_id: Mapped[int] = mapped_column(ForeignKey("studies.id"))
-    answer_key: Mapped[str] = mapped_column(String(300))   # cafe obs key (config·input·rep)
+    answer_key: Mapped[str] = mapped_column(String(300))   # cafe obs key + "::" + text digest
     rater: Mapped[str] = mapped_column(String(120))
     score: Mapped[float] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
