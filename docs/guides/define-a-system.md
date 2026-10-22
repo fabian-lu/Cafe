@@ -83,6 +83,12 @@ study = cafe.Study(
 )
 ```
 
+The compose function returns the answer, or (like any system) a dict
+`{"output": answer, "cost_usd": ..., ...}`. A `cost_usd` / `tokens` reported there, e.g. for a
+priced call made directly in the compose function rather than through `ctx.run`, is added to
+the answer's totals on top of the stages' own. It belongs to no stage, so it is not in the
+trace or in `cafe.stage_report`. Other keys are kept as metadata; `trace` is always CAFE's.
+
 A technique's keyword arguments *with defaults* (`top_k=5`) are tunable **parameters** — vary
 them with a `"stage.param"` factor, e.g. `cafe.Factor("retrieve.top_k", [3, 5])`. Arguments
 *without* defaults (`query`) are runtime inputs you pass via `ctx.run`. (For a deployed

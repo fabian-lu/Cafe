@@ -86,6 +86,48 @@ def test_stage_report_aggregates_cost():
     assert by_stage["refine"]["mean_cost_usd"] == 0.02
 
 
+def test_compose_return_dict_cost_adds_to_run_total():
+    # A compose fn may return {"output": ..., "cost_usd": ...} like any system (e.g. for a
+    # priced call made outside ctx.run): that cost/tokens add to the answer's totals, the
+    # per-stage trace stays as it was, and other keys are kept as metadata.
+    pipe = cafe.Pipeline()
+
+    @pipe.technique("retrieve", "bm25", cost_usd=0.01, energy_wh=0.5)
+    async def bm25(ctx, query):
+        return [query]
+
+    @pipe.compose
+    async def system(config, item, ctx):
+        docs = await ctx.run("retrieve", query=item)
+        return {"output": f"answer({docs})", "cost_usd": 0.05, "tokens": 120,
+                "energy_wh": 0.25, "latency_s": 1.5, "trace": ["ignored"]}
+
+    study = cafe.Study(name="t", system=pipe, factors=[cafe.Factor("x", ["a"])],
+                       dataset=["q1", "q2"])
+    res = study.run()
+    assert sorted(o.output for o in res.observations) == ["answer(['q1'])", "answer(['q2'])"]
+    for o in res.observations:
+        assert o.metadata["cost_usd"] == 0.06        # 0.01 stage + 0.05 compose
+        assert o.metadata["tokens"] == 120
+        assert o.metadata["energy_wh"] == 0.75
+        assert o.metadata["latency_s"] == 1.5
+        assert [s["stage"] for s in o.metadata["trace"]] == ["retrieve"]
+        assert o.metadata["trace"][0]["cost_usd"] == 0.01
+    by_stage = {r["stage"]: r for r in stage_report(res)}
+    assert by_stage["retrieve"]["mean_cost_usd"] == 0.01   # compose cost is in no stage
+
+    import asyncio
+
+    import pytest
+
+    @pipe.compose
+    async def misshaped(config, item, ctx):   # no "output" key: cost would be lost
+        return {"answer": "x", "cost_usd": 0.05}
+
+    with pytest.warns(UserWarning, match="without an 'output' key"):
+        asyncio.run(pipe.run({}, "q1"))
+
+
 def test_two_pipelines_do_not_share_state():
     p1 = _pipe()
     p2 = cafe.Pipeline()
