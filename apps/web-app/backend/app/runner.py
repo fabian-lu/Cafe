@@ -50,6 +50,11 @@ def _is_num(s: str) -> bool:
         return False
 
 
+def _build_factors(factors_raw: list[dict]) -> list[cafe.Factor]:
+    """The ``cafe.Factor`` list of a study's stored ``[{name, levels}]`` factors."""
+    return [cafe.Factor(f["name"], _coerce_levels(f["levels"])) for f in factors_raw]
+
+
 async def _load_study_objects(study_id: int):
     """Assemble the cafe.Study (+ dataset/rubric/judge) from the DB rows.
 
@@ -93,7 +98,7 @@ async def _load_study_objects(study_id: int):
                 ))
 
     pipe = get_pipeline(pipeline_name)
-    factors = [cafe.Factor(f["name"], _coerce_levels(f["levels"])) for f in factors_raw]
+    factors = _build_factors(factors_raw)
     judge = None
     if judge_model and rubric:
         judge = cafe.LLMJudge(model=judge_model, preset=judge_preset, system_prompt=judge_system)
