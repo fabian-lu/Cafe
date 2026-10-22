@@ -112,6 +112,16 @@ async def retrieve_none(ctx, query):
 If a stage takes **more than one input**, name the one to pass through:
 `pipe.factor("rerank", none="chunks")`.
 
+### Cost of a run
+
+A step's cost is the LLM cost CAFE observes inside it (via `cafe.complete`), plus the
+technique's fixed `cost_usd=`, plus anything the technique adds with `ctx.add_cost(usd)`, plus
+a `"cost_usd"` in a returned `{"output": ..., "cost_usd": ...}` dict. Steps may run
+concurrently (`await asyncio.gather(ctx.run("a", ...), ctx.run("b", ...))`) or nested (a
+technique that itself calls `ctx.run`); each step keeps its own cost. `ctx.add_cost` called
+in the compose function itself, outside any `ctx.run`, counts toward the answer's total
+`cost_usd` but belongs to no stage, so it does not show up in `cafe.stage_report`.
+
 ## Reading the config
 
 `config` is a flat dict of `factor -> chosen level`. Read whatever your factors
