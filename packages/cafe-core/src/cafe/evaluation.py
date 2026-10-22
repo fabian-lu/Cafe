@@ -231,11 +231,11 @@ class Evaluation:
                           bar, log.show()]
             elif scale == ScaleType.numeric:
                 eff = self.effects if interactions == 2 else fit_effects(self.ratings, interactions=interactions)
-                parts += ["", bar, "LINEAR — Gaussian mixed-effects model (significance & effect sizes)",
+                parts += ["", bar, "LINEAR — Gaussian model, questions as blocks (significance & effect sizes)",
                           bar, eff.show()]
             else:  # ordinal (and the default): the linear view + the correct ordinal CLMM
                 eff = self.effects if interactions == 2 else fit_effects(self.ratings, interactions=interactions)
-                parts += ["", bar, "INFERENTIAL — mixed-effects model (significance & effect sizes)",
+                parts += ["", bar, "INFERENTIAL — linear model, questions as blocks (significance & effect sizes)",
                           bar, eff.show()]
                 clmm = self.clmm if interactions == 2 else fit_clmm(self.ratings, interactions=interactions)
                 parts += ["", bar, "ORDINAL — cumulative-link mixed model (verdicts as ordered categories)",

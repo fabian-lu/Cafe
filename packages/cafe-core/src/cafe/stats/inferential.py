@@ -2,14 +2,17 @@
 
 Turns verdicts into *which factor matters, by how much, and is it real*:
 
-- a **mixed-effects model** ``verdict ~ factors + (1 | question)`` (random intercept
-  per input, since the same questions recur across configs),
-- per-factor **F / p** and **partial η²** (the share of variance a factor explains),
+- per-factor **F / p** and **partial η²** (the share of variance a factor explains) from a
+  Type-II ANOVA **blocked by question** — every configuration answers the same questions,
+  so question difficulty is taken out of the error term and configurations are compared
+  within each question (in a balanced design these are the random-intercept model's tests),
+- the **variance components** of the random-intercept model ``verdict ~ factors + (1 | question)``
+  (how much questions differ, vs. the residual noise),
 - pairwise **Cohen's d** effect sizes with CIs.
 
-Robust by design: falls back to one-way ANOVA when the mixed model isn't
-identifiable (too few questions/levels) so it always returns *something* honest.
-The ordinal CLMM (R) is a further layer, added later. Needs the ``stats`` extra.
+Robust by design: falls back to one-way ANOVA when there's only one question (or no
+statsmodels) so it always returns *something* honest. The scale-matched R models (ordinal
+CLMM, logistic GLMM) live in ``ordinal.py`` / ``logistic.py``. Needs the ``stats`` extra.
 """
 
 from __future__ import annotations
@@ -35,6 +38,9 @@ class Effects:
     #: Random-intercept / residual variance (from the mixed model), or ``None`` when only a
     #: fixed-effects fit was possible. ``{"random_intercept": σ², "residual": σ²}``.
     variance_components: dict[str, float] | None = None
+    #: Share of all verdict variance the factors (and their modeled interactions) explain —
+    #: from the model *without* the question block, so question difficulty doesn't count.
+    r_squared: float | None = None
     #: Per-answer residuals / fitted values from the fit, aligned to the analysis frame.
     residuals: list[float] = field(default_factory=list, repr=False)
     fitted: list[float] = field(default_factory=list, repr=False)
@@ -84,6 +90,7 @@ class Effects:
             lines.append(
                 f"variance components:  between-question σ² = {vc['random_intercept']:.3f}"
                 f" · residual σ² = {vc['residual']:.3f}"
+                f" · ICC = {vc['random_intercept'] / (vc['random_intercept'] + vc['residual']):.3f}"
             )
         if self.warnings:
             lines.append("")
@@ -131,7 +138,8 @@ def _design_rank_deficient(df, factors: list[str], order: int) -> bool | None:
 _EXACT_FIT_RTOL = 1e-10
 
 
-def _exact_fit_ss(dfs, factors: list[str], safe: dict[str, str], order: int) -> dict:
+def _exact_fit_ss(dfs, factors: list[str], safe: dict[str, str], order: int,
+                  block: str = "") -> dict:
     """Type-II sum of squares per model term (keyed by its set of factors), from nested
     least-squares refits — for a model that fits the verdicts exactly (zero residual SS).
 
@@ -139,7 +147,8 @@ def _exact_fit_ss(dfs, factors: list[str], safe: dict[str, str], order: int) -> 
     variance: an exact zero gives an all-NaN table, and rounding noise gives F-ratios of
     noise over noise (a term with no effect at all can come out "significant"). Here
     SS(term) = SSR(model without the term and the terms containing it) − SSR(model without
-    the terms containing it), which needs no variance estimate.
+    the terms containing it), which needs no variance estimate. ``block`` (e.g. the question
+    block ``"C(input_id)"``) is kept in every model, as in the ANOVA it stands in for.
     """
     from itertools import combinations
 
@@ -149,22 +158,16 @@ def _exact_fit_ss(dfs, factors: list[str], safe: dict[str, str], order: int) -> 
     terms = [frozenset(c) for k in range(1, top + 1) for c in combinations(factors, k)]
 
     def ssr(model_terms: list[frozenset]) -> float:
-        rhs = " + ".join(
+        parts = ([block] if block else []) + [
             ":".join(f"C(Q('{safe[c]}'))" for c in factors if c in t) for t in model_terms
-        )
-        return float(smf.ols(f"verdict ~ {rhs or '1'}", dfs).fit().ssr)
+        ]
+        return float(smf.ols(f"verdict ~ {' + '.join(parts) or '1'}", dfs).fit().ssr)
 
     out = {}
     for term in terms:
         kept = [t for t in terms if not term < t]  # drop the higher-order terms containing it
         out[term] = ssr([t for t in kept if t != term]) - ssr(kept)
     return out
-
-
-def _degenerate(w) -> bool:
-    """Whether a captured warning indicates a near-singular / non-converged fit."""
-    msg = str(getattr(w, "message", w)).lower()
-    return any(k in msg for k in ("singular", "converge", "positive definite", "boundary"))
 
 
 def _cohens_d(arr_a, arr_b):
@@ -245,6 +248,35 @@ def _oneway(df, factors, warnings, alpha):
     return terms
 
 
+#: Optimizers tried in turn for the random-intercept model. statsmodels' lbfgs can crash
+#: ("Singular matrix") on data the others fit fine — on the paper's HotpotQA study it did,
+#: while bfgs / powell / nm all matched R's lme4 (between-question σ² = 0.207).
+_MIXEDLM_METHODS = ("lbfgs", "bfgs", "powell", "nm")
+
+
+def _fit_random_intercept(smf, formula: str, dfs):
+    """Fit ``formula`` with a random intercept per question (ML), trying each optimizer in
+    :data:`_MIXEDLM_METHODS` until one converges. Returns the fit, or ``None`` if none did."""
+    import warnings
+
+    import numpy as np
+
+    for method in _MIXEDLM_METHODS:
+        # statsmodels' convergence chatter is judged below instead; llf is computed lazily,
+        # so it is read inside the silenced block too.
+        with warnings.catch_warnings(), np.errstate(all="ignore"):
+            warnings.simplefilter("ignore")
+            try:
+                fit = smf.mixedlm(formula, dfs, groups=dfs["input_id"]).fit(
+                    method=method, reml=False, disp=False)
+                ok = bool(getattr(fit, "converged", True)) and bool(np.isfinite(fit.llf))
+            except Exception:  # noqa: BLE001
+                continue
+        if ok:
+            return fit
+    return None
+
+
 def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 2) -> Effects:
     """Fit the mixed-effects model and return per-term significance + η².
 
@@ -268,7 +300,7 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
         (significant) and a term with no effect as ``None`` (not significant); ``model``
         and ``warnings`` say so.
     """
-    import numpy as np  # noqa: F401
+    import numpy as np
 
     from cafe.stats._frame import analysis_frame
 
@@ -312,48 +344,62 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
     dfs, safe, _back = _safe_factor_frame(df, usable)
     main_terms = " + ".join(f"C(Q('{safe[c]}'))" for c in usable)
 
-    def _formula(o: int) -> str:
-        return f"verdict ~ ({main_terms})**{o}" if o >= 2 and len(usable) >= 2 else f"verdict ~ {main_terms}"
+    # Blocking needs ≥2 questions, and questions crossed with configurations: if a question
+    # was answered by only one configuration, its block would soak up that config's effect.
+    multi_q = "input_id" in df.columns and df["input_id"].nunique() >= 2
+    crossed = False
+    if multi_q:
+        config_key = dfs[[safe[c] for c in usable]].astype(str).agg("|".join, axis=1)
+        crossed = bool((config_key.groupby(dfs["input_id"]).nunique() >= 2).all())
+    block = "C(input_id)" if crossed else ""
+
+    def _formula(o: int, blocked: bool = True) -> str:
+        rhs = f"({main_terms})**{o}" if o >= 2 and len(usable) >= 2 else main_terms
+        return f"verdict ~ {block} + {rhs}" if blocked and block else f"verdict ~ {rhs}"
 
     def _display_formula(o: int) -> str:
         fixed = f"({' + '.join(usable)})^{o}" if o >= 2 and len(usable) >= 2 else " + ".join(usable)
-        return f"verdict ~ (1 | input_id) + {fixed}"  # random effect first, human-readable
+        return f"verdict ~ question + {fixed}" if block else f"verdict ~ {fixed}"
 
     res.formula = _display_formula(order)
 
-    # Mixed model needs ≥2 questions to estimate the random intercept.
-    if not ("input_id" in df.columns and df["input_id"].nunique() >= 2):
+    if not multi_q:
         res.warnings.append("only one question group; using one-way ANOVA")
-        res.model = "one-way ANOVA (need ≥2 questions for a random effect)"
+        res.model = "one-way ANOVA (need ≥2 questions to block by question)"
         res.terms = _oneway(df, usable, res.warnings, alpha)
         return res
+    if not crossed:
+        res.warnings.append(
+            "some question was answered by only one configuration, so the F-tests can't be "
+            "blocked by question: question difficulty stays in the error term, which makes "
+            "them conservative"
+        )
 
-    # statsmodels emits a flurry of singular/convergence warnings on small or
-    # near-degenerate data. Capture them quietly and translate to ONE clear note,
-    # rather than leaking the raw stack-trace-like spam to the user.
+    # How much the questions differ: the random-intercept model's variance components.
+    mfit = _fit_random_intercept(smf, _formula(1, blocked=False), dfs)
+    if mfit is not None:
+        re_var = float(np.asarray(mfit.cov_re).ravel()[0])
+        scale = float(mfit.scale)
+        res.variance_components = {"random_intercept": re_var, "residual": scale}
+        if re_var <= 1e-6 * (re_var + scale):
+            res.warnings.append(
+                "between-question variance estimated at ≈ 0 (a boundary fit): the questions "
+                "don't differ beyond what the factors explain"
+            )
+    else:
+        res.warnings.append(
+            "the between-question variance couldn't be estimated (the random-intercept model "
+            "didn't converge with any optimizer); the F-tests don't depend on it"
+        )
+
+    # statsmodels emits a flurry of warnings on small or near-degenerate data; the checks
+    # below (rank, exact fit) turn the ones that matter into clear notes.
     import warnings as _warnings
 
-    with _warnings.catch_warnings(record=True) as caught:
-        _warnings.simplefilter("always")
-        # The main-effects mixedlm just confirms the random intercept is identifiable.
-        # If it isn't, we keep the interaction formula but drop to fixed-effects ANOVA
-        # (rather than one-way, which would silently lose the interaction terms).
-        mixed_ok = True
-        try:
-            mfit = smf.mixedlm(_formula(1), dfs, groups=dfs["input_id"]).fit(
-                method="lbfgs", reml=False, disp=False)
-            # Random-intercept + residual variance components (paper-reportable).
-            try:
-                re_var = float(mfit.cov_re.iloc[0, 0])
-            except Exception:  # noqa: BLE001
-                re_var = float(np.asarray(mfit.cov_re).ravel()[0])
-            res.variance_components = {"random_intercept": re_var, "residual": float(mfit.scale)}
-        except Exception:  # noqa: BLE001
-            mixed_ok = False
-            res.warnings.append("random intercept not estimable; using fixed-effects ANOVA")
-
-        # Per-term F / p / partial η² via Type-II ANOVA on the OLS counterpart, at the
-        # requested interaction order — falling back to main effects if it won't estimate.
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore")
+        # Per-term F / p / partial η² via Type-II ANOVA, blocked by question, at the requested
+        # interaction order — falling back to main effects if it won't estimate.
         order_used, table, exact = order, None, False
         try:
             fit = smf.ols(_formula(order), dfs).fit()
@@ -398,31 +444,39 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
                 res.fitted = [float(x) for x in np.asarray(fit.fittedvalues)]
             except Exception:  # noqa: BLE001
                 pass
-            base = "MixedLM (random intercept: question)" if mixed_ok else "fixed-effects model"
-            res.model = (f"{base} + Type-II ANOVA"
-                         + (f", up to {order_used}-way" if order_used >= 2 else ""))
+            res.model = ("Type-II ANOVA, blocked by question" if block else "Type-II ANOVA")
+            res.model += f", up to {order_used}-way" if order_used >= 2 else ""
             ss_resid = float(table.loc["Residual", "sum_sq"])
             ss_total = float(((dfs["verdict"] - dfs["verdict"].mean()) ** 2).sum())
-            # Exact fit: every answer in a configuration got the same score, so the residual
+            # R² of the factors alone (no question block): the share of verdict variance the
+            # configuration explains.
+            try:
+                if ss_total > 0:
+                    ssr_f = float(smf.ols(_formula(order_used, blocked=False), dfs).fit().ssr)
+                    res.r_squared = max(0.0, 1.0 - ssr_f / ss_total)
+            except Exception:  # noqa: BLE001
+                pass
+            # Exact fit: the factors (and questions) explain every score, so the residual
             # variance is zero and the table's F-tests are 0/0 (NaN) or rounding noise. Score
             # each term from its exact Type-II SS instead (needs residual df to mean anything).
             exact = (float(table.loc["Residual", "df"]) > 0
                      and ss_resid <= _EXACT_FIT_RTOL * ss_total)
             if exact:
-                exact_ss = _exact_fit_ss(dfs, usable, safe, order_used)
+                exact_ss = _exact_fit_ss(dfs, usable, safe, order_used, block=block)
                 res.model += " — exact fit (zero residual variance)"
                 res.warnings.append(
-                    "zero residual variance: every answer within a configuration got the same "
-                    "score, so the F-tests are degenerate — a term with any effect is reported "
-                    "as F=inf, p=0, partial η²=1 and a term with none as undefined (not "
-                    "significant); Cohen's d is undefined too, so compare the configuration "
-                    "means directly"
+                    "zero residual variance: the factors"
+                    + (" and the questions" if block else "")
+                    + " explain every score exactly, so the F-tests are degenerate — a term "
+                    "with any effect is reported as F=inf, p=0, partial η²=1 and a term with "
+                    "none as undefined (not significant); Cohen's d is undefined too, so "
+                    "compare the configuration means directly"
                 )
             for name in table.index:
                 if name in ("Residual", "Intercept"):
                     continue
                 cols = [c for c in usable if f"Q('{safe[c]}')" in name]
-                if not cols:
+                if not cols:  # the question block (or anything else that isn't a factor)
                     continue
                 ss = float(table.loc[name, "sum_sq"])
                 F = float(table.loc[name, "F"])
@@ -446,9 +500,4 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
                     }
                 )
 
-    if not exact and any(_degenerate(w) for w in caught):  # an exact fit has its own note
-        res.warnings.append(
-            "model was near-singular (little between-question variance) — treat p-values as "
-            "unstable; the effect sizes (Cohen's d) are the more reliable signal here"
-        )
     return res

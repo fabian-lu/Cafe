@@ -72,18 +72,23 @@ those gaps is real.
 
 ### 2 · Inferential — which factor matters, and is it significant
 
-This is the core. For a numeric or ordinal rubric CAFE fits a linear mixed-effects
-model with a per-input random effect, then reports a Type-II ANOVA:
+This is the core. Every configuration answers the same questions, so for a numeric or
+ordinal rubric CAFE reports a Type-II ANOVA **blocked by question**: question difficulty is
+taken out of the error term and configurations are compared *within* each question (in a
+balanced design these are exactly the tests of a random-intercept mixed model):
 
 ```text
+verdict ~ question + (finalize + generate.model + retrieve)^2
+  Type-II ANOVA, blocked by question, up to 2-way   (n=899, alpha=0.05)
+
 per-term effects  (F-test, p, partial eta^2;  'x' = interaction):
   term                             F          p    partial eta^2
-  retrieve                    130.37     0.0000        0.228   ***
-  generate.model               24.06     0.0000        0.052   ***
-  retrieve x generate.model     4.17     0.0024        0.019   **
-  generate.model x finalize     0.12     0.8858        0.000
-  finalize                      0.17     0.6841        0.000
-  retrieve x finalize           0.04     0.9612        0.000
+  retrieve                    207.02     0.0000        0.331   ***
+  generate.model               38.25     0.0000        0.084   ***
+  generate.model x retrieve     6.60     0.0000        0.031   ***
+  finalize x generate.model     0.19     0.8240        0.000
+  finalize                      0.26     0.6132        0.000
+  finalize x retrieve           0.06     0.9381        0.000
   Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 ```
 
@@ -92,13 +97,13 @@ Read it row by row:
 - **`p`** — the probability of seeing an effect this large if the factor did *nothing*.
   Small `p` (`< 0.05`) means the effect is unlikely to be noise. Here `retrieve` and
   `generate.model` are significant; `finalize` (the placebo) is correctly **not**
-  (`p = 0.68`) — CAFE does not invent an effect that is not there.
+  (`p = 0.61`) — CAFE does not invent an effect that is not there.
 - **`partial eta^2`** — the share of variance the factor explains, holding the others
-  fixed. This is the "how much does it matter?" number: `retrieve` (0.228) dominates,
-  `generate.model` (0.052) is a smaller real effect. Rough bands: 0.01 small, 0.06
-  medium, 0.14 large.
+  fixed (and with question difficulty taken out). This is the "how much does it matter?"
+  number: `retrieve` (0.331) dominates, `generate.model` (0.084) is a smaller real effect.
+  Rough bands: 0.01 small, 0.06 medium, 0.14 large.
 - **`F`** and the **significance stars** are two more views of the same test.
-- **`retrieve x generate.model`** is a significant **interaction** (`p = 0.002`): the
+- **`generate.model x retrieve`** is a significant **interaction** (`p < 0.001`): the
   two factors are not independent — retrieval helps the weaker model more than the
   strong one. A one-factor-at-a-time sweep cannot see this; the factorial design is
   exactly what surfaces it.
@@ -114,16 +119,30 @@ effect sizes -- Cohen's d (magnitude of the gap; 0.2 small, 0.5 medium, 0.8 larg
 ```
 
 A CI that excludes 0 (like `dense_rerank vs none`) is a reliable gap; one that
-straddles 0 (like `finalize`) is not.
+straddles 0 (like `finalize`) is not. (Cohen's d compares the raw scores of two levels, so
+unlike the F-test it does not take question difficulty out.)
+
+The **variance components** line shows how much the questions themselves differ, from
+the random-intercept model `verdict ~ factors + (1 | question)`:
+
+```text
+variance components:  between-question sigma^2 = 0.207 · residual sigma^2 = 0.366 · ICC = 0.361
+```
+
+Here 36% of the variance that the factors leave unexplained is simply *which question* it
+was — some questions are harder for every configuration. That is why blocking by question
+matters: without it, this variation would count as noise and every F would be smaller.
 
 !!! warning "Health notes"
-    The report appends notes when a fit is fragile, e.g. *"model was near-singular
-    (little between-question variance) — treat p-values as unstable; the effect sizes
-    (Cohen's d) are the more reliable signal here."* Take these seriously: they tell
-    you which numbers to trust when the design is small or sparse.
+    The report appends notes when something about a fit needs your attention — e.g.
+    interactions that a fractional design can't separate, an ordinal or logistic model
+    whose optimizer did not converge (its p-values are then withheld), or a
+    between-question variance estimated at ≈ 0 (a boundary fit: the questions don't
+    differ beyond what the factors explain). Read them: they tell you which numbers to
+    trust when the design is small or sparse.
 
-    A tiny study can also fit **exactly**: every answer within a configuration got the
-    same score, so there is zero residual variance and the F-tests are degenerate. The
+    A tiny study can also fit **exactly**: the factors and the questions explain every
+    score, so there is zero residual variance and the F-tests are degenerate. The
     model line then ends in *"exact fit (zero residual variance)"*, a term with any effect
     shows `F = inf`, `p = 0`, partial eta^2 = 1, and a term with no effect shows `-` (not
     significant). Cohen's d is undefined too (zero spread), so compare the configuration
@@ -161,15 +180,16 @@ the correct scale: retrieval is correctly ordered (`none` strongly negative,
 Under the table the CLMM reports its per-question random intercept (R's `VarCorr()`):
 
 ```text
-  variance components:  between-question σ_u² = … (σ_u = …) · latent residual π²/3 = 3.290 · ICC = …
+  variance components:  between-question σ_u² = 5.347 (σ_u = 2.312) · latent residual π²/3 = 3.290 · ICC = 0.619
 ```
 
 `σ_u²` is how much the questions differ in difficulty on the model's latent log-odds
 scale. The ICC, `σ_u² / (σ_u² + π²/3)`, is the share of the latent variance that lies
 between questions (`π²/3` is the fixed residual variance of a logit link). The logistic
 GLMM for binary rubrics prints the same line. When `σ_u` collapses to about 0, the report
-adds a *near-singular* note, the same warning the linear layer gives: the questions barely
-differ, and the p-values are unstable. The numbers are also available as
+adds a *near-singular* note: the questions don't differ beyond what the factors explain. That
+is a boundary fit, not a failure — the estimates and p-values stay valid (they equal those of
+the same model without a question effect). The numbers are also available as
 `result.clmm.variance_components` / `result.logistic.variance_components`.
 
 ## Which model runs for which rubric
