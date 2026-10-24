@@ -27,7 +27,7 @@ _HERE = Path(__file__).resolve().parent
 
 # ── config (mirrors the evaluation notebook) ──────────────────────────────────
 SYSTEM_MODELS = {                       # levels of the `generate.model` factor
-    "gemma3-4b":    "ollama_cloud/gemma3:4b",
+    "gemma3-4b":    "openrouter/google/gemma-3-4b-it",  # retired on Ollama Cloud (July 2026)
     "gpt-oss-20b":  "ollama_cloud/gpt-oss:20b",
     "gpt-oss-120b": "ollama_cloud/gpt-oss:120b",
 }

@@ -7,8 +7,8 @@ study on it. Two stages become two factors:
   * ``refine`` — whether to polish it              (2 levels: keep / polish; ``keep`` = control)
 
 3 × 2 = 6 configurations — a real factorial (you can ask whether refining helps *and* whether it
-helps more for some draft styles), but small enough to run in the demo. Uses a small Ollama model;
-needs OLLAMA_API_KEY in .env.
+helps more for some draft styles), but small enough to run in the demo. Uses a small model (Gemma 3 4B
+via OpenRouter); needs OPENROUTER_API_KEY in .env.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ import cafe
 
 pipe = cafe.Pipeline()
 
-MODEL = "ollama_cloud/gemma3:4b"   # small + fast, keeps the demo run short
+MODEL = "openrouter/google/gemma-3-4b-it"   # small + fast; retired on Ollama Cloud, so via OpenRouter
 
 
 # ── Stage 1: draft — three prompting styles ──────────────────────────────────────────────
