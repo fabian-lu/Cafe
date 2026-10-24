@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -271,7 +272,9 @@ async def import_study(request: Request, attach_to: int | None = None,
         if (err := _rubric_error(_rubric_row(ev))) is not None:
             raise HTTPException(400, f"not a valid cafe evaluation bundle: {err}")
         evs.append(ev)
-    payloads = [_results_payload(ev) for ev in evs]
+    # Fitting the statistics (incl. the R models) takes a while for a large study; do it in a worker
+    # thread so the server keeps answering other requests in the meantime.
+    payloads = [await asyncio.to_thread(_results_payload, ev) for ev in evs]
 
     if attach_to is not None:
         study = await db.get(models.Study, attach_to)

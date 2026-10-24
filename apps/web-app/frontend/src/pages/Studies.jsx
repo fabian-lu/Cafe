@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api, isJudgingPhase, phaseLabel } from "../lib/api.js";
 import NumberField from "../components/NumberField.jsx";
 import JudgeModelField from "../components/JudgeModelField.jsx";
+import Spinner from "../components/Spinner.jsx";
 
 function parseLevels(str) {
   const parts = str.split(",").map((s) => s.trim()).filter(Boolean);
@@ -292,6 +293,11 @@ export default function Studies() {
         </div>
       </div>
 
+      {importing && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <Spinner label="Importing the study: computing all statistics (attribution, the ordinal or logistic model in R, effect sizes, Pareto, energy). For a large study this takes a minute or two; the rest of the app keeps working meanwhile." />
+        </div>
+      )}
       {err && <div className="banner">{err}</div>}
       {pipelines && pipelines.length === 0 && <div className="banner">No pipelines discovered — add one in the Techniques folder.</div>}
 

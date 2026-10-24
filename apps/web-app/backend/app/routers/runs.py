@@ -159,7 +159,8 @@ async def get_results(id_: int, dimension: str | None = None,
     if not items:
         raise HTTPException(400, "this study's dataset carries no question metadata to filter by")
     try:
-        payload = runner.filtered_payload(payload, items, fkey, fval)
+        # refits every model on the subset (R included): in a worker thread, so the app stays responsive
+        payload = await asyncio.to_thread(runner.filtered_payload, payload, items, fkey, fval)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(500, f"filtered recompute failed: {exc}")
     if len(_FILTER_CACHE) > 64:
