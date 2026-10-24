@@ -278,10 +278,11 @@ result = study.evaluate()  <span class="code-cmt"># answers → judge → attrib
   <section class="section-pad demo-section" id="demo">
     <div class="container demo-grid">
       <div>
-        <h2 class="section-title">Explore a real study</h2>
+        <h2 class="section-title">Explore three real studies</h2>
         <p class="section-subtitle">
-          Browse an actual CAFE evaluation: the HotpotQA RAG study from the paper, with 18
-          configurations and 900 judged answers on a 0–2 scale.
+          Browse three real CAFE evaluations: the HotpotQA RAG study from the paper (re-run), a
+          customer-support chatbot, and invoice processing. Below, the first one: 18 configurations,
+          900 judged answers on a 0–2 scale.
         </p>
         <ul class="checklist">
           <li><span class="material-symbols-outlined">check_box</span> Every verdict is auditable: prompt + raw response stored</li>
@@ -309,29 +310,29 @@ result = study.evaluate()  <span class="code-cmt"># answers → judge → attrib
             </thead>
             <tbody>
               <tr>
-                <td>retrieve<span class="sub">best: dense_rerank · 1.71</span></td>
-                <td class="sig">0.33</td>
+                <td>retrieval<span class="sub">best: with reranker · 1.73</span></td>
+                <td class="sig">0.35</td>
                 <td class="sig">&lt;0.001</td>
               </tr>
               <tr>
-                <td>model<span class="sub">best: gpt-oss-120b · 1.51</span></td>
-                <td class="sig">0.08</td>
+                <td>model<span class="sub">best: gpt-oss-120b · 1.53</span></td>
+                <td class="sig">0.06</td>
                 <td class="sig">&lt;0.001</td>
               </tr>
               <tr>
-                <td>retrieve × model<span class="sub">retrieval helps the small model most</span></td>
+                <td>retrieval × model<span class="sub">retrieval helps the small model most</span></td>
                 <td class="sig">0.03</td>
                 <td class="sig">&lt;0.001</td>
               </tr>
               <tr>
-                <td>finalize<span class="sub">placebo step · no effect</span></td>
+                <td>placebo<span class="sub">a step that does nothing · no effect</span></td>
                 <td>0.00</td>
-                <td>0.61</td>
+                <td>0.91</td>
               </tr>
             </tbody>
             <tfoot>
               <tr>
-                <td colspan="3">best config: dense_rerank · gpt-oss-120b <span class="best">→ 1.78</span> <span class="scale">/ 2</span></td>
+                <td colspan="3">best config: dense_with_reranker · gpt-oss-20b <span class="best">→ 1.80</span> <span class="scale">/ 2</span></td>
               </tr>
             </tfoot>
           </table>
