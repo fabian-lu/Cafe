@@ -1,0 +1,1545 @@
+[
+ {
+  "id": "clean-us-clean-simple",
+  "category": "clean",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Acme Industrial Supply Co",
+   "document_number": "ACM-100145",
+   "invoice_date": "2024-03-12",
+   "currency": "USD",
+   "tax": 25.99,
+   "total": 372.49,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-us-with-shipping",
+  "category": "clean",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Northwind Logistics LLC",
+   "document_number": "NWL-20240318-002",
+   "invoice_date": "2024-03-18",
+   "currency": "USD",
+   "tax": 92.43,
+   "total": 1599.43,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-us-with-discount",
+  "category": "clean",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Greenleaf Office Supply",
+   "document_number": "GLO-8842",
+   "invoice_date": "2024-02-27",
+   "currency": "USD",
+   "tax": 374.08,
+   "total": 5050.08,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-us-shipping-and-discount",
+  "category": "clean",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Foundry Metalworks",
+   "document_number": "FND-2024-03-0091",
+   "invoice_date": "2024-03-05",
+   "currency": "USD",
+   "tax": 196.5,
+   "total": 3492.5,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-us-tax-only",
+  "category": "clean",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Brightware Software Inc",
+   "document_number": "BW-2024-1142",
+   "invoice_date": "2024-03-31",
+   "due_date": "2024-04-30",
+   "currency": "USD",
+   "tax": 1035.0,
+   "total": 13035.0,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-us-freight-alias",
+  "category": "clean",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Northwind Logistics LLC",
+   "document_number": "NWL-20240322-008",
+   "invoice_date": "2024-03-22",
+   "currency": "USD",
+   "tax": 50.05,
+   "total": 945.05,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-us-delivery-alias",
+  "category": "clean",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Greenleaf Office Supply",
+   "document_number": "GLO-9015",
+   "invoice_date": "2024-03-14",
+   "currency": "USD",
+   "tax": 59.76,
+   "total": 841.76,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-us-sh-abbrev",
+  "category": "clean",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Acme Industrial Supply Co",
+   "document_number": "ACM-100312",
+   "invoice_date": "2024-04-02",
+   "currency": "USD",
+   "tax": 29.33,
+   "total": 438.83,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-us-handling-alias",
+  "category": "clean",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Foundry Metalworks",
+   "document_number": "FND-2024-03-0134",
+   "invoice_date": "2024-03-28",
+   "currency": "USD",
+   "tax": 76.8,
+   "total": 1398.8,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-us-trade-discount",
+  "category": "clean",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Acme Industrial Supply Co",
+   "document_number": "ACM-100355",
+   "invoice_date": "2024-04-08",
+   "currency": "USD",
+   "tax": 90.35,
+   "total": 1294.95,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-us-promo-code",
+  "category": "clean",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Greenleaf Office Supply",
+   "document_number": "GLO-9178",
+   "invoice_date": "2024-04-15",
+   "currency": "USD",
+   "tax": 41.04,
+   "total": 554.04,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-us-service-fee",
+  "category": "clean",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Brightware Software Inc",
+   "document_number": "BW-2024-1205",
+   "invoice_date": "2024-04-18",
+   "due_date": "2024-05-03",
+   "currency": "USD",
+   "tax": 724.5,
+   "total": 9249.5,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-us-fuel-surcharge",
+  "category": "clean",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Northwind Logistics LLC",
+   "document_number": "NWL-20240410-012",
+   "invoice_date": "2024-04-10",
+   "currency": "USD",
+   "tax": 185.25,
+   "total": 3552.25,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-us-many-line-items",
+  "category": "clean",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Greenleaf Office Supply",
+   "document_number": "GLO-9301",
+   "invoice_date": "2024-04-22",
+   "currency": "USD",
+   "tax": 130.34,
+   "total": 1759.59,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-us-single-service",
+  "category": "clean",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Brightware Software Inc",
+   "document_number": "BW-2024-1287",
+   "invoice_date": "2024-04-25",
+   "currency": "USD",
+   "tax": 388.13,
+   "total": 4888.13,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-us-net30-terms",
+  "category": "clean",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Acme Industrial Supply Co",
+   "document_number": "ACM-100401",
+   "invoice_date": "2024-04-01",
+   "due_date": "2024-05-01",
+   "currency": "USD",
+   "tax": 113.7,
+   "total": 1629.7,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-us-zero-shipping-explicit",
+  "category": "clean",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Greenleaf Office Supply",
+   "document_number": "GLO-9412",
+   "invoice_date": "2024-04-30",
+   "currency": "USD",
+   "tax": 178.0,
+   "total": 2403.0,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-us-credit-applied",
+  "category": "clean",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Foundry Metalworks",
+   "document_number": "FND-2024-04-0088",
+   "invoice_date": "2024-04-18",
+   "currency": "USD",
+   "tax": 146.88,
+   "total": 2594.88,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-us-two-tax-lines",
+  "category": "clean",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Acme Industrial Supply Co",
+   "document_number": "ACM-100458",
+   "invoice_date": "2024-05-03",
+   "currency": "USD",
+   "tax": 83.1,
+   "total": 1191.1,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-gb-serif",
+  "category": "clean",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Pennine Tyre & Parts Limited",
+   "document_number": "IN0049923",
+   "invoice_date": "2025-08-27",
+   "due_date": "2025-09-26",
+   "currency": "GBP",
+   "tax": 3602.32,
+   "total": 21613.9,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-de-grid-eu-decimals",
+  "category": "clean",
+  "difficulty": "medium",
+  "correct_fields": {
+   "vendor_name": "Nordhafen Workshop Supplies GmbH & Co. KG",
+   "document_number": "IN0089266",
+   "invoice_date": "2026-04-30",
+   "due_date": "2026-06-29",
+   "currency": "EUR",
+   "tax": 1070.21,
+   "total": 6702.9,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-za-band-space-groups",
+  "category": "clean",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Drakensig Tyre & Parts (Pty) Ltd",
+   "document_number": "INV-2026-29551",
+   "invoice_date": "2026-06-19",
+   "due_date": "2026-07-03",
+   "currency": "ZAR",
+   "tax": 5625.16,
+   "total": 43126.25,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-na-center-letterhead",
+  "category": "clean",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Erongo Tyre & Parts (Pty) Ltd",
+   "document_number": "2026/1898",
+   "invoice_date": "2026-07-13",
+   "currency": "NAD",
+   "tax": 1661.76,
+   "total": 12740.17,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-fr-right-header",
+  "category": "clean",
+  "difficulty": "medium",
+  "correct_fields": {
+   "vendor_name": "Calanque Hardware SARL",
+   "document_number": "AC-87051",
+   "invoice_date": "2026-03-09",
+   "due_date": "2026-04-08",
+   "currency": "EUR",
+   "tax": 1734.42,
+   "total": 10406.52,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-nl-two-column",
+  "category": "clean",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Waalhaven Office Supplies B.V.",
+   "document_number": "BS-3348",
+   "invoice_date": "2025-06-13",
+   "due_date": "2025-07-13",
+   "currency": "EUR",
+   "tax": 8613.86,
+   "total": 49632.26,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-zm-banner",
+  "category": "clean",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Luangwa Packaging Ltd",
+   "document_number": "KN-94439",
+   "invoice_date": "2025-03-18",
+   "due_date": "2025-04-17",
+   "currency": "ZMW",
+   "tax": 6333.18,
+   "total": 45915.58,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-us-landscape",
+  "category": "clean",
+  "difficulty": "medium",
+  "correct_fields": {
+   "vendor_name": "Prairie Office Supplies Co",
+   "document_number": "IN0017577",
+   "invoice_date": "2026-07-30",
+   "due_date": "2026-08-29",
+   "currency": "USD",
+   "tax": 1901.43,
+   "total": 33592.01,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-gb-mono-plain",
+  "category": "clean",
+  "difficulty": "medium",
+  "correct_fields": {
+   "vendor_name": "Mersey Office Supplies Ltd",
+   "document_number": "IN0003904",
+   "invoice_date": "2025-08-08",
+   "due_date": "2025-09-07",
+   "currency": "GBP",
+   "tax": 2498.39,
+   "total": 14990.34,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-za-code-zebra",
+  "category": "clean",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Highveld Tyre & Parts (Pty) Ltd",
+   "document_number": "013456",
+   "invoice_date": "2025-07-28",
+   "currency": "ZAR",
+   "tax": 1531.21,
+   "total": 11739.28,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "clean-na-bulk-consumables",
+  "category": "clean",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Kalahari Office Supplies (Pty) Ltd",
+   "document_number": "RF-95917",
+   "invoice_date": "2026-07-11",
+   "due_date": "2026-07-25",
+   "currency": "NAD",
+   "tax": 74.7,
+   "total": 572.7,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "currency-usd-1",
+  "category": "currency",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Ironbridge Tyre & Parts Co",
+   "document_number": "F-26-6054",
+   "invoice_date": "2025-11-11",
+   "currency": "USD",
+   "tax": 1928.19,
+   "total": 32779.17,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "currency-usd-2",
+  "category": "currency",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Ironbridge Packaging Corp",
+   "document_number": "KS-30440",
+   "invoice_date": "2026-05-02",
+   "due_date": "2026-06-01",
+   "currency": "USD",
+   "tax": 360.57,
+   "total": 4423.29,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "currency-zar-1",
+  "category": "currency",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Karoo Tyre & Parts (Pty) Ltd",
+   "document_number": "IN0091021",
+   "invoice_date": "2025-04-23",
+   "due_date": "2025-05-23",
+   "currency": "ZAR",
+   "tax": 3444.43,
+   "total": 26407.31,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "currency-zar-2",
+  "category": "currency",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Highveld Workshop Supplies (Pty) Ltd",
+   "document_number": "TI072355",
+   "invoice_date": "2026-05-15",
+   "due_date": "2026-05-29",
+   "currency": "ZAR",
+   "tax": 4637.58,
+   "total": 35554.8,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "currency-nad-1",
+  "category": "currency",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Okavango Packaging (Pty) Ltd",
+   "document_number": "INV-2026-71012",
+   "invoice_date": "2026-07-06",
+   "due_date": "2026-07-20",
+   "currency": "NAD",
+   "tax": 7536.05,
+   "total": 57776.37,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "currency-nad-2",
+  "category": "currency",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Namib Sands Workshop Supplies CC",
+   "document_number": "079582",
+   "invoice_date": "2026-02-15",
+   "due_date": "2026-03-17",
+   "currency": "NAD",
+   "tax": 1520.53,
+   "total": 11657.42,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "currency-eur-1",
+  "category": "currency",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Nordhafen Workshop Supplies GmbH",
+   "document_number": "2026/4301",
+   "invoice_date": "2026-01-18",
+   "due_date": "2026-02-17",
+   "currency": "EUR",
+   "tax": 2649.99,
+   "total": 16597.31,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "currency-eur-2",
+  "category": "currency",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Waalhaven Industrial Supply B.V.",
+   "document_number": "BN-19064",
+   "invoice_date": "2025-06-06",
+   "due_date": "2025-08-05",
+   "currency": "EUR",
+   "tax": 1757.1,
+   "total": 10124.25,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "currency-gbp-1",
+  "category": "currency",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Mersey Engineering Supplies Limited",
+   "document_number": "INV-2026-52362",
+   "invoice_date": "2025-08-27",
+   "due_date": "2025-09-10",
+   "currency": "GBP",
+   "tax": 4053.25,
+   "total": 24319.5,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "currency-gbp-2",
+  "category": "currency",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Pennine Tyre & Parts plc",
+   "document_number": "TI055128",
+   "invoice_date": "2025-02-06",
+   "currency": "GBP",
+   "tax": 3576.81,
+   "total": 21460.85,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "currency-zmw-1",
+  "category": "currency",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Zambezi Reach Engineering Supplies Ltd",
+   "document_number": "2026/5565",
+   "invoice_date": "2025-01-25",
+   "due_date": "2025-02-08",
+   "currency": "ZMW",
+   "tax": 6982.06,
+   "total": 50619.94,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "currency-zmw-2",
+  "category": "currency",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Chisamba Office Supplies Limited",
+   "document_number": "IN0009050",
+   "invoice_date": "2025-12-02",
+   "due_date": "2026-01-01",
+   "currency": "ZMW",
+   "tax": 9983.41,
+   "total": 72379.73,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "currency-nad-bare-dollar",
+  "category": "currency",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Skeleton Bay Engineering Supplies (Pty) Ltd",
+   "document_number": "016850",
+   "invoice_date": "2025-04-02",
+   "due_date": "2025-05-02",
+   "currency": "NAD",
+   "tax": 1660.62,
+   "total": 12731.44,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "currency-dual-usd-zar-1",
+  "category": "currency",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Vaalrand Clearing & Forwarding (Pty) Ltd",
+   "document_number": "2026/8313",
+   "invoice_date": "2025-11-18",
+   "due_date": "2025-12-18",
+   "currency": "ZAR",
+   "tax": 0.0,
+   "total": 3314.2,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "currency-dual-eur-nad-2",
+  "category": "currency",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Erongo Forwarding (Pty) Ltd",
+   "document_number": "BA-19242",
+   "invoice_date": "2025-11-28",
+   "due_date": "2025-12-28",
+   "currency": "NAD",
+   "tax": 0.0,
+   "total": 3247.51,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "currency-dual-usd-zar-3",
+  "category": "currency",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Kransberg Clearing & Forwarding (Pty) Ltd",
+   "document_number": "098052",
+   "invoice_date": "2026-02-06",
+   "due_date": "2026-03-08",
+   "currency": "ZAR",
+   "tax": 256.46,
+   "total": 1966.16,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "currency-dual-usd-nad-4",
+  "category": "currency",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Kunene Clearing & Forwarding (Pty) Ltd",
+   "document_number": "F-26-9064",
+   "invoice_date": "2026-03-16",
+   "due_date": "2026-04-15",
+   "currency": "NAD",
+   "tax": 0.0,
+   "total": 3581.1,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "currency-multi-line-zar",
+  "category": "currency",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Klipspruit Border Services CC",
+   "document_number": "KL-69497",
+   "invoice_date": "2026-01-21",
+   "due_date": "2026-02-04",
+   "currency": "ZAR",
+   "tax": 6458.22,
+   "total": 49513.02,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "currency-multi-line-nad",
+  "category": "currency",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Etosha Gate Clearing & Forwarding (Pty) Ltd",
+   "document_number": "AA-80309",
+   "invoice_date": "2026-08-15",
+   "due_date": "2026-09-14",
+   "currency": "NAD",
+   "tax": 7729.56,
+   "total": 59259.99,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "tax-exclusive-vat-column-za",
+  "category": "tax",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Vaalrand Packaging (Pty) Ltd",
+   "document_number": "TN-6058",
+   "invoice_date": "2025-12-17",
+   "due_date": "2026-02-15",
+   "currency": "ZAR",
+   "tax": 2075.74,
+   "total": 15914.0,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "tax-exclusive-vat-column-gb",
+  "category": "tax",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Severn Industrial Supply Ltd",
+   "document_number": "F-26-6724",
+   "invoice_date": "2025-09-09",
+   "due_date": "2025-10-09",
+   "currency": "GBP",
+   "tax": 3336.26,
+   "total": 20017.57,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "tax-inclusive-total-za",
+  "category": "tax",
+  "difficulty": "medium",
+  "correct_fields": {
+   "vendor_name": "Highveld Hardware (Pty) Ltd",
+   "document_number": "IN0078338",
+   "invoice_date": "2026-08-26",
+   "due_date": "2026-09-25",
+   "currency": "ZAR",
+   "tax": 2353.3,
+   "total": 18041.94,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "tax-inclusive-total-na",
+  "category": "tax",
+  "difficulty": "medium",
+  "correct_fields": {
+   "vendor_name": "Brandkop Hardware CC",
+   "document_number": "051812",
+   "invoice_date": "2025-05-10",
+   "due_date": "2025-07-09",
+   "currency": "NAD",
+   "tax": 954.74,
+   "total": 7319.67,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "tax-inclusive-subtotal-na",
+  "category": "tax",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Etosha Gate Workshop Supplies (Pty) Ltd",
+   "document_number": "IN0044014",
+   "invoice_date": "2025-01-15",
+   "due_date": "2025-02-14",
+   "currency": "NAD",
+   "tax": 3489.8,
+   "total": 26755.13,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "tax-sage-subtotal-after-vat-1",
+  "category": "tax",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Namib Sands Industrial Supply (Pty) Ltd",
+   "document_number": "TI080660",
+   "invoice_date": "2025-11-20",
+   "currency": "NAD",
+   "tax": 1185.49,
+   "total": 9088.78,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "tax-sage-subtotal-after-vat-2",
+  "category": "tax",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Highveld Packaging (Pty) Ltd",
+   "document_number": "049181",
+   "invoice_date": "2026-02-28",
+   "due_date": "2026-03-30",
+   "currency": "ZAR",
+   "tax": 1926.55,
+   "total": 14770.24,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "tax-sage-subtotal-after-vat-3",
+  "category": "tax",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Kunene Hardware CC",
+   "document_number": "MA-72956",
+   "invoice_date": "2026-07-30",
+   "due_date": "2026-09-28",
+   "currency": "NAD",
+   "tax": 4564.73,
+   "total": 34996.27,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "tax-zero-rated-na",
+  "category": "tax",
+  "difficulty": "medium",
+  "correct_fields": {
+   "vendor_name": "Namib Sands Logistics CC",
+   "document_number": "IN0006855",
+   "invoice_date": "2025-03-27",
+   "due_date": "2025-04-10",
+   "currency": "NAD",
+   "tax": 0.0,
+   "total": 25649.63,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "tax-zero-rated-za",
+  "category": "tax",
+  "difficulty": "medium",
+  "correct_fields": {
+   "vendor_name": "Karoo Cargo (Pty) Ltd",
+   "document_number": "TI099928",
+   "invoice_date": "2026-05-30",
+   "due_date": "2026-06-13",
+   "currency": "ZAR",
+   "tax": 0.0,
+   "total": 40491.83,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "tax-percentage-line-1",
+  "category": "tax",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Etosha Gate Shipping Agencies CC",
+   "document_number": "IN0001653",
+   "invoice_date": "2026-05-20",
+   "currency": "NAD",
+   "tax": 653.01,
+   "total": 5006.4,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "tax-percentage-line-2",
+  "category": "tax",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Suidkus Clearing & Forwarding CC",
+   "document_number": "IN0035632",
+   "invoice_date": "2025-02-18",
+   "due_date": "2025-03-20",
+   "currency": "ZAR",
+   "tax": 537.34,
+   "total": 4119.6,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "tax-withholding-zm",
+  "category": "tax",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Zambezi Reach IT Services Ltd",
+   "document_number": "IN0024445",
+   "invoice_date": "2026-01-05",
+   "due_date": "2026-02-04",
+   "currency": "ZMW",
+   "tax": 2436.66,
+   "total": 17665.81,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "tax-withholding-na",
+  "category": "tax",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Erongo IT Services CC",
+   "document_number": "2026/2421",
+   "invoice_date": "2026-05-16",
+   "due_date": "2026-06-15",
+   "currency": "NAD",
+   "tax": 1359.19,
+   "total": 10420.46,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "credit-note-minus-za",
+  "category": "credit_note",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Suidkus Packaging (Pty) Ltd",
+   "document_number": "CN-2026-0933",
+   "invoice_date": "2026-02-28",
+   "currency": "ZAR",
+   "tax": 1051.54,
+   "total": 8061.82,
+   "document_type": "credit_note"
+  }
+ },
+ {
+  "id": "credit-note-minus-gb",
+  "category": "credit_note",
+  "difficulty": "easy",
+  "correct_fields": {
+   "vendor_name": "Severn Workshop Supplies plc",
+   "document_number": "CN060662",
+   "invoice_date": "2026-06-23",
+   "currency": "GBP",
+   "tax": 630.89,
+   "total": 3785.33,
+   "document_type": "credit_note"
+  }
+ },
+ {
+  "id": "credit-ndc-na",
+  "category": "credit_note",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Namib Sands Workshop Supplies (Pty) Ltd",
+   "document_number": "NdC22806",
+   "invoice_date": "2026-09-02",
+   "currency": "NAD",
+   "tax": 955.9,
+   "total": 7328.59,
+   "document_type": "credit_note"
+  }
+ },
+ {
+  "id": "credit-ndc-za-ref",
+  "category": "credit_note",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Kransberg Tyre & Parts (Pty) Ltd",
+   "document_number": "NdC90426",
+   "invoice_date": "2026-03-17",
+   "currency": "ZAR",
+   "tax": 509.68,
+   "total": 3907.52,
+   "document_type": "credit_note"
+  }
+ },
+ {
+  "id": "credit-r-minus-1",
+  "category": "credit_note",
+  "difficulty": "medium",
+  "correct_fields": {
+   "vendor_name": "Drakensig Packaging (Pty) Ltd",
+   "document_number": "CRN-42418",
+   "invoice_date": "2025-03-24",
+   "currency": "ZAR",
+   "tax": 2284.17,
+   "total": 17511.94,
+   "document_type": "credit_note"
+  }
+ },
+ {
+  "id": "credit-r-minus-2",
+  "category": "credit_note",
+  "difficulty": "medium",
+  "correct_fields": {
+   "vendor_name": "Highveld Industrial Supply (Pty) Ltd",
+   "document_number": "CRN-48277",
+   "invoice_date": "2026-06-21",
+   "currency": "ZAR",
+   "tax": 1684.1,
+   "total": 12911.43,
+   "document_type": "credit_note"
+  }
+ },
+ {
+  "id": "credit-brackets-us",
+  "category": "credit_note",
+  "difficulty": "medium",
+  "correct_fields": {
+   "vendor_name": "Granite Workshop Supplies Inc",
+   "document_number": "CN-2026-0263",
+   "invoice_date": "2025-03-19",
+   "currency": "USD",
+   "tax": 156.09,
+   "total": 2048.05,
+   "document_type": "credit_note"
+  }
+ },
+ {
+  "id": "credit-brackets-gb",
+  "category": "credit_note",
+  "difficulty": "medium",
+  "correct_fields": {
+   "vendor_name": "Wolds Packaging Limited",
+   "document_number": "CN082351",
+   "invoice_date": "2025-09-28",
+   "currency": "GBP",
+   "tax": 453.09,
+   "total": 2718.54,
+   "document_type": "credit_note"
+  }
+ },
+ {
+  "id": "credit-unsigned-na",
+  "category": "credit_note",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Namib Sands Office Supplies (Pty) Ltd",
+   "document_number": "CN032229",
+   "invoice_date": "2026-04-27",
+   "currency": "NAD",
+   "tax": 271.44,
+   "total": 2081.04,
+   "document_type": "credit_note"
+  }
+ },
+ {
+  "id": "credit-cr-suffix-za",
+  "category": "credit_note",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Highveld Office Supplies (Pty) Ltd",
+   "document_number": "CN-2026-0974",
+   "invoice_date": "2025-04-24",
+   "currency": "ZAR",
+   "tax": 762.2,
+   "total": 5843.5,
+   "document_type": "credit_note"
+  }
+ },
+ {
+  "id": "multipage-2p-za-1",
+  "category": "multipage",
+  "difficulty": "medium",
+  "correct_fields": {
+   "vendor_name": "Highveld Engineering Supplies (Pty) Ltd",
+   "document_number": "IN0021022",
+   "invoice_date": "2026-05-04",
+   "due_date": "2026-07-03",
+   "currency": "ZAR",
+   "tax": 3762.56,
+   "total": 28846.32,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "multipage-2p-us-2",
+  "category": "multipage",
+  "difficulty": "medium",
+  "correct_fields": {
+   "vendor_name": "Redwood Packaging Co",
+   "document_number": "021419",
+   "invoice_date": "2026-05-11",
+   "due_date": "2026-07-10",
+   "currency": "USD",
+   "tax": 4006.1,
+   "total": 70774.39,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "multipage-3p-na-3",
+  "category": "multipage",
+  "difficulty": "medium",
+  "correct_fields": {
+   "vendor_name": "Skeleton Bay Industrial Supply CC",
+   "document_number": "IN0005183",
+   "invoice_date": "2026-02-22",
+   "due_date": "2026-03-24",
+   "currency": "NAD",
+   "tax": 9181.37,
+   "total": 70390.5,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "multipage-3p-gb-4",
+  "category": "multipage",
+  "difficulty": "medium",
+  "correct_fields": {
+   "vendor_name": "Wolds Engineering Supplies plc",
+   "document_number": "IN0012893",
+   "invoice_date": "2025-11-09",
+   "due_date": "2025-12-09",
+   "currency": "GBP",
+   "tax": 13339.99,
+   "total": 80039.92,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "multipage-4p-za-5",
+  "category": "multipage",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Klipspruit Engineering Supplies (Pty) Ltd",
+   "document_number": "F-26-0992",
+   "invoice_date": "2026-03-13",
+   "due_date": "2026-04-12",
+   "currency": "ZAR",
+   "tax": 13749.01,
+   "total": 105409.07,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "multipage-5p-de-6",
+  "category": "multipage",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Ostwall Engineering Supplies GmbH",
+   "document_number": "IN0038658",
+   "invoice_date": "2025-08-24",
+   "due_date": "2025-09-23",
+   "currency": "EUR",
+   "tax": 27398.68,
+   "total": 171602.27,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "multipage-5p-na-7",
+  "category": "multipage",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Kunene Office Supplies CC",
+   "document_number": "IN0070697",
+   "invoice_date": "2025-07-04",
+   "due_date": "2025-09-02",
+   "currency": "NAD",
+   "tax": 15803.2,
+   "total": 121157.85,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "multipage-6p-za-8",
+  "category": "multipage",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Suidkus Tyre & Parts (Pty) Ltd",
+   "document_number": "2026/7016",
+   "invoice_date": "2026-05-16",
+   "due_date": "2026-06-15",
+   "currency": "ZAR",
+   "tax": 26269.37,
+   "total": 201398.5,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "multipage-8p-us-9",
+  "category": "multipage",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Redwood Office Supplies Corp",
+   "document_number": "TN-12080",
+   "invoice_date": "2025-04-07",
+   "due_date": "2025-05-07",
+   "currency": "USD",
+   "tax": 14666.73,
+   "total": 224191.38,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "multipage-8p-na-10",
+  "category": "multipage",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Erongo Office Supplies CC",
+   "document_number": "2026/9667",
+   "invoice_date": "2025-03-10",
+   "due_date": "2025-04-09",
+   "currency": "NAD",
+   "tax": 28300.19,
+   "total": 216968.11,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "freight-carrier-us-1",
+  "category": "freight",
+  "difficulty": "medium",
+  "correct_fields": {
+   "vendor_name": "Redwood Line Haul Co",
+   "document_number": "2026/4214",
+   "invoice_date": "2026-05-01",
+   "due_date": "2026-05-31",
+   "currency": "USD",
+   "tax": 122.21,
+   "total": 1499.2,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "freight-carrier-us-2",
+  "category": "freight",
+  "difficulty": "medium",
+  "correct_fields": {
+   "vendor_name": "Summit Cargo LLC",
+   "document_number": "INV-2026-11954",
+   "invoice_date": "2025-05-31",
+   "due_date": "2025-06-30",
+   "currency": "USD",
+   "tax": 282.37,
+   "total": 3463.98,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "freight-carrier-za-3",
+  "category": "freight",
+  "difficulty": "medium",
+  "correct_fields": {
+   "vendor_name": "Karoo Carriers (Pty) Ltd",
+   "document_number": "INV-2026-15508",
+   "invoice_date": "2026-04-07",
+   "due_date": "2026-05-07",
+   "currency": "ZAR",
+   "tax": 6501.59,
+   "total": 49845.53,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "freight-carrier-za-4",
+  "category": "freight",
+  "difficulty": "medium",
+  "correct_fields": {
+   "vendor_name": "Drakensig Freight (Pty) Ltd",
+   "document_number": "2026/2251",
+   "invoice_date": "2026-01-18",
+   "due_date": "2026-02-17",
+   "currency": "ZAR",
+   "tax": 3191.89,
+   "total": 24471.14,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "freight-carrier-na-5",
+  "category": "freight",
+  "difficulty": "medium",
+  "correct_fields": {
+   "vendor_name": "Namib Sands Transport (Pty) Ltd",
+   "document_number": "AS-903",
+   "invoice_date": "2025-03-16",
+   "due_date": "2025-04-15",
+   "currency": "NAD",
+   "tax": 4341.49,
+   "total": 33284.78,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "freight-carrier-na-6",
+  "category": "freight",
+  "difficulty": "medium",
+  "correct_fields": {
+   "vendor_name": "Brandkop Trucking (Pty) Ltd",
+   "document_number": "BC-65643",
+   "invoice_date": "2026-04-05",
+   "due_date": "2026-05-05",
+   "currency": "NAD",
+   "tax": 2826.17,
+   "total": 21667.28,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "freight-clearing-na-1",
+  "category": "freight",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Erongo Border Services (Pty) Ltd",
+   "document_number": "KN-71210",
+   "invoice_date": "2026-08-02",
+   "due_date": "2026-08-09",
+   "currency": "NAD",
+   "tax": 619.17,
+   "total": 17274.67,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "freight-clearing-na-2",
+  "category": "freight",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Etosha Gate Border Services (Pty) Ltd",
+   "document_number": "2026/4896",
+   "invoice_date": "2026-05-20",
+   "due_date": "2026-05-27",
+   "currency": "NAD",
+   "tax": 247.4,
+   "total": 20043.35,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "freight-clearing-na-3",
+  "category": "freight",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Erongo Border Services CC",
+   "document_number": "BS-25746",
+   "invoice_date": "2025-10-31",
+   "due_date": "2025-11-07",
+   "currency": "NAD",
+   "tax": 457.53,
+   "total": 54083.4,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "freight-clearing-za-4",
+  "category": "freight",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Suidkus Shipping Agencies CC",
+   "document_number": "INV-2026-86335",
+   "invoice_date": "2025-01-22",
+   "due_date": "2025-01-29",
+   "currency": "ZAR",
+   "tax": 599.98,
+   "total": 45620.96,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "freight-clearing-za-5",
+  "category": "freight",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Klipspruit Clearing & Forwarding (Pty) Ltd",
+   "document_number": "2026/5129",
+   "invoice_date": "2026-08-22",
+   "due_date": "2026-08-29",
+   "currency": "ZAR",
+   "tax": 240.62,
+   "total": 9786.47,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "freight-clearing-za-6",
+  "category": "freight",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Drakensig Border Services (Pty) Ltd",
+   "document_number": "F-26-5037",
+   "invoice_date": "2025-09-04",
+   "due_date": "2025-09-11",
+   "currency": "ZAR",
+   "tax": 290.32,
+   "total": 12303.86,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "freight-trip-reference-1",
+  "category": "freight",
+  "difficulty": "medium",
+  "correct_fields": {
+   "vendor_name": "Skeleton Bay Haulage (Pty) Ltd",
+   "document_number": "INV-2026-96480",
+   "invoice_date": "2025-04-25",
+   "due_date": "2025-05-25",
+   "currency": "NAD",
+   "tax": 7912.85,
+   "total": 60665.18,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "freight-trip-reference-2",
+  "category": "freight",
+  "difficulty": "medium",
+  "correct_fields": {
+   "vendor_name": "Drakensig Transport (Pty) Ltd",
+   "document_number": "TL-96821",
+   "invoice_date": "2025-08-19",
+   "currency": "ZAR",
+   "tax": 7377.23,
+   "total": 56558.79,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "freight-trip-reference-3",
+  "category": "freight",
+  "difficulty": "medium",
+  "correct_fields": {
+   "vendor_name": "Zambezi Reach Transport Limited",
+   "document_number": "INV-2026-94104",
+   "invoice_date": "2025-07-03",
+   "due_date": "2025-09-01",
+   "currency": "ZMW",
+   "tax": 2523.07,
+   "total": 18292.27,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "freight-trip-reference-4",
+  "category": "freight",
+  "difficulty": "medium",
+  "correct_fields": {
+   "vendor_name": "Etosha Gate Cargo (Pty) Ltd",
+   "document_number": "2026/6798",
+   "invoice_date": "2025-04-28",
+   "due_date": "2025-05-28",
+   "currency": "NAD",
+   "tax": 3360.31,
+   "total": 25762.38,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "hard-statement-na",
+  "category": "hard",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Brandkop Packaging (Pty) Ltd",
+   "document_type": "other"
+  }
+ },
+ {
+  "id": "hard-statement-za",
+  "category": "hard",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Vaalrand Tyre & Parts CC",
+   "document_type": "other"
+  }
+ },
+ {
+  "id": "hard-po-beside-invoice-number-1",
+  "category": "hard",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Suidkus Industrial Supply (Pty) Ltd",
+   "document_number": "TWSINV564620",
+   "invoice_date": "2026-06-06",
+   "due_date": "2026-06-20",
+   "currency": "ZAR",
+   "tax": 5205.02,
+   "total": 39905.15,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "hard-po-beside-invoice-number-2",
+  "category": "hard",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Vaalrand Tyre & Parts (Pty) Ltd",
+   "document_number": "TWSINV439966",
+   "invoice_date": "2025-09-26",
+   "currency": "ZAR",
+   "tax": 1748.53,
+   "total": 13405.4,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "hard-po-beside-invoice-number-3",
+  "category": "hard",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Blouberg Engineering Supplies (Pty) Ltd",
+   "document_number": "ABCINV832356",
+   "invoice_date": "2026-05-14",
+   "due_date": "2026-06-13",
+   "currency": "ZAR",
+   "tax": 2264.04,
+   "total": 17357.62,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "hard-missing-invoice-number-1",
+  "category": "hard",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Okavango Engineering Supplies (Pty) Ltd",
+   "document_number": null,
+   "invoice_date": "2026-04-06",
+   "currency": "NAD",
+   "tax": 1759.05,
+   "total": 13486.03,
+   "document_type": "invoice"
+  }
+ },
+ {
+  "id": "hard-missing-invoice-number-2",
+  "category": "hard",
+  "difficulty": "hard",
+  "correct_fields": {
+   "vendor_name": "Kransberg Hardware (Pty) Ltd",
+   "document_number": null,
+   "invoice_date": "2025-10-17",
+   "due_date": "2025-10-31",
+   "currency": "ZAR",
+   "tax": 7665.34,
+   "total": 58767.59,
+   "document_type": "invoice"
+  }
+ }
+]
