@@ -7,8 +7,16 @@ export const DEMO = String(import.meta.env.VITE_DEMO || "") === "1"
   || String(import.meta.env.VITE_DEMO || "").toLowerCase() === "true";
 
 // Map an API path (e.g. "/studies/3/results") to its static file under public/demo-data/.
+// A results view for one dimension or one question filter is its own file, e.g.
+// "/studies/3/results?dimension=quality&fkey=category&fval=refund"
+//   -> demo-data/studies-3-results--dimension-quality--fkey-category--fval-refund.json
+// (scripts/export_demo_data.py writes these files with the same rule).
 export function demoFile(path) {
-  const clean = path.split("?")[0].replace(/^\/+/, "").replace(/\//g, "-");
+  const [base, query = ""] = path.split("?");
+  let clean = base.replace(/^\/+/, "").replace(/\//g, "-");
+  const params = new URLSearchParams(query);
+  const view = ["dimension", "fkey", "fval"].filter((k) => params.get(k)).map((k) => `${k}-${params.get(k)}`);
+  if (view.length) clean += "--" + view.join("--").replace(/[^A-Za-z0-9_.-]/g, "_");
   return `${import.meta.env.BASE_URL}demo-data/${clean}.json`;
 }
 

@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { api } from "../lib/api.js";
 import InfoTip from "../components/InfoTip.jsx";
 import Collapsible from "../components/Collapsible.jsx";
+import Spinner from "../components/Spinner.jsx";
 
 // ── formatting ────────────────────────────────────────────────────────────────
 const fmt = (x, d = 3) => (x === null || x === undefined ? "—" : Number(x).toFixed(d));
@@ -118,7 +119,7 @@ function EffectsTable({ effects, model, r2, notes }) {
         <tbody>
           {[...effects].sort((a, b) => (b.partial_eta_sq || 0) - (a.partial_eta_sq || 0)).map((e, i) => (
             <tr key={i}>
-              <td className="mono">{e.factor}{e.interaction ? <span className="muted"> ×</span> : ""}</td>
+              <td className="mono">{e.factor}</td>
               <td className="mono">{fmtF(e)}</td>
               <td className="mono">{fmt(e.p, 4)} <span style={{ color: "var(--amber)" }}>{sig(e.p)}</span></td>
               <td className="mono">{fmt(e.partial_eta_sq, 3)}</td>
@@ -287,7 +288,7 @@ function FactorTests({ tests }) {
       <tbody>
         {rows.map((t, i) => (
           <tr key={i}>
-            <td className="mono" style={{ color: t.significant ? "var(--green)" : undefined }}>{t.term}{t.interaction ? <span className="muted"> ×</span> : ""}</td>
+            <td className="mono" style={{ color: t.significant ? "var(--green)" : undefined }}>{t.term}</td>
             <td className="mono">{fmt(t.chisq, 2)}</td>
             <td className="mono">{t.df ?? "—"}</td>
             <td className="mono">{fmt(t.p, 4)} <span style={{ color: "var(--amber)" }}>{sig(t.p)}</span></td>
@@ -316,7 +317,7 @@ function CLMMTable({ clmm }) {
         <tbody>
           {coefs.map((c, i) => (
             <tr key={i}>
-              <td className="mono" title={c.label || c.term} style={{ color: c.significant ? "var(--green)" : undefined, maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.label || c.term}{c.interaction ? <span className="muted"> ×</span> : ""}</td>
+              <td className="mono" title={c.label || c.term} style={{ color: c.significant ? "var(--green)" : undefined, maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.label || c.term}</td>
               <td className="mono">{c.estimate >= 0 ? "+" : ""}{fmt(c.estimate, 3)}</td>
               <td className="mono">{fmt(Math.exp(c.estimate), 2)}×</td>
               <td className="mono">{fmt(c.z, 2)}</td>
@@ -357,7 +358,7 @@ function LogisticTable({ logistic }) {
         <tbody>
           {terms.map((t, i) => (
             <tr key={i}>
-              <td className="mono" title={t.label} style={{ color: t.significant ? "var(--green)" : undefined }}>{t.label}{t.interaction ? <span className="muted"> ×</span> : ""}</td>
+              <td className="mono" title={t.label} style={{ color: t.significant ? "var(--green)" : undefined }}>{t.label}</td>
               <td className="mono">{t.coef >= 0 ? "+" : ""}{fmt(t.coef, 3)}</td>
               <td className="mono">{fmt(t.odds_ratio, 2)}×</td>
               <td className="mono">{fmt(t.p, 4)} <span style={{ color: "var(--amber)" }}>{sig(t.p)}</span></td>
@@ -629,6 +630,12 @@ export default function Results() {
     loadView(dim, next);
   };
 
+  // The read-only demo stores each question and reference answer once per view (res.questions /
+  // res.references, keyed by question id) instead of in every answer row; fill them back in.
+  const answerRows = useMemo(() => (res?.records || []).map((r) => (r.question != null ? r : {
+    ...r, question: res.questions?.[r.input_id], reference: res.references?.[r.input_id],
+  })), [res]);
+
   const byFactor = useMemo(() => {
     const g = {};
     (res?.marginal_means || []).forEach((r) => { (g[r.factor] ||= []).push(r); });
@@ -705,7 +712,13 @@ export default function Results() {
 
       {err && <div className="banner">{err}</div>}
       {!sel && <div className="empty">select a finished study above</div>}
-      {sel && !res && !err && <div className="loading">loading results…</div>}
+      {sel && !res && !err && (
+        <div className="loading">
+          {qSel
+            ? <Spinner label={`Recomputing all statistics for ${qSel.key} = ${qSel.value}: every model is refitted on this subset of questions. The first time takes a moment; after that it is cached.`} />
+            : <Spinner label="loading results…" />}
+        </div>
+      )}
 
       {res && (
         <>
@@ -812,7 +825,7 @@ export default function Results() {
 
           {res.records?.length > 0 && (
             <Collapsible title="Answers — question → answer → verdict" hint={`${res.records.length} rows`}>
-              <Records records={res.records} factors={factors} />
+              <Records records={answerRows} factors={factors} />
             </Collapsible>
           )}
 
