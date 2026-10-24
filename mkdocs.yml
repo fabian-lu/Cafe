@@ -55,7 +55,9 @@ nav:
       - Fractional designs: notebooks/06_fractional_design.ipynb
       - HotpotQA evaluation: notebooks/evaluation/evaluation.ipynb
   - Case studies:
-      - Support chatbot cost vs quality: notebooks/case_studies/01_support_chatbot_quality.ipynb
+      - Question answering (HotpotQA): notebooks/case_studies/question_answering_study.ipynb
+      - Support chatbot: notebooks/case_studies/support_chatbot_study.ipynb
+      - Invoice processing: notebooks/case_studies/invoice_study.ipynb
   - API reference: reference/api.md
   - Releasing: releasing.md
 

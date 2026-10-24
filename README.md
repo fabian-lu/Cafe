@@ -157,6 +157,7 @@ apps/web-app/         the self-hostable platform (FastAPI backend + React/Vite f
 apps/landing/         the landing page
 techniques/           example systems-under-test — the extension point you copy and adapt
 examples/             tutorial notebooks (also rendered into the docs)
+case_studies/         three complete studies (question answering, support chatbot, invoices), with results
 docs/                 documentation source (MkDocs)
 ```
 
