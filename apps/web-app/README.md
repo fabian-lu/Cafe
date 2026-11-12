@@ -15,6 +15,10 @@ docker compose up
 - Frontend → http://localhost:5173
 - Backend API → http://localhost:8000/api/health, http://localhost:8000/api/pipelines
 
+A fresh database starts with a demo study (the HotpotQA RAG evaluation, with full results). It is
+seeded only into a database without any study, rubric or question dataset, so deleting the demo
+study doesn't bring it back when the backend restarts.
+
 ## The system under test
 
 Lives in code, in the repo-root [`techniques/`](../../techniques) folder (mounted into the backend).

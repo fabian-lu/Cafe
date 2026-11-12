@@ -1,8 +1,10 @@
 """Seed an empty database with the bundled demo study (the HotpotQA RAG evaluation), so a fresh
 ``docker compose up`` opens straight into a real study with full results — no run, no API keys needed.
 
-It is a **no-op** if the database already has any study (so it never touches an existing install) or
-if the seed file is missing. The seed is the same ``{study, rubric, dataset, payload}`` shape the
+It only acts on a **fresh** database, one without any study, rubric or dataset: it never touches an
+existing install, and a demo study the user deleted doesn't come back on the next start (docker
+compose runs the backend with ``--reload``, so every code edit is a restart). It is also a no-op if
+the seed file is missing. The seed is the same ``{study, rubric, dataset, payload}`` shape the
 ``app.recover`` importer uses.
 """
 
@@ -20,13 +22,19 @@ SEED_FILE = Path(__file__).parent / "seed" / "demo_seed.json"
 
 
 async def seed_if_empty() -> None:
-    """Insert the demo study iff the DB has no studies yet and the seed file exists."""
+    """Insert the demo study (with its rubric and dataset) into a fresh database.
+
+    A database is fresh when it holds no study, rubric or dataset at all; nothing happens
+    otherwise, or if the seed file is missing. No studies alone isn't enough: once the user
+    deletes the demo study its rubric and dataset remain, and every later start would add the
+    demo back, with another copy of each.
+    """
     if not SEED_FILE.exists():
         return
     async with SessionLocal() as db:
-        count = (await db.execute(select(func.count(models.Study.id)))).scalar_one()
-        if count:
-            return  # existing install — leave it alone
+        for model in (models.Study, models.Rubric, models.Dataset):
+            if (await db.execute(select(func.count(model.id)))).scalar_one():
+                return  # not a fresh database — leave it alone
 
         blob = json.loads(SEED_FILE.read_text(encoding="utf-8"))
         rubric = models.Rubric(**blob["rubric"])
