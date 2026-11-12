@@ -97,6 +97,30 @@ def test_reliability_judge_vs_human():
     assert rel.interpret(rel.alpha) == "reliable"
 
 
+def test_reliability_keeps_negative_judge_scores():
+    """Rubric levels may be negative (e.g. -2..2). The judge's per-answer score is rounded
+    half-up as in the stats frame; truncating toward zero moved -2 to -1 and -1 to 0, so a
+    human who agreed with the judge exactly got α < 1."""
+    from cafe.judging.rubric import Level, Rubric
+    from cafe.stats.reliability import _judge_scores
+
+    rubric = Rubric(name="pref", scale_type="ordinal",
+                    levels=[Level(v, str(v), "") for v in (-2, -1, 0, 1, 2)])
+    obs = [Observation(config={"m": "a"}, input_id=f"q{i}", rep=0, output="x") for i in range(7)]
+    verdicts = [[-2], [-1], [0], [1], [2],
+                [-2, -1],        # mean -1.5  -> -1 (half-up)
+                [-2, -2, -1]]    # mean -1.67 -> -2 (truncation gave -1)
+    items = [Rating(obs_key=o.key(), config=o.config, input_id=o.input_id, rep=0, judge_rep=jr,
+                    value=v, value_numeric=v)
+             for o, vs in zip(obs, verdicts) for jr, v in enumerate(vs)]
+    ev = Evaluation(study_name="t", answers=Results("t", ["m"], obs),
+                    ratings=Ratings(rubric=rubric, judge_model="j", factors=["m"], items=items))
+    scores = _judge_scores(ev, "judge")
+    assert [scores[o.key()] for o in obs] == [-2, -1, 0, 1, 2, -1, -2]
+    human = [{"answer_id": o.key(), "rater": "ann", "score": scores[o.key()]} for o in obs]
+    assert cafe.reliability(ev, human=human).alpha == 1.0
+
+
 def test_reliability_needs_two_raters():
     ev, _ = _evaluation_with_judge()
     with pytest.raises(ValueError, match="two raters"):

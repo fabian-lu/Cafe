@@ -17,6 +17,7 @@ humans don't agree enough to trust the judge's verdicts. Needs the ``stats`` ext
 
 from __future__ import annotations
 
+import math
 import statistics
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -262,8 +263,10 @@ def _judge_scores(evaluation: "Evaluation", label: str) -> dict[Any, Any]:
     """Collapse the judge's verdicts to one score per answer (mean over judge reps).
 
     For an ordinal/binary rubric the mean is rounded back to an integer scale point
-    (round-half-up); for a **numeric** rubric the mean is kept as-is — rounding 7.5→8 would
-    corrupt the interval metric that α uses for numeric scales."""
+    (round-half-up, as in :func:`cafe.stats._frame.analysis_frame`; also for negative
+    levels, where truncating toward zero would move -2 to -1); for a **numeric** rubric
+    the mean is kept as-is — rounding 7.5→8 would corrupt the interval metric that α
+    uses for numeric scales."""
     from cafe.judging.rubric import ScaleType
 
     by_answer: dict[Any, list[float]] = defaultdict(list)
@@ -275,7 +278,7 @@ def _judge_scores(evaluation: "Evaluation", label: str) -> dict[Any, Any]:
     scale = getattr(getattr(ratings, "rubric", None), "scale_type", None)
     if scale == ScaleType.numeric:
         return {u: statistics.fmean(v) for u, v in by_answer.items()}
-    return {u: int(statistics.fmean(v) + 0.5) for u, v in by_answer.items()}  # round-half-up
+    return {u: math.floor(statistics.fmean(v) + 0.5) for u, v in by_answer.items()}  # half-up
 
 
 def _metric_for(evaluation: "Evaluation" | None) -> str:
