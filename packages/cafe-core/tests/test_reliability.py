@@ -136,6 +136,39 @@ def test_answer_sheet_csv_roundtrip_skips_blanks(tmp_path):
     assert {r["answer_id"] for r in hr.records} == {keys[0]}
 
 
+def _fill_sheet(path, scores):
+    """Write ``scores`` (text, in row order, cycled) into the score column of a sheet."""
+    import csv
+
+    with open(path, newline="", encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    for i, row in enumerate(rows):
+        row["score"] = scores[i % len(scores)]
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def test_human_ratings_reads_a_sheet_path_and_keeps_rater_names(tmp_path):
+    """The sheet's path may be a pathlib.Path, as for answer_sheet (it raised TypeError), and
+    rater names come back as written: pandas used to read "NA" as nan and "01" as 1."""
+    ev, keys = _evaluation_with_judge()
+    path = tmp_path / "sheet.csv"
+    cafe.answer_sheet(ev, path, raters=("NA", "01", "007", "True"))
+    _fill_sheet(path, ["2", "", "3.0", "NA", "1"])   # a blank or "NA" score: unrated
+
+    hr = cafe.human_ratings(path)
+    assert hr.raters() == ["007", "01", "NA", "True"]
+    assert len(hr.records) == 10                       # 16 rows, 6 of them unrated
+    assert {r["score"] for r in hr.records} == {1, 2, 3}
+    assert cafe.human_ratings(str(path)).records == hr.records
+
+    cafe.answer_sheet(ev, path, raters=("01", "02"))   # all-numeric names: were read as 1, 2
+    _fill_sheet(path, ["2"])
+    assert cafe.human_ratings(path).raters() == ["01", "02"]
+
+
 def test_reliability_auto_metric_from_rubric():
     ev, keys = _evaluation_with_judge()  # ANSWER_QUALITY_1_5 is ordinal
     human = [{"answer_id": k, "rater": "ann", "score": s} for k, s in zip(keys, [5, 4, 5, 3])]

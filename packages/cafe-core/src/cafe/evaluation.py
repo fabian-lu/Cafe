@@ -13,6 +13,7 @@ estimate.
 
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable
@@ -528,7 +529,7 @@ async def preflight(study: "Study", *, concurrency: int = 8, progress: bool = Fa
     )
 
 
-def save_evaluation(evaluation: "Evaluation", path: str) -> None:
+def save_evaluation(evaluation: "Evaluation", path: str | os.PathLike[str]) -> None:
     """Serialize a completed :class:`Evaluation` to a JSON file so it can be **reloaded or
     shared without re-running** the study (e.g. imported into the web app). Captures the
     answers, the judge ratings, the rubric, the question/reference maps, and timing — i.e.
@@ -571,11 +572,23 @@ def save_evaluation(evaluation: "Evaluation", path: str) -> None:
         json.dump(data, fh, default=str)
 
 
-def load_evaluation(source: "str | dict[str, Any]") -> "Evaluation":
-    """Rebuild an :class:`Evaluation` saved by :func:`save_evaluation`. ``source`` is a path
-    to the JSON file or an already-parsed dict. Attribution is recomputed from the ratings, so
-    the returned Evaluation behaves exactly like a freshly-run one (``report``, ``effects``,
-    ``clmm`` all work) — no LLM calls are made.
+def load_evaluation(source: "str | os.PathLike[str] | dict[str, Any]") -> "Evaluation":
+    """Rebuild an :class:`Evaluation` saved by :func:`save_evaluation`. Attribution is
+    recomputed from the ratings, so the returned Evaluation behaves exactly like a
+    freshly-run one (``report``, ``effects``, ``clmm`` all work) — no LLM calls are made.
+
+    Parameters
+    ----------
+    source:
+        The path of the JSON file (a ``str`` or an ``os.PathLike`` such as a
+        ``pathlib.Path``, like the path given to :func:`save_evaluation`), or its
+        already-parsed content as a dict.
+
+    Returns
+    -------
+    Evaluation
+        The saved evaluation, with its answers, judge ratings, rubric and question/reference
+        maps.
     """
     import json
 
@@ -585,7 +598,7 @@ def load_evaluation(source: "str | dict[str, Any]") -> "Evaluation":
     from cafe.stats import attribute
 
     data = source
-    if isinstance(source, str):
+    if isinstance(source, (str, os.PathLike)):
         with open(source, encoding="utf-8") as fh:
             data = json.load(fh)
 

@@ -71,3 +71,14 @@ def test_records_without_judge_falls_back_to_answers():
     rows = ev.records()
     assert {r["output"] for r in rows} == {"Paris", "banana"}
     assert all("verdict" not in r for r in rows)
+
+
+def test_load_evaluation_reads_the_path_save_evaluation_wrote(tmp_path):
+    """save_evaluation took a pathlib.Path but load_evaluation raised TypeError on it."""
+    path = tmp_path / "evaluation.json"
+    cafe.save_evaluation(_evaluation(), path)
+    loaded = cafe.load_evaluation(path)
+    assert [o.output for o in loaded.answers.observations] == ["Paris", "banana"]
+    assert [r.value_numeric for r in loaded.ratings.items] == [5, None]
+    assert loaded.questions == {"q0": "Capital of France?", "q1": "What is 2+2?"}
+    assert cafe.load_evaluation(str(path)).questions == loaded.questions
