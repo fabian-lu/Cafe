@@ -61,6 +61,9 @@ scales up:
 
 **Fractional factorial** designs (which trade completeness for far fewer runs) are
 available now via `design="fractional"` — see `examples/06_fractional_design.ipynb`.
+Its options go in `design_options` (`{"runs": 16}`, or your own `generators`). The other
+designs take none: switch a study back to `full_factorial` with `design_options` still set
+and CAFE raises an error naming the option, rather than ignore it and run the whole grid.
 Screening, optimal, and response-surface designs are on the roadmap.
 
 ## What you get back
