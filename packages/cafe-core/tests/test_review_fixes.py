@@ -84,15 +84,119 @@ async def test_judging_checkpoint_resumes(tmp_path):
     results = _results(["one", "two", "three"])
     r1 = await judge_results(results, _FixedJudge(), cafe.ANSWER_QUALITY_1_5, checkpoint_path=ckpt)
     assert len(r1.items) == 3
-    # a fresh judge that would score differently — but everything is already checkpointed
-    class _Other(_FixedJudge):
-        model = "other"
-
+    # the same judge again (same model), now scoring differently — but everything is
+    # already checkpointed
+    class _Again(_FixedJudge):
         async def score(self, rubric, question, answer, reference=None):
             return JudgeOutput(2, 2, "different", "p", "r")
 
-    r2 = await judge_results(results, _Other(), cafe.ANSWER_QUALITY_1_5, checkpoint_path=ckpt)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # this judge's own verdicts: nothing to warn about
+        r2 = await judge_results(results, _Again(), cafe.ANSWER_QUALITY_1_5, checkpoint_path=ckpt)
     assert [r.value_numeric for r in r2.items] == [5, 5, 5]  # resumed, not re-scored
+
+
+class _CountingJudge:
+    """Scores every answer ``value`` and counts its calls."""
+
+    def __init__(self, model, value, **settings):
+        self.model, self.value, self.calls = model, value, 0
+        self.__dict__.update(settings)  # e.g. an LLM judge's preset / system_prompt
+
+    async def score(self, rubric, question, answer, reference=None):
+        self.calls += 1
+        return JudgeOutput(self.value, rubric.numeric(self.value), "", "p", str(self.value))
+
+
+@pytest.mark.parametrize("judge, rubric", [
+    (_CountingJudge("other", 2), cafe.ANSWER_QUALITY_1_5),
+    (_CountingJudge("fixed", 1), cafe.rubrics.CORRECT_PASS_FAIL),
+    (_CountingJudge("fixed", 2, preset="single_answer"), cafe.ANSWER_QUALITY_1_5),
+    (_CountingJudge("fixed", 2, system_prompt="Be lenient."), cafe.ANSWER_QUALITY_1_5),
+    (_CountingJudge("fixed", 2), cafe.Rubric(
+        name=cafe.ANSWER_QUALITY_1_5.name, levels=cafe.ANSWER_QUALITY_1_5.levels[:3])),
+], ids=["another-judge", "another-rubric", "another-preset", "another-system-prompt",
+        "same-rubric-name-other-scale"])
+async def test_judging_checkpoint_drops_verdicts_of_another_judge_or_rubric(tmp_path, judge, rubric):
+    ckpt = str(tmp_path / "judge.jsonl")
+    results = _results(["one", "two", "three"])
+    await judge_results(results, _FixedJudge(), cafe.ANSWER_QUALITY_1_5, checkpoint_path=ckpt)
+
+    with pytest.warns(UserWarning, match="dropped 3 stored verdict.*another judge or rubric"):
+        again = await judge_results(results, judge, rubric, checkpoint_path=ckpt)
+    assert judge.calls == 3  # every answer judged by this judge, on this rubric
+    assert [r.value_numeric for r in again.items] == [judge.value] * 3
+    # ... and its verdicts are recorded as its own: resuming with it judges nothing
+    judge.calls = 0
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        resumed = await judge_results(results, judge, rubric, checkpoint_path=ckpt)
+    assert judge.calls == 0 and [r.value_numeric for r in resumed.items] == [judge.value] * 3
+
+
+async def test_judging_checkpoint_rows_record_the_judge_and_rubric(tmp_path):
+    import json
+
+    ckpt = tmp_path / "judge.jsonl"
+    await judge_results(_results(["one", "two"]), _FixedJudge(), cafe.ANSWER_QUALITY_1_5,
+                        checkpoint_path=str(ckpt))
+    rows = [json.loads(line) for line in ckpt.read_text(encoding="utf-8").splitlines()]
+    assert len(rows) == 2
+    for row in rows:
+        assert row["judged_by"]["judge"] == "fixed"
+        assert row["judged_by"]["rubric"] == "answer_quality_1_5"
+        assert row["judged_by"]["digest"]
+
+
+async def test_judging_checkpoint_without_judge_record_keeps_only_verdicts_on_the_scale(tmp_path):
+    # A file written before checkpoints recorded the judge and rubric: its rows are kept as
+    # this judge's (with a warning), unless their verdict is not on this rubric's scale.
+    import json
+
+    ckpt = tmp_path / "judge.jsonl"
+    results = _results(["one", "two", "three"])
+    ckpt.write_text("".join(
+        json.dumps(Rating(obs_key=o.key(), config=o.config, input_id=o.input_id, rep=0,
+                          judge_rep=0, value=v, value_numeric=v).to_dict()) + "\n"
+        for o, v in zip(results.observations, [5, 3, 1])), encoding="utf-8")
+
+    quality = _CountingJudge("fixed", 4)
+    with pytest.warns(UserWarning, match="3 stored verdict.*don't record which judge") as rec:
+        kept = await judge_results(results, quality, cafe.ANSWER_QUALITY_1_5,
+                                   checkpoint_path=str(ckpt))
+    assert not any("dropped" in str(w.message) for w in rec)
+    assert quality.calls == 0 and [r.value_numeric for r in kept.items] == [5, 3, 1]
+
+    binary = _CountingJudge("fixed", 0)  # 5 and 3 are not pass/fail verdicts; 1 is
+    with pytest.warns(UserWarning) as rec:
+        checked = await judge_results(results, binary, cafe.rubrics.CORRECT_PASS_FAIL,
+                                      checkpoint_path=str(ckpt))
+    messages = [str(w.message) for w in rec]
+    assert any("dropped 2 stored verdict" in m and "not on the scale" in m for m in messages)
+    assert any("1 stored verdict(s) don't record which judge" in m for m in messages)
+    assert binary.calls == 2
+    assert sorted(r.value_numeric for r in checked.items) == [0, 0, 1]
+
+
+def test_rejudge_with_another_judge_or_rubric_on_the_same_checkpoint(tmp_path):
+    # The end-to-end path: evaluate() with a judge checkpoint, then rejudge() on that file.
+    ckpt = str(tmp_path / "verdicts.jsonl")
+    study = cafe.Study(name="t", system=lambda c, i: f"answer {c['m']} {i}",
+                       factors=[cafe.Factor("m", ["a", "b"])],
+                       dataset=[f"q{i}" for i in range(4)],
+                       rubric=cafe.rubrics.CORRECTNESS_0_3, judge=_CountingJudge("big", 3))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        first = study.evaluate(progress=False, judge_checkpoint_path=ckpt)
+        small = _CountingJudge("small", 1)
+        second = first.rejudge(small, checkpoint_path=ckpt, progress=False)
+        binary = _CountingJudge("big", 1)
+        third = first.rejudge(binary, rubric=cafe.rubrics.CORRECT_PASS_FAIL,
+                              checkpoint_path=ckpt, progress=False)
+    assert small.calls == 8 and second.ratings.judge_model == "small"
+    assert {r.value_numeric for r in second.ratings.items} == {1}
+    assert binary.calls == 8 and {r.value_numeric for r in third.ratings.items} == {1}
+    assert third.overall_mean == 1.0  # a pass rate, not the 0-3 rubric's 3
 
 
 # ── judging resume keeps only the current answers × repetitions (issue #11) ──

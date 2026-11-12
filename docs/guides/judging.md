@@ -146,6 +146,20 @@ This is also the basis for **judge ↔ judge** agreement:
 cafe.reliability(raters={"120b": result, "20b": result.rejudge(judge_20b)})
 ```
 
+A long judging run can be checkpointed (`judge_checkpoint_path=` on `evaluate()`,
+`checkpoint_path=` on `rejudge()`): each verdict is saved as it lands, and a re-run judges
+only what is missing. Every saved verdict records the judge and rubric that wrote it, and a
+run reuses only its own. Point a `rejudge()` with another judge or rubric at the first
+run's file and every answer is judged again, with a warning, instead of the first judge's
+verdicts coming back under the new judge's name or on the wrong scale. A judge counts as
+the same when its `model` matches and, for an `LLMJudge`, its `preset`, `prompt_template`
+and `system_prompt` do; a custom judge is known by its `model` alone. A rubric counts as
+the same when its name, scale type, levels, instruction and template match. Still, give
+each judge and rubric its own file: in a shared one they keep replacing each other's
+verdicts, so every run judges everything again. A checkpoint written before CAFE recorded
+the judge and rubric has its verdicts kept as the current judge's, with a warning, except
+those not on the rubric's scale.
+
 ## A custom (non-LLM) judge
 
 A judge is anything with a `model` attribute and an async `score()` returning a
