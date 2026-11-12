@@ -10,6 +10,7 @@ verdicts per answer and computes α.
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import random
 
@@ -56,18 +57,55 @@ def _answer_key(rec: dict, factors: list[str]) -> str:
     return f"{obs.key()}::{digest}"
 
 
-def _answer_keys(payload: dict) -> list[str]:
-    factors = list(payload.get("factors") or [])
-    return [_answer_key(r, factors) for r in payload.get("records", [])]
+def _null_stage_keys(rec: dict, factors: list[str]) -> list[str]:
+    """Other keys a stored score may carry for the answer in ``rec``. Payloads computed before
+    results showed a skipped stage (a ``None`` level) as ``"none"`` held ``null`` there, and
+    the key is computed from those values. Any of the record's ``"none"`` values may have been
+    ``null`` (another may be a technique named "none"), so each combination of them read as
+    ``None`` is a candidate (past four ``"none"`` values, only all of them)."""
+    nones = [f for f in factors if rec.get(f) == "none"]
+    sizes = range(1, len(nones) + 1) if len(nones) <= 4 else [len(nones)]
+    return [_answer_key({**rec, **dict.fromkeys(subset)}, factors)
+            for size in sizes for subset in itertools.combinations(nones, size)]
 
 
-def _current_key(stored: str, keys: list[str]) -> str | None:
+class _AnswerKeys(list):
+    """The current answers' keys, one per payload record. :attr:`legacy` maps each key of
+    :func:`_null_stage_keys` to its answer's current key, so a score stored under it keeps
+    its answer; it is built the first time a stored key isn't a current one."""
+
+    def __init__(self, payload: dict) -> None:
+        self._factors = list(payload.get("factors") or [])
+        self._records = payload.get("records", [])
+        super().__init__(_answer_key(r, self._factors) for r in self._records)
+        self._legacy: dict[str, str] | None = None
+
+    @property
+    def legacy(self) -> dict[str, str]:
+        if self._legacy is None:
+            current = set(self)
+            self._legacy = {}
+            for rec, key in zip(self._records, self):
+                for old in _null_stage_keys(rec, self._factors):
+                    if old not in current:
+                        self._legacy.setdefault(old, key)
+        return self._legacy
+
+
+def _answer_keys(payload: dict) -> _AnswerKeys:
+    return _AnswerKeys(payload)
+
+
+def _current_key(stored: str, keys: _AnswerKeys) -> str | None:
     """Map a stored ``answer_key`` onto the current answers' keys (``None`` = stale). Ratings
     saved before answer keys existed hold the row index into the records list; they keep that
-    meaning until ``pin_legacy_rating_keys`` converts them."""
+    meaning until ``pin_legacy_rating_keys`` converts them. A key from a payload that held a
+    skipped stage as ``null`` maps through ``keys.legacy``."""
     if stored.isdigit():
         return keys[int(stored)] if int(stored) < len(keys) else None
-    return stored if stored in keys else None
+    if stored in keys:
+        return stored
+    return keys.legacy.get(stored)
 
 
 async def pin_legacy_rating_keys(db: AsyncSession, study_id: int) -> None:
@@ -143,16 +181,18 @@ async def submit_ratings(id_: int, body: HumanRatingsIn, db: AsyncSession = Depe
     await _require_study(db, id_)
     keys = {str(k) for k in body.scores}
     # only answers of this study can be rated (a stray key would just pile up as "stale")
-    unknown = keys - set(_answer_keys(await _results(db, id_)))
+    current = _answer_keys(await _results(db, id_))
+    unknown = keys - set(current)
     if unknown:
         raise HTTPException(400, f"{len(unknown)} answer key(s) don't belong to this study's "
                                  f"answers (e.g. {sorted(unknown)[0]!r}) — reload the rating sheet")
-    # replace this rater's prior scores for the answers scored now; their other ratings stay
-    # (a returning rater submitting a partial sheet must not lose earlier work)
+    # replace this rater's prior scores for the answers scored now, also one stored under an
+    # answer's earlier key (see _current_key); their other ratings stay (a returning rater
+    # submitting a partial sheet must not lose earlier work)
     existing = (await db.execute(select(models.HumanRating).where(
         models.HumanRating.study_id == id_, models.HumanRating.rater == body.rater))).scalars()
     for row in existing:
-        if row.answer_key in keys:
+        if _current_key(row.answer_key, current) in keys:
             await db.delete(row)
     for key, score in body.scores.items():
         db.add(models.HumanRating(study_id=id_, answer_key=str(key), rater=body.rater, score=float(score)))

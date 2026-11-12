@@ -71,7 +71,18 @@ class Evaluation:
         This is the "give me everything" view — ``import pandas as pd;
         pd.DataFrame(ev.records())`` and slice however you like. With no judge it falls
         back to one row per answer.
+
+        Returns
+        -------
+        list of dict
+            One row per verdict (per answer without a judge). Each factor's column holds the
+            level as ``answers.df``, ``ratings.df`` and the statistics show it
+            (:func:`~cafe.execution.results.level_label`): a ``None`` level (a skipped stage)
+            is ``"none"``, so a DataFrame ``groupby`` keeps those rows instead of dropping
+            them as missing.
         """
+        from cafe.execution.results import level_label
+
         by_key = {o.key(): o for o in self.answers.observations}
         sys_prompt = self.ratings.judge_system_prompt if self.ratings else None
         rows: list[dict[str, Any]] = []
@@ -83,7 +94,8 @@ class Evaluation:
                     "input_id": o.input_id,
                     "question": self.questions.get(o.input_id),
                     "reference": self.references.get(o.input_id),
-                    **o.config, "rep": o.rep, "output": o.output,
+                    **{k: level_label(v) for k, v in o.config.items()},
+                    "rep": o.rep, "output": o.output,
                     "elapsed_s": o.elapsed_s,
                     "cost_usd": meta.get("cost_usd"), "tokens": meta.get("tokens"),
                     "energy_wh": meta.get("energy_wh"),
@@ -98,7 +110,7 @@ class Evaluation:
                 "input_id": r.input_id,
                 "question": self.questions.get(r.input_id),
                 "reference": self.references.get(r.input_id),
-                **r.config,
+                **{k: level_label(v) for k, v in r.config.items()},
                 "rep": r.rep,
                 "judge_rep": r.judge_rep,
                 "output": obs.output if obs else None,
