@@ -207,7 +207,10 @@ between questions (`π²/3` is the fixed residual variance of a logit link). The
 GLMM for binary rubrics prints the same line. When `σ_u` collapses to about 0, the report
 adds a *near-singular* note: the questions don't differ beyond what the factors explain. That
 is a boundary fit, not a failure — the estimates and p-values stay valid (they equal those of
-the same model without a question effect). The numbers are also available as
+the same model without a question effect). At that boundary `ordinal::clmm` itself often
+has no standard errors (its Hessian is singular in `σ_u`); CAFE then takes the standard
+errors and p-values from `ordinal::clm` — the same fixed effects without the question
+effect, which the fit equals — and says so in a note. The numbers are also available as
 `result.clmm.variance_components` / `result.logistic.variance_components`.
 
 ## Which model runs for which rubric

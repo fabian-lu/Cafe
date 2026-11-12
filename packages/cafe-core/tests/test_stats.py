@@ -1102,3 +1102,92 @@ def test_random_intercept_components_and_note_from_r_payload():
     statsmodels_like = Logistic(available=True, formula="f")
     _set_random_intercept(statsmodels_like, {})                 # no random intercept fit
     assert statsmodels_like.variance_components is None
+
+
+def _near_singular_clmm(monkeypatch, sd: float, clm: dict | None):
+    """fit_clmm on a canned clmm.R payload: a converged fit whose random intercept has SD
+    ``sd`` and whose standard errors are all undefined (NaN in R, null in the JSON), plus
+    clmm.R's ``clm`` fit of the same fixed effects without the question effect."""
+    import json
+    import subprocess
+
+    from cafe.stats import ordinal
+
+    payload = {"available": True, "n_obs": 40, "logLik": -34.74832, "thresholds": [],
+               "formula": "verdict ~ (1 | input_id) + m + p",
+               "optimizer": {"convergence": 0, "message": "relative convergence (4)"},
+               "random_intercept": {"variance": sd ** 2, "sd": sd},
+               "coefficients": [{"term": t, "estimate": e, "std_error": None, "z": None, "p": None}
+                                for t, e in (("mb", 2.156117), ("py", 0.082273))],
+               "clm": clm}
+    monkeypatch.setattr(ordinal, "check_r", lambda: (True, "ok"))
+    monkeypatch.setattr(ordinal.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(
+        a[0], 0, stdout=json.dumps(payload), stderr=""))
+    items = [Rating(obs_key=f"{m}{p}{q}", config={"m": m, "p": p}, input_id=f"q{q}", rep=0,
+                    judge_rep=0, value=v, value_numeric=v)
+             for q in range(10) for m, p, v in (("a", "x", 1), ("a", "y", 2), ("b", "x", 2), ("b", "y", 3))]
+    return fit_clmm(Ratings(rubric=ANSWER_QUALITY_1_5, judge_model="x", factors=["m", "p"],
+                            items=items), interactions=1)
+
+
+_CLM = {"logLik": -34.74832, "convergence": 0,
+        "coefficients": [{"term": "mb", "std_error": 0.7214407, "z": 2.988623, "p": 0.002802373},
+                         {"term": "py", "std_error": 0.6548626, "z": 0.1256321, "p": 0.9000232}]}
+
+
+def test_near_singular_clmm_takes_its_p_values_from_clm(monkeypatch):
+    """σ_u ≈ 0 makes ordinal::clmm's Hessian singular: no standard errors, every p "-", and
+    the report blamed separation. The fit is then the model without a question effect, so
+    its standard errors and p-values come from ordinal::clm (as the near-singular note says)."""
+    res = _near_singular_clmm(monkeypatch, sd=5.2e-05, clm=_CLM)
+    mb, py = res.coefficients
+    assert (mb["std_error"], mb["p"], mb["significant"]) == (0.7214407, 0.002802373, True)
+    assert (py["z"], py["p"], py["significant"]) == (0.1256321, 0.9000232, False)
+    assert mb["estimate"] == 2.156117                      # the CLMM's own estimate
+    assert res.significant_factors == ["m"]
+    assert any("those of ordinal::clm" in w for w in res.warnings)
+    text = res.show()
+    assert "near-degenerate" not in text and "Signif. codes" in text and "0.0028" in text
+
+
+def test_clmm_without_standard_errors_is_unchanged_unless_the_intercept_collapsed(monkeypatch):
+    """Without a collapsed intercept (σ_u = 0.8), or when clm has no standard errors either
+    (it did not converge, e.g. separation), nothing is taken over: no p-values, and the
+    near-degenerate note as before."""
+    unconverged = dict(_CLM, convergence=1, coefficients=[
+        dict(c, std_error=None, z=None, p=None) for c in _CLM["coefficients"]])
+    for sd, clm in ((0.8, _CLM), (5.2e-05, unconverged), (5.2e-05, None)):
+        res = _near_singular_clmm(monkeypatch, sd=sd, clm=clm)
+        assert all(c["p"] is None and c["std_error"] is None for c in res.coefficients)
+        assert not any("ordinal::clm" in w for w in res.warnings)
+        assert "near-degenerate" in res.show()
+
+
+def test_near_singular_clmm_reports_p_values():
+    """10 questions with no question effect: on this data ordinal::clmm's random intercept
+    collapses (σ_u ≈ 5e-5) and its standard errors are NaN. ordinal::clm, the same model
+    without the question effect, gives SE 0.721 / 0.655 and p = 0.0028 / 0.90."""
+    import random
+
+    from cafe.rubrics import CORRECTNESS_0_3
+    from cafe.stats.ordinal import check_r
+
+    if not check_r()[0]:
+        pytest.skip("R + ordinal not installed")
+    rnd = random.Random(4)
+    items = []
+    for q in range(10):
+        for m in ("a", "b"):
+            for rep in range(2):
+                v = min(3, max(0, (1 if m == "a" else 2) + rnd.choice([-1, 0, 0, 1])))
+                items.append(Rating(obs_key=f"{m}{q}{rep}", config={"m": m, "p": "xy"[rep]},
+                                    input_id=f"q{q}", rep=rep, judge_rep=0, value=v, value_numeric=v))
+    res = fit_clmm(Ratings(rubric=CORRECTNESS_0_3, judge_model="x", factors=["m", "p"], items=items),
+                   interactions=1)
+    assert res.available and res.converged, res.reason
+    if res.variance_components["random_intercept_sd"] >= 1e-3:
+        pytest.skip("the random intercept didn't collapse on this R / ordinal version")
+    assert all(c["p"] is not None for c in res.coefficients)
+    assert "near-degenerate" not in res.show()
+    if any("ordinal::clm" in w for w in res.warnings):    # clmm's own SEs were undefined
+        assert [round(c["p"], 4) for c in res.coefficients] == [0.0028, 0.9000]
