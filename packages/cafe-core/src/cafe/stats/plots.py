@@ -36,6 +36,24 @@ def _cfg_label(key: Any) -> str:
     return "·".join(_short(v) for v in vals)
 
 
+def _level_order(levels: Any) -> list[Any]:
+    """A factor's levels in display order: numbers by value (a 5, 10, 20 sweep must not
+    read 10, 20, 5), then booleans (False first), then any other level by its text, and
+    ``None`` last. That is the order pandas' ``groupby`` gives the marginal-means panel."""
+    import numbers
+
+    import numpy as np
+
+    def key(x: Any) -> tuple[int, float, str]:
+        if isinstance(x, (bool, np.bool_)):
+            return (1, float(x), "")
+        if isinstance(x, numbers.Real):
+            return (0, float(x), "")
+        return (3, 0.0, "") if x is None else (2, 0.0, str(x))
+
+    return sorted(levels, key=key)
+
+
 def _frame(evaluation: "Evaluation"):
     from cafe.stats._frame import analysis_frame
 
@@ -113,7 +131,30 @@ def plot_marginals(evaluation: "Evaluation", *, ax=None):
 
 def plot_interaction(evaluation: "Evaluation", *, factors=None, ax=None):
     """Interaction plot: x = levels of factor A, one line per level of factor B.
-    Non-parallel lines signal an interaction."""
+    Non-parallel lines signal an interaction.
+
+    Parameters
+    ----------
+    evaluation:
+        A judged evaluation.
+    factors:
+        ``[A, B]``, the two factors to plot. Default: the first two that vary.
+    ax:
+        The matplotlib Axes to draw on. Default: a new figure.
+
+    Returns
+    -------
+    matplotlib.axes.Axes
+        The plot. Both factors' levels are in the marginal-means panel's order: numbers
+        by value (a 5, 10, 20 sweep reads 5, 10, 20, not 10, 20, 5), then text levels
+        alphabetically.
+
+    Raises
+    ------
+    ValueError
+        If the evaluation isn't judged or has no usable verdicts, or fewer than two
+        factors vary.
+    """
     import matplotlib.pyplot as plt
 
     df, allf = _frame(evaluation)
@@ -124,8 +165,8 @@ def plot_interaction(evaluation: "Evaluation", *, factors=None, ax=None):
     if ax is None:
         _, ax = plt.subplots(figsize=(6.5, 4))
 
-    a_levels = sorted(df[fa].dropna().unique(), key=str)
-    b_levels = sorted(df[fb].dropna().unique(), key=str)
+    a_levels = _level_order(df[fa].dropna().unique())
+    b_levels = _level_order(df[fb].dropna().unique())
     for i, b in enumerate(b_levels):
         sub = df[df[fb] == b]
         means = [sub.loc[sub[fa] == a, "verdict"].mean() for a in a_levels]
