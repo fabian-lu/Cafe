@@ -42,6 +42,11 @@ columns — `input_id`, `rep`, `judge_rep`, `verdict`, `reasoning`, `error`, `qu
 `judge_prompt`, `judge_raw`. A factor with one of these names would be confused with that
 column in the statistics and exports, so `cafe.Factor` rejects it with a clear error.
 
+Each level must be listed once. A configuration is identified by its levels, so a repeated
+level (`["cot", "plain", "cot"]`) would run one configuration twice under the same key and
+mix up the two answers and their verdicts; `cafe.Factor` rejects it and names the repeated
+level. Levels are compared by their JSON text, so `3` and `"3"` are two levels.
+
 ## Configurations, runs, replication
 
 - A **configuration** (a "cell") is one full assignment of a level to every factor.
