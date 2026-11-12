@@ -69,7 +69,10 @@ shows it like any other study, without re-running anything.
    platform version of the [human-ratings workflow](human-ratings.md). A rating belongs
    to the answer text it was given on: re-running the study regenerates the answers, so
    earlier ratings stop counting toward α until you re-rate (the reliability API reports
-   them as `stale_ratings`).
+   them as `stale_ratings`). The rating sheet offers the scores the judge can give: on
+   an ordinal or binary rubric its levels, on a numeric one every whole number from the
+   lowest level to the highest, with the levels as labelled anchors (a numeric scale of
+   more than 101 points shows just its levels).
 
 ## Local development (without Docker)
 

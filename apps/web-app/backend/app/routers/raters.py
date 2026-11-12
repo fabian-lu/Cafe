@@ -86,16 +86,65 @@ async def pin_legacy_rating_keys(db: AsyncSession, study_id: int) -> None:
 
 _DEFAULT_LEVELS = [{"value": i, "label": str(i), "description": ""} for i in range(6)]
 
+# a numeric scale with more points than this keeps only its levels on the rating sheet
+_MAX_SHEET_POINTS = 101
+
+
+def _scale_points(scale_type: str, levels: list[dict]) -> list[dict]:
+    """The scores a human can give on the rating sheet: those the judge can give.
+
+    A numeric rubric's levels are anchors: the judge grades any whole number from the lowest
+    to the highest (``cafe.Rubric.numeric``), so the sheet offers each of them, an anchor with
+    its label and description. An ordinal or binary rubric's grades are its levels.
+
+    Parameters
+    ----------
+    scale_type : str
+        The rubric's scale type: ``"ordinal"``, ``"numeric"`` or ``"binary"``.
+    levels : list of dict
+        The rubric's levels, ``{"value", "label", "description"}`` each.
+
+    Returns
+    -------
+    list of dict
+        The scores in ascending order for a numeric scale (``label`` and ``description``
+        empty between the anchors); ``levels`` unchanged for the other scales, and for a
+        numeric one with more than ``_MAX_SHEET_POINTS`` points.
+    """
+    if scale_type != "numeric" or not levels:
+        return levels
+    anchors = {int(lvl["value"]): lvl for lvl in levels}
+    lo, hi = min(anchors), max(anchors)
+    if hi - lo + 1 > _MAX_SHEET_POINTS:
+        return levels
+    return [anchors.get(v, {"value": v, "label": "", "description": ""}) for v in range(lo, hi + 1)]
+
 
 async def _study_rubric(db: AsyncSession, study_id: int) -> dict:
-    """The rubric the judge used, so humans rate on the SAME scale (levels/instruction)."""
+    """The rubric the judge used, so humans rate on the SAME scale (levels/instruction).
+
+    Parameters
+    ----------
+    db : AsyncSession
+        The database session.
+    study_id : int
+        The study.
+
+    Returns
+    -------
+    dict
+        ``name``, ``scale_type``, ``instruction``, ``levels`` and ``points``, the scores a
+        human can give (see :func:`_scale_points`). A study without a rubric gets a 0–5
+        numeric scale.
+    """
     study = await db.get(models.Study, study_id)
+    rubric = {"name": "score", "scale_type": "numeric", "instruction": "", "levels": _DEFAULT_LEVELS}
     if study and study.rubric_id:
         r = await db.get(models.Rubric, study.rubric_id)
         if r:
-            return {"name": r.name, "scale_type": r.scale_type, "instruction": r.instruction,
-                    "levels": r.levels or _DEFAULT_LEVELS}
-    return {"name": "score", "scale_type": "numeric", "instruction": "", "levels": _DEFAULT_LEVELS}
+            rubric = {"name": r.name, "scale_type": r.scale_type, "instruction": r.instruction,
+                      "levels": r.levels or _DEFAULT_LEVELS}
+    return {**rubric, "points": _scale_points(rubric["scale_type"], rubric["levels"])}
 
 
 @router.get("/studies/{id_}/rating-sheet")
