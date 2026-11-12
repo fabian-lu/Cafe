@@ -7,7 +7,9 @@ import Spinner from "../components/Spinner.jsx";
 
 function parseLevels(str) {
   const parts = str.split(",").map((s) => s.trim()).filter(Boolean);
-  if (parts.length && parts.every((p) => p !== "" && !Number.isNaN(Number(p)))) return parts.map(Number);
+  // numbers only if every level is a finite one: JSON has no Infinity or NaN, so JSON.stringify
+  // would send "Infinity" or "1e400" as null, the level that means None; as text, the level is kept
+  if (parts.length && parts.every((p) => Number.isFinite(Number(p)))) return parts.map(Number);
   return parts;
 }
 
