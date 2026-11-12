@@ -346,12 +346,33 @@ def _timing(answers) -> dict[str, Any]:
 
 async def estimate_study(study_id: int) -> dict[str, Any]:
     """Preflight the study (one input through every configuration, no judging) → cost/time estimate
-    for the full run + design warnings. Makes real calls, so it takes a moment (hence the UI spinner)."""
+    for the full run + design warnings. Makes real calls, so it takes a moment (hence the UI spinner).
+
+    Parameters
+    ----------
+    study_id : int
+        The study to estimate.
+
+    Returns
+    -------
+    dict
+        ``{"estimate", "warnings", "judge_calls"}``: cafe-core's preflight estimate and design
+        warnings, and the judge calls the full run will make — for every dimension, as the run
+        judges the answers once per rubric (each counted by cafe-core's ``Study.plan``, judge
+        replications included).
+    """
+    import dataclasses
+
     from cafe.evaluation import preflight
 
-    study_obj, concurrency, _extra = await _load_study_objects(study_id)
+    study_obj, concurrency, extra_dims = await _load_study_objects(study_id)
     pf = await preflight(study_obj, concurrency=concurrency, progress=False)
-    return {"estimate": pf.estimate, "warnings": pf.warnings, "judge_calls": pf.judge_calls}
+    # preflight counts the primary rubric's judging only; the run judges the same answers once
+    # more per extra dimension, with that dimension's rubric and judge
+    judge_calls = pf.judge_calls + sum(
+        dataclasses.replace(study_obj, rubric=rubric, judge=judge).plan().get("judge_calls", 0)
+        for _name, rubric, judge in extra_dims)
+    return {"estimate": pf.estimate, "warnings": pf.warnings, "judge_calls": judge_calls}
 
 
 async def run_study_task(study_id: int) -> None:
