@@ -168,6 +168,26 @@ def test_check_warns_single_factor_and_judge_rubric_mismatch():
     assert any("no rubric" in w for w in mismatch.check())
 
 
+def test_check_says_what_each_model_does_with_one_or_two_questions():
+    """With 1 question the linear model drops to a one-way ANOVA and the logistic model to a
+    plain logistic regression; the CLMM needs 3 questions, so with 1 or 2 it isn't fit at
+    all (check() used to say every model "drops to a fixed-effects fit" / is "unstable")."""
+    def first_warning(n):
+        study = cafe.Study(name="t", system=lambda c, i: "x",
+                           factors=[cafe.Factor("a", ["x", "y"]), cafe.Factor("b", ["p", "q"])],
+                           dataset=[{"text": f"q{i}"} for i in range(n)],
+                           rubric=cafe.ANSWER_QUALITY_1_5, judge=cafe.LLMJudge(model="m"))
+        return study.check()[0]
+
+    one = first_warning(1)
+    assert "one-way ANOVA" in one and "plain logistic regression" in one
+    assert "CLMM (needs ≥3 questions) isn't fit" in one
+    two = first_warning(2)
+    assert two.startswith("2 inputs — the ordinal CLMM needs ≥3 questions and isn't fit")
+    assert "near-singular/unstable" in two
+    assert first_warning(3).startswith("3 inputs — the mixed-effects models (linear / CLMM / logistic)")
+
+
 def test_check_warns_reps_at_temp_zero_and_continuous():
     data = [{"text": f"q{i}"} for i in range(10)]
     s = cafe.Study(name="t", system=lambda c, i: "x",

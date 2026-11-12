@@ -121,7 +121,10 @@ result <- tryCatch({
   for (f in factors) d[[f]] <- factor(d[[f]])
 
   form <- build_formula(order)
-  m <- tryCatch(ordinal::clmm(form, data = d, Hess = TRUE), error = function(e) NULL)
+  # Only an interaction model's error is caught (to fall back below); a main-effects fit's
+  # error is reported as R gives it, not as "did not converge".
+  m <- tryCatch(ordinal::clmm(form, data = d, Hess = TRUE),
+                error = function(e) if (order >= 2) NULL else stop(e))
   used_order <- order
   if (is.null(m) && order >= 2) {   # interactions not estimable -> fall back to main effects
     form <- build_formula(1L)

@@ -262,7 +262,10 @@ def fit_clmm(
     -------
     CLMMResult
         Always returned rather than raised: ``available=False`` with a ``reason`` when R /
-        ``ordinal`` is missing or there is nothing to fit. Aliased interactions (e.g. a
+        ``ordinal`` is missing, there is nothing to fit (no factor varies, or every answer
+        scored the same), or the data has fewer than 3 questions — ``ordinal::clmm`` needs
+        three levels of its grouping factor, the question (``input_id``) — or when R
+        reports an error (its message). Aliased interactions (e.g. a
         fractional factorial below resolution V) are dropped with a note in ``warnings``;
         without statsmodels that check can't run, and ``warnings`` says so instead.
 
@@ -298,6 +301,19 @@ def fit_clmm(
     ]
     if not factors:
         res.reason = "no factor varies across at least two levels"
+        return res
+    if df["verdict"].nunique() < 2:
+        res.reason = f"every answer scored the same ({df['verdict'].iloc[0]}) — no variance to model"
+        return res
+    # ordinal::clmm refuses a grouping factor with fewer than 3 levels ("all(sapply(gfl,
+    # nlevels) > 2) is not TRUE"), so say why in words before calling R.
+    n_questions = df["input_id"].nunique() if "input_id" in df.columns else 0
+    if n_questions < 3:
+        res.reason = (
+            f"the CLMM needs at least 3 questions for its per-question random intercept "
+            f"(R's ordinal::clmm fits no fewer); this data has {n_questions} — add questions, "
+            "or read the linear model's tests"
+        )
         return res
 
     ok, msg = check_r()
