@@ -50,4 +50,5 @@ All pages are implemented:
   values) become filters that recompute the statistics on that subset of questions. Energy is shown
   when the pipeline's techniques declare coefficients.
 - **Raters** — score a study's answers by name on the judge's rubric and see judge↔human and
-  human↔human Krippendorff's α (on the primary dimension).
+  human↔human Krippendorff's α (on the primary dimension); the rater name `judge` is reserved for
+  the LLM judge.
