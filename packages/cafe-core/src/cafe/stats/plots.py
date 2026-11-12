@@ -25,15 +25,46 @@ _GREY = "#9aa0a6"
 
 def _short(x: Any, maxlen: int = 16) -> str:
     """Shorten a long level label (e.g. a model string) for an axis tick."""
-    s = str(x).split("/")[-1]
+    return _cut(str(x).split("/")[-1], maxlen)
+
+
+def _cut(s: str, maxlen: int) -> str:
+    """``s`` cut to ``maxlen`` characters, ending in an ellipsis if it was longer."""
     return s if len(s) <= maxlen else s[: maxlen - 1] + "…"
 
 
-def _cfg_label(key: Any) -> str:
-    """Compact config label — level *values* only (the factor order is in the title),
-    e.g. ``keyword·2·none`` instead of ``retrieve=keyword·retrieve.top_k=2·rerank=none``."""
-    vals = key if isinstance(key, tuple) else (key,)
-    return "·".join(_short(v) for v in vals)
+def _labels(levels: list[Any], maxlen: int = 16) -> list[str]:
+    """Labels for one factor's levels: their :func:`_short` forms, kept distinct.
+
+    Levels whose short forms collide (``openai/gpt-4o-mini`` and ``azure/gpt-4o-mini``, or
+    two prompts that share their first ``maxlen`` characters) show more of their text, the
+    whole string cut at ``2 * maxlen``; if even that doesn't tell them apart, they're
+    numbered (``… (1)``, ``… (2)``). Levels that don't collide keep their short form.
+    """
+    labels = [_short(x, maxlen) for x in levels]
+    for short in dict.fromkeys(labels):
+        same = [i for i, lab in enumerate(labels) if lab == short]
+        if len(same) < 2:
+            continue
+        longer = [_cut(str(levels[i]), 2 * maxlen) for i in same]
+        if len(set(longer)) < len(same):
+            longer = [f"{short} ({n})" for n in range(1, len(same) + 1)]
+        for i, lab in zip(same, longer):
+            labels[i] = lab
+    return labels
+
+
+def _cfg_labels(keys: list[Any]) -> list[str]:
+    """Compact config labels — level *values* only (the factor order is in the title),
+    e.g. ``keyword·2·none`` instead of ``retrieve=keyword·retrieve.top_k=2·rerank=none``.
+    Each factor's levels are labelled with :func:`_labels`, so distinct configs read
+    differently."""
+    rows = [k if isinstance(k, tuple) else (k,) for k in keys]
+    columns = []
+    for col in zip(*rows):
+        levels = list(dict.fromkeys(col))
+        columns.append(dict(zip(levels, _labels(levels))))
+    return ["·".join(columns[j][v] for j, v in enumerate(row)) for row in rows]
 
 
 def _frame(evaluation: "Evaluation"):
@@ -92,12 +123,12 @@ def plot_marginals(evaluation: "Evaluation", *, ax=None):
         means, sems = g.mean(), g.sem().fillna(0.0)
         color = PALETTE[fi % len(PALETTE)]
         handles.append((plt.Rectangle((0, 0), 1, 1, color=color), f))
-        for lvl in means.index:
+        for lvl, label in zip(means.index, _labels(list(means.index))):
             xs.append(pos)
             heights.append(float(means[lvl]))
             errs.append(1.96 * float(sems[lvl]))
             colors.append(color)
-            labels.append(_short(lvl))
+            labels.append(label)
             pos += 1
         pos += 1  # gap between factor groups
 
@@ -126,13 +157,13 @@ def plot_interaction(evaluation: "Evaluation", *, factors=None, ax=None):
 
     a_levels = sorted(df[fa].dropna().unique(), key=str)
     b_levels = sorted(df[fb].dropna().unique(), key=str)
-    for i, b in enumerate(b_levels):
+    for i, (b, b_label) in enumerate(zip(b_levels, _labels(b_levels))):
         sub = df[df[fb] == b]
         means = [sub.loc[sub[fa] == a, "verdict"].mean() for a in a_levels]
         ax.plot(range(len(a_levels)), means, marker="o", linewidth=2,
-                color=PALETTE[i % len(PALETTE)], label=_short(b))
+                color=PALETTE[i % len(PALETTE)], label=b_label)
     ax.set_xticks(range(len(a_levels)))
-    ax.set_xticklabels([_short(a) for a in a_levels])
+    ax.set_xticklabels(_labels(a_levels))
     ax.set_ylim(lo, hi + 0.15)
     ax.legend(fontsize=8, title=fb)
     return _style(ax, xlabel=fa, ylabel="mean verdict", title=f"Interaction: {fa} × {fb}")
@@ -144,7 +175,7 @@ def plot_configs(evaluation: "Evaluation", *, ax=None):
 
     df, factors = _frame(evaluation)
     g = df.groupby(factors)["verdict"].mean().sort_values()
-    labels = [_cfg_label(k) for k in g.index]
+    labels = _cfg_labels(list(g.index))
     if ax is None:
         _, ax = plt.subplots(figsize=(6.5, 0.5 * len(g) + 1.2))
 
@@ -164,10 +195,8 @@ def plot_distribution(evaluation: "Evaluation", *, by=None, ax=None):
     df, factors = _frame(evaluation)
     key = [by] if isinstance(by, str) else (by or factors)
     groups = list(df.groupby(key)["verdict"])
-    data, labels = [], []
-    for g, vals in groups:
-        labels.append(_cfg_label(g))
-        data.append(vals.values)
+    labels = _cfg_labels([g for g, _ in groups])
+    data = [vals.values for _, vals in groups]
     if ax is None:
         _, ax = plt.subplots(figsize=(6.5, 4))
 
@@ -201,8 +230,14 @@ def plot_effects(evaluation: "Evaluation", *, ax=None):
         ax.plot([d["ci_low"], d["ci_high"]], [y, y], color=_GREY, linewidth=1.6, zorder=2)
         ax.plot(d["d"], y, "o", color=ACCENT, markersize=8, markeredgecolor="black", zorder=3)
     ax.axvline(0, color="black", linewidth=0.8, linestyle="--", alpha=0.6)
+    levels: dict[str, list[Any]] = {}
+    for d in ds:
+        seen = levels.setdefault(d["factor"], [])
+        seen += [x for x in (d["level_a"], d["level_b"]) if x not in seen]
+    short = {f: dict(zip(lv, _labels(lv))) for f, lv in levels.items()}
     ax.set_yticks(range(len(ds)))
-    ax.set_yticklabels([f"{d['factor']}: {_short(d['level_a'])} vs {_short(d['level_b'])}" for d in ds])
+    ax.set_yticklabels([f"{d['factor']}: {short[d['factor']][d['level_a']]} vs "
+                        f"{short[d['factor']][d['level_b']]}" for d in ds])
     return _style(ax, xlabel="Cohen's d  (gap between levels; 0=no effect)",
                   title="Effect sizes (95% CI)", horizontal=True)
 
