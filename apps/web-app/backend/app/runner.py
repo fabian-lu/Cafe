@@ -61,19 +61,113 @@ def _build_factors(factors_raw: list[dict]) -> list[cafe.Factor]:
     return [cafe.Factor(f["name"], _coerce_levels(f["levels"])) for f in factors_raw]
 
 
+async def _dimension_rubrics(db, rubric_id: int | None, rubric_ids: list[int] | None
+                             ) -> tuple[models.Rubric | None, list[models.Rubric]]:
+    """The rubric rows a study is judged on, as a run reads them.
+
+    Parameters
+    ----------
+    db : AsyncSession
+        An open database session.
+    rubric_id : int or None
+        The study's primary rubric.
+    rubric_ids : list of int or None
+        All of the study's dimension rubrics, the primary included (empty: just the primary).
+
+    Returns
+    -------
+    tuple
+        ``(primary, extras)``: the primary rubric's row (``None`` without one) and, in order,
+        the row of every other rubric in ``rubric_ids``, one extra dimension each. Ids that
+        have no row are skipped.
+    """
+    primary = await db.get(models.Rubric, rubric_id) if rubric_id else None
+    extras = []
+    for rid in rubric_ids or []:
+        if rid != rubric_id:
+            row = await db.get(models.Rubric, rid)
+            if row is not None:
+                extras.append(row)
+    return primary, extras
+
+
+def _dimension_names(primary: models.Rubric | None,
+                     extras: list[models.Rubric]) -> list[str]:
+    """The names a run stores a study's dimensions under: its rubrics' names.
+
+    Parameters
+    ----------
+    primary : models.Rubric or None
+        The study's primary rubric (its results are stored under ``"quality"`` when it has
+        no name, or there is no primary rubric).
+    extras : list of models.Rubric
+        The rubrics of its extra dimensions.
+
+    Returns
+    -------
+    list of str
+        One name per dimension, the primary's first.
+    """
+    return [(primary.name if primary is not None else None) or "quality",
+            *(row.name for row in extras)]
+
+
+def _dimension_clash(names: list[str]) -> str | None:
+    """Why dimensions of these names can't be one study's, or ``None``.
+
+    A run stores one result row per dimension name, so two dimensions with one name would
+    overwrite each other's results.
+
+    Parameters
+    ----------
+    names : list of str
+        The dimensions' names (see :func:`_dimension_names`).
+
+    Returns
+    -------
+    str or None
+        A message naming the repeated name, or ``None`` when every name is distinct.
+    """
+    for i, name in enumerate(names):
+        if name in names[:i]:
+            return (f"two of its dimensions use rubrics named {name!r} — each dimension's "
+                    "results are stored under its rubric's name, so the rubrics need "
+                    "distinct names")
+    return None
+
+
 async def _load_study_objects(study_id: int):
     """Assemble the cafe.Study (+ dataset/rubric/judge) from the DB rows.
 
-    Returns ``(study_obj, concurrency, extra_dims)`` where ``extra_dims`` is a list of
-    ``(dimension_name, cafe.Rubric, cafe.LLMJudge)`` for every rubric in ``rubric_ids``
-    beyond the primary — each is a separate judging pass over the same answers.
+    Parameters
+    ----------
+    study_id : int
+        The study to load.
+
+    Returns
+    -------
+    tuple
+        ``(study_obj, concurrency, extra_dims)`` where ``extra_dims`` is a list of
+        ``(dimension_name, cafe.Rubric, cafe.LLMJudge)`` for every rubric in ``rubric_ids``
+        beyond the primary — each is a separate judging pass over the same answers.
+
+    Raises
+    ------
+    ValueError
+        If there is no such study, or two of its dimensions use rubrics of the same name
+        (their results would overwrite each other) — before anything is run.
     """
     async with SessionLocal() as db:
         study = await db.get(models.Study, study_id)
         if study is None:
             raise ValueError(f"study {study_id} not found")
         dataset = await db.get(models.Dataset, study.dataset_id) if study.dataset_id else None
-        rubric_row = await db.get(models.Rubric, study.rubric_id) if study.rubric_id else None
+        # the primary rubric + the extra dimensions: every other rubric in rubric_ids
+        rubric_row, extra_rows = await _dimension_rubrics(
+            db, study.rubric_id, getattr(study, "rubric_ids", None))
+        if (clash := _dimension_clash(_dimension_names(rubric_row, extra_rows))) is not None:
+            # saved before create_study refused it: fail before any answer is paid for
+            raise ValueError(f"cannot run study {study_id}: {clash}")
         # snapshot the plain fields we need (avoid lazy-load after the session closes)
         name = study.name
         pipeline_name = getattr(study, "pipeline", None) or "pipeline"
@@ -85,13 +179,6 @@ async def _load_study_objects(study_id: int):
         judge_preset = getattr(rubric_row, "preset", None) or "reference_qa"
         judge_system = getattr(rubric_row, "system_prompt", None)
         concurrency = max(1, getattr(study, "concurrency", 8) or 8)
-        # extra dimensions: every rubric in rubric_ids that isn't the primary
-        extra_rows = []
-        for rid in (getattr(study, "rubric_ids", None) or []):
-            if rid != study.rubric_id:
-                row = await db.get(models.Rubric, rid)
-                if row is not None:
-                    extra_rows.append(row)
         extra_dims = []
         if judge_model:
             for row in extra_rows:

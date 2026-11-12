@@ -61,7 +61,8 @@ shows it like any other study, without re-running anything.
 5. **Results** — the same analysis as `report()`, in the browser: per-factor
    attribution (F, p, partial η², variance share), effect sizes, per-level marginal
    means, and the best configuration. A study created with extra rubrics (each judges
-   the same answers as its own dimension) gets a dimension selector; extra fields on the
+   the same answers as its own dimension, named after its rubric, so a study's rubrics
+   need distinct names) gets a dimension selector; extra fields on the
    questions (2–30 distinct values) become filters that recompute the statistics on that
    subset; energy is shown when the pipeline's techniques declare it. (See
    [Interpreting results](../interpreting-results.md) for how to read these.)
