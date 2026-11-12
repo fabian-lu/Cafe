@@ -355,7 +355,16 @@ async def estimate_study(study_id: int) -> dict[str, Any]:
 
 
 async def run_study_task(study_id: int) -> None:
-    """Background task: execute the study and cache its results."""
+    """Background task: execute the study and cache its results.
+
+    The results replace everything the study had stored: one ``StudyResult`` row per judged
+    dimension, the primary rubric's first, and no row for a dimension this run didn't produce.
+
+    Parameters
+    ----------
+    study_id : int
+        The study to run; the caller has already marked it ``"running"``.
+    """
     PROGRESS[study_id] = {"phase": "starting", "done": 0, "total": 0, "status": "running"}
     try:
         import time as _time
@@ -423,16 +432,16 @@ async def run_study_task(study_id: int) -> None:
                 await pin_legacy_rating_keys(db, study_id)
             except Exception:  # noqa: BLE001
                 traceback.print_exc()
-            # upsert one cached result row per dimension
-            from sqlalchemy import select
+            # Replace ALL of the study's cached results, in this same transaction: a dimension
+            # this run didn't produce (a rubric no longer on the study, or the "quality" row of a
+            # study seeded, recovered or stored before dimensions existed) must not outlive it,
+            # least of all as the first row, which readers serve as the primary results. Hence
+            # also the order: one row per dimension, the primary's first.
+            from sqlalchemy import delete
+            await db.execute(delete(models.StudyResult).where(
+                models.StudyResult.study_id == study_id))
             for dim_name, dim_payload in dim_payloads.items():
-                res = (await db.execute(select(models.StudyResult).where(
-                    models.StudyResult.study_id == study_id,
-                    models.StudyResult.dimension == dim_name))).scalars().first()
-                if res is None:
-                    db.add(models.StudyResult(study_id=study_id, dimension=dim_name, payload=dim_payload))
-                else:
-                    res.payload = dim_payload
+                db.add(models.StudyResult(study_id=study_id, dimension=dim_name, payload=dim_payload))
             await db.commit()
         PROGRESS[study_id].update({"phase": "done", "status": "done"})
     except asyncio.CancelledError:
