@@ -206,6 +206,27 @@ def test_fit_clmm_without_statsmodels_returns_result(monkeypatch):
         assert any("statsmodels is not installed" in w for w in res.warnings)
 
 
+@pytest.mark.skipif(shutil.which("Rscript") is None, reason="R not installed")
+def test_fit_logistic_without_statsmodels_returns_result(monkeypatch):
+    """fit_logistic runs the same aliasing check: without statsmodels the GLMM must still be
+    fit (and say the check was skipped), not raise."""
+    import sys
+
+    from cafe import fit_logistic
+    from cafe.rubrics import CORRECT_PASS_FAIL
+
+    monkeypatch.setitem(sys.modules, "statsmodels.formula.api", None)
+    items = [Rating(obs_key=f"{a}{b}{q}", config={"A": a, "B": b}, input_id=f"q{q}", rep=0,
+                    judge_rep=0, value=v, value_numeric=v)
+             for q in range(6) for a in ("a1", "a2") for b in ("b1", "b2")
+             for v in [int((q + (a == "a2") + (b == "b2")) % 3 != 0)]]
+    r = Ratings(rubric=CORRECT_PASS_FAIL, judge_model="x", factors=["A", "B"], items=items)
+    res = fit_logistic(r, backend="glmer")
+    assert res.available or res.reason
+    if res.available:
+        assert any("statsmodels is not installed" in w for w in res.warnings)
+
+
 def test_interactions_detected_and_toggleable():
     r = _two_factor_interaction_ratings()
     two_way = {t["factor"]: t for t in fit_effects(r, interactions=2).terms}
@@ -537,6 +558,41 @@ def test_fractional_design_caps_interactions_to_estimable():
     if clmm.available:                                               # R present
         assert not any(c.get("interaction") for c in clmm.coefficients)
         assert any("aliased" in w for w in clmm.warnings)
+
+
+def test_fractional_design_caps_logistic_interactions_to_estimable():
+    """The logistic layer caps an aliased design to main effects as well. Fitting the aliased
+    2-factor interactions of a resolution-IV fraction made the log-odds diverge, so every
+    p-value was withheld as "separation" although no factor separates pass from fail."""
+    import random
+
+    import cafe
+    from cafe import fit_logistic
+    from cafe.design.fractional import fractional_factorial_design
+    from cafe.rubrics import CORRECT_PASS_FAIL
+
+    names = ["model", "sabotage", "verbosity", "hedge"]
+    facs = [cafe.Factor(n, [0, 1]) for n in names]
+    design = fractional_factorial_design(facs)   # 2^(4-1)
+    assert design.resolution == 4
+    random.seed(1)
+    items = []
+    for ci, cfg in enumerate(design.configs):
+        for q in range(12):   # pass rate 0.8 with model=1, 0.35 without; nothing else matters
+            v = int(random.random() < (0.8 if cfg["model"] == 1 else 0.35))
+            items.append(Rating(obs_key=f"{ci}-{q}", config=cfg, input_id=f"q{q}",
+                                rep=0, judge_rep=0, value=v, value_numeric=v))
+    r = Ratings(rubric=CORRECT_PASS_FAIL, judge_model="fake", factors=names, items=items)
+
+    for backend in ("statsmodels", "glmer"):
+        log = fit_logistic(r, interactions=2, backend=backend)
+        if not log.available:                                        # glmer without R + lme4
+            continue
+        assert not any(t["interaction"] for t in log.terms), backend
+        assert any("aliased" in w for w in log.warnings), backend
+        assert log.formula == "verdict ~ (1 | input_id) + model + sabotage + verbosity + hedge"
+        assert all(t["p"] is not None for t in log.terms), backend   # not withheld
+        assert "model" in log.significant_factors, backend           # the real effect is found
 
 
 def _uninstall(monkeypatch, *packages):
