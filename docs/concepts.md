@@ -36,6 +36,14 @@ Each factor has a **type** that shapes design generation and (later) statistics:
 | `ordinal` | `effort ∈ {low, med, high}` | ordered choices |
 | `continuous` | `temperature`, `top_k` | numeric knobs |
 
+A level can be any value your system understands: a string, a number, `None` (a skipped
+stage, see [Define your system](guides/define-a-system.md)), or a structured value such as
+a dict of sampling settings or a list of stop sequences. Reports, plots, the statistics and
+the `answers.df` / `ratings.df` tables show a `None` level as `none`, and a list, tuple, set
+or dict as its JSON text — `{"temperature": 0.7, "top_p": 0.9}`, `[256, 0]` — which is also
+how a saved evaluation reads after `cafe.load_evaluation` (JSON brings a tuple back as a
+list).
+
 Factor names are free-form, except for the few CAFE already uses for its own result
 columns — `input_id`, `rep`, `judge_rep`, `verdict`, `reasoning`, `error`, `question`,
 `reference`, `output`, `elapsed_s`, `cost_usd`, `tokens`, `energy_wh`, `judge_system`,

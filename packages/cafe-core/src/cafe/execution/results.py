@@ -23,15 +23,49 @@ def config_id(config: dict[str, Any]) -> str:
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
 
 
-def level_label(value: Any) -> str:
+def level_label(value: Any) -> Any:
     """Display a factor level. A ``None`` level (a skipped stage) renders as ``none`` so
     it's a clean category everywhere (labels, DataFrames, the statistical model) rather
-    than a missing/NaN value."""
-    return "none" if value is None else value
+    than a missing/NaN value.
+
+    A list, tuple, set or dict level renders as its JSON text with sorted keys, as
+    :func:`config_id` encodes it (``[256, 0]``, ``{"temperature": 0.7}``; a set's items
+    sorted): the statistics group answers by level, which needs a hashable value, and a
+    saved evaluation brings a tuple back as a list, so both must read the same.
+
+    Parameters
+    ----------
+    value
+        A level, as it appears in a configuration.
+
+    Returns
+    -------
+    Any
+        ``"none"`` for ``None``; the JSON text of a list, tuple, set or dict; the ``str`` of
+        any other level that can't be hashed; otherwise ``value`` itself (a number stays a
+        number, so levels still sort by value).
+    """
+    if value is None:
+        return "none"
+    if isinstance(value, (set, frozenset)):
+        value = sorted(value, key=_json_text)
+    if isinstance(value, (list, tuple, dict)):
+        return _json_text(value)
+    try:
+        hash(value)
+    except TypeError:
+        return str(value)
+    return value
+
+
+def _json_text(value: Any) -> str:
+    """``value`` as canonical JSON text (sorted keys; non-JSON values as their ``str``)."""
+    return json.dumps(value, sort_keys=True, default=str, ensure_ascii=False)
 
 
 def config_label(config: dict[str, Any]) -> str:
-    """Human-readable one-line label, e.g. ``model=large·prompt=cot``."""
+    """Human-readable one-line label, e.g. ``model=large·prompt=cot``, each level shown by
+    :func:`level_label` (``rerank=none``, ``chunking=[256, 0]``)."""
     return "·".join(f"{k}={level_label(config[k])}" for k in sorted(config))
 
 

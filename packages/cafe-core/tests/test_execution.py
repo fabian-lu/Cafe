@@ -200,3 +200,74 @@ async def test_preflight_show_keeps_falsy_outputs():
     assert "[kind=zero] 0" in text
     assert "[kind=false] False" in text
     assert "[kind=boom] RuntimeError: boom" in text
+
+
+# ── levels pandas can't group by (lists, tuples, dicts) ──
+class _LengthJudge:
+    """Scores an answer by its length: no LLM, but the scores differ between configurations."""
+
+    model = "length"
+
+    async def score(self, rubric, question, answer, reference=None):
+        from cafe.judging.ratings import JudgeOutput
+
+        return JudgeOutput(len(answer) % 4, len(answer) % 4, "ok", "prompt", "raw")
+
+
+def _judged_study(factors):
+    from cafe.rubrics import CORRECTNESS_0_3
+
+    return Study(name="levels", system=lambda config, item: f"{config} {item}", factors=factors,
+                 dataset=[f"q{i}" for i in range(8)], rubric=CORRECTNESS_0_3, judge=_LengthJudge())
+
+
+def test_level_label_gives_container_levels_their_json_text():
+    from dataclasses import dataclass
+
+    from cafe.execution.results import config_label, level_label
+
+    @dataclass
+    class Settings:  # a dataclass with eq=True can't be hashed
+        t: float
+
+    assert level_label({"top_p": 0.9, "temperature": 0.7}) == '{"temperature": 0.7, "top_p": 0.9}'
+    assert level_label((256, 0)) == level_label([256, 0]) == "[256, 0]"  # a reloaded tuple
+    assert level_label({"b", "a"}) == '["a", "b"]'
+    assert level_label(Settings(0.7)) == str(Settings(0.7))
+    assert (level_label(None), level_label(3), level_label("cot")) == ("none", 3, "cot")
+    assert config_label({"chunking": (256, 0), "rerank": None}) == "chunking=[256, 0]·rerank=none"
+
+
+async def test_dict_and_list_levels_are_analysed():
+    """A dict level (sampling settings) or a list level (stop sequences) is accepted, run and
+    judged; then the statistics group the answers by level, and that crashed with
+    "unhashable type" after every answer and verdict had been paid for."""
+    from cafe.evaluation import evaluate
+
+    study = _judged_study([Factor("sampling", [{"temperature": 0.7, "top_p": 0.9},
+                                               {"temperature": 0.0}]),
+                           Factor("stop", [["\n"], ["###"]])])
+    ev = await evaluate(study, progress=False)
+    assert {(m["factor"], m["level"], m["n"]) for m in ev.attribution.factor_marginals} == {
+        ("sampling", '{"temperature": 0.0}', 16), ("sampling", '{"temperature": 0.7, "top_p": 0.9}', 16),
+        ("stop", '["\\n"]', 16), ("stop", '["###"]', 16)}
+    assert ev.effects.n_obs == 32
+    assert 'best: sampling={"temperature"' in ev.show()
+
+
+async def test_tuple_levels_read_the_same_after_a_reload(tmp_path):
+    """A saved evaluation stores a tuple level as a JSON list, which load_evaluation's
+    statistics couldn't group (the web app's import calls it too). The reloaded evaluation
+    must label the level exactly as the original does."""
+    from cafe.evaluation import evaluate, load_evaluation, save_evaluation
+
+    study = _judged_study([Factor("chunking", [(256, 0), (512, 64)]), Factor("model", ["a", "b"])])
+    ev = await evaluate(study, progress=False)
+    save_evaluation(ev, str(tmp_path / "ev.json"))
+    back = load_evaluation(str(tmp_path / "ev.json"))
+    assert back.answers.observations[0].config["chunking"] in ([256, 0], [512, 64])  # a list now
+    assert {m["level"] for m in back.attribution.factor_marginals} == {
+        "[256, 0]", "[512, 64]", "a", "b"}
+    assert back.attribution.factor_marginals == ev.attribution.factor_marginals
+    assert back.attribution.config_means == ev.attribution.config_means
+    assert back.show() == ev.show()
