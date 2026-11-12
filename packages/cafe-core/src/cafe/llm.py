@@ -38,10 +38,10 @@ class LLMError(RuntimeError):
     """Raised when an LLM call fails (auth, network, provider error, empty payload)."""
 
 
-# A sink that, when set, collects per-call usage (tokens + cost). The composed-mode
-# Context sets this around each technique so LLM usage is attributed per stage
-# automatically — the user just calls ``cafe.complete`` as normal. ``None`` (the
-# default, e.g. black-box mode or judging) means usage is simply not collected.
+# A sink that, when set, collects per-call usage (tokens + cost, and energy when the model
+# has a figure). The composed-mode Context sets this around each technique so LLM usage is
+# attributed per stage automatically — the user just calls ``cafe.complete`` as normal.
+# ``None`` (the default, e.g. black-box mode or judging) means usage is simply not collected.
 _usage_sink: contextvars.ContextVar[list | None] = contextvars.ContextVar(
     "cafe_usage_sink", default=None
 )
@@ -50,6 +50,10 @@ _usage_sink: contextvars.ContextVar[list | None] = contextvars.ContextVar(
 # LiteLLM's automatic pricing is wrong or missing: a flat subscription, a negotiated
 # rate, self-hosting, or a provider LiteLLM doesn't price (e.g. Ollama Cloud → $0 auto).
 _model_prices: dict[str, dict[str, float]] = {}
+
+# User-declared energy figures, model string -> Wh per 1k tokens. Strictly opt-in: CAFE
+# never guesses one, so a call to a model without a figure records no energy of its own.
+_model_energy: dict[str, float] = {}
 
 
 def set_model_cost(
@@ -87,11 +91,61 @@ def _price_from_override(model: str, prompt_tokens: int, completion_tokens: int)
     return round(prompt_tokens / 1000 * price["input"] + completion_tokens / 1000 * price["output"], 6)
 
 
+def set_model_energy(model: str, *, wh_per_1k_tokens: float | None = None) -> None:
+    """Declare the energy a call to ``model`` uses, in Wh per 1,000 tokens.
+
+    The energy counterpart of :func:`set_model_cost`. Each :func:`complete` call made inside
+    a technique of a :class:`~cafe.techniques.pipe.Pipeline` is then charged
+    ``tokens / 1000 * wh_per_1k_tokens`` for the model it called, so a technique with a
+    ``model`` parameter, or one that calls two models, gets each call's energy from that
+    call's model. A model's figure takes priority over the technique's own
+    ``energy_wh_per_1k_tokens``, which then counts only the tokens of calls to models without
+    a figure; the technique's fixed ``energy_wh`` is still added. Like a price, the figure
+    holds for the whole process: every pipeline that calls ``model`` uses it.
+
+    Energy stays opt-in: CAFE never guesses a figure, and with none declared anywhere no
+    energy is reported. A black-box system reports its own ``energy_wh``; this registry
+    does not apply to it.
+
+    Parameters
+    ----------
+    model:
+        The model string exactly as passed to :func:`complete` (e.g.
+        ``"ollama_cloud/gpt-oss:20b"``), the same key :func:`set_model_cost` uses.
+    wh_per_1k_tokens:
+        Watt-hours per 1,000 tokens of a call (prompt plus completion tokens), e.g. an
+        estimate from the model's active parameters and serving hardware. ``0.0`` declares
+        the model's calls free of energy; ``None`` (the default) clears the figure.
+
+    Raises
+    ------
+    ValueError
+        If ``wh_per_1k_tokens`` is negative.
+    """
+    if wh_per_1k_tokens is None:
+        _model_energy.pop(model, None)
+        return
+    if wh_per_1k_tokens < 0:
+        raise ValueError(f"wh_per_1k_tokens must be non-negative; got {wh_per_1k_tokens}")
+    _model_energy[model] = float(wh_per_1k_tokens)
+
+
+def _energy_from_figure(model: str, tokens: int) -> float | None:
+    """Energy (Wh) of one call from its model's declared figure, or ``None`` if it has none."""
+    per_1k = _model_energy.get(model)
+    if per_1k is None:
+        return None
+    return tokens / 1000 * per_1k
+
+
 def _emit_usage(model: str, resp: Any) -> None:
-    """Record one completion's tokens + cost to the sink.
+    """Record one completion's tokens + cost (and energy, if declared) to the sink.
 
     Cost priority: (1) a user override via :func:`set_model_cost`, else (2) LiteLLM's
     automatic pricing, else (3) 0.0 (tokens are still recorded, so it can be priced later).
+    Energy is recorded (as ``energy_wh``) only when ``model`` has a figure from
+    :func:`set_model_energy`; without one the record has no ``energy_wh`` key, and the
+    technique's own ``energy_wh_per_1k_tokens`` (if any) covers the call's tokens.
     """
     sink = _usage_sink.get()
     if sink is None:
@@ -109,7 +163,11 @@ def _emit_usage(model: str, resp: Any) -> None:
             cost = float(litellm.completion_cost(completion_response=resp) or 0.0)
         except Exception:  # noqa: BLE001 — pricing unknown (e.g. local/Ollama) → cost 0
             cost = 0.0
-    sink.append({"model": model, "tokens": tokens, "cost_usd": cost})
+    record: dict[str, Any] = {"model": model, "tokens": tokens, "cost_usd": cost}
+    energy = _energy_from_figure(model, tokens)
+    if energy is not None:
+        record["energy_wh"] = energy
+    sink.append(record)
 
 
 def _route(model: str, kwargs: dict[str, Any]) -> dict[str, Any]:

@@ -92,4 +92,6 @@ This page is generated automatically from the docstrings in `cafe-core`.
 
 ::: cafe.set_model_cost
 
+::: cafe.set_model_energy
+
 ::: cafe.datasets
