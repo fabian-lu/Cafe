@@ -112,9 +112,10 @@ def _safe_factor_frame(df, factors: list[str]):
 def _design_rank_deficient(df, factors: list[str], order: int) -> bool | None:
     """Whether the fixed-effects design at this interaction ``order`` is rank-deficient —
     true for an **aliased** design (e.g. a fractional factorial below resolution V), where
-    interaction columns are collinear and cannot be separated. Used by both the Gaussian
-    and ordinal layers to avoid reporting un-estimable interactions. ``None`` if it can't
-    be checked because statsmodels isn't installed (``fit_clmm`` must still work then)."""
+    interaction columns are collinear and cannot be separated. Used by the Gaussian, ordinal
+    and logistic layers to avoid reporting un-estimable interactions. ``None`` if it can't
+    be checked because statsmodels isn't installed (``fit_clmm`` and the GLMM must still
+    work then)."""
     if order < 2 or len(factors) < 2:
         return False
     import numpy as np
@@ -124,10 +125,15 @@ def _design_rank_deficient(df, factors: list[str], order: int) -> bool | None:
     except ImportError:
         return None
 
+    import warnings
+
     dfs, safe, _ = _safe_factor_frame(df, factors)
     main = " + ".join(f"C(Q('{safe[c]}'))" for c in factors)
     try:
-        exog = smf.ols(f"verdict ~ ({main})**{order}", dfs).fit().model.exog
+        # statsmodels warns about the very rank deficiency this function reports.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            exog = smf.ols(f"verdict ~ ({main})**{order}", dfs).fit().model.exog
     except Exception:  # noqa: BLE001
         return False
     return bool(np.linalg.matrix_rank(exog) < exog.shape[1])

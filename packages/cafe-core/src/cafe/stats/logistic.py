@@ -392,28 +392,40 @@ def fit_logistic(
 ) -> Logistic:
     """Fit a logistic model of pass/fail (``verdict`` ∈ {0,1}) on the factors.
 
-    ``backend`` selects the engine: ``"glmer"`` (logistic GLMM via R lme4), ``"statsmodels"``
-    (self-contained GEE / logistic), or ``"auto"`` (default — GLMM when R+lme4 are present,
-    else statsmodels). ``interactions`` is the max interaction order (1 = main effects,
-    2 = also two-way); if the GLMM can't fit the interactions, R refits main effects and the
-    result's ``formula`` and ``warnings`` say so. Returns a :class:`Logistic`;
-    ``available=False`` with a ``reason`` when the rubric isn't binary, there's no variance,
-    or no engine is available.
-
-    ``lr_tests`` (GLMM backend) adds one Type-II likelihood-ratio test per factor and
-    interaction (``factor_tests``) — "does it matter at all?", and unlike the Wald p-values
-    still valid when a factor separates pass from fail. Each reduced model is refit, trying
-    several optimizers until one converges; pass ``False`` to skip. The statsmodels
-    backends have no such tests.
+    Parameters
+    ----------
+    ratings:
+        The judge verdicts on a **binary** rubric.
+    alpha:
+        Significance level for the ``significant`` flags.
+    interactions:
+        The maximum interaction order (1 = main effects, 2 = also two-way). It is capped at
+        the number of factors, and at 1 when the design can't separate the interactions —
+        an aliased design such as a fractional factorial below resolution V — exactly as in
+        :func:`~cafe.stats.inferential.fit_effects` and :func:`~cafe.stats.ordinal.fit_clmm`;
+        ``warnings`` says so. If the GLMM can't fit the interactions, R refits main effects
+        and the result's ``formula`` and ``warnings`` say so.
+    backend:
+        ``"glmer"`` (logistic GLMM via R lme4), ``"statsmodels"`` (self-contained GEE /
+        logistic), or ``"auto"`` (default — GLMM when R+lme4 are present, else statsmodels).
+    timeout:
+        Seconds R may take for the GLMM (with its likelihood-ratio tests).
+    lr_tests:
+        GLMM backend: add one Type-II likelihood-ratio test per factor and interaction
+        (``factor_tests``) — "does it matter at all?", and unlike the Wald p-values still
+        valid when a factor separates pass from fail. Each reduced model is refit, trying
+        several optimizers until one converges; pass ``False`` to skip. The statsmodels
+        backends have no such tests.
 
     Returns
     -------
     Logistic
-        ``converged`` is lme4's convergence verdict on the GLMM (``None`` for the statsmodels
-        backends and when nothing was fit). If the optimizer or lme4's own convergence checks
-        failed (``converged=False``), every term's ``p`` is ``None`` and ``significant`` is
-        ``False``, because the standard errors of such a fit are not valid; ``warnings``
-        says so.
+        ``available=False`` with a ``reason`` when the rubric isn't binary, there's no
+        variance, or no engine is available. ``converged`` is lme4's convergence verdict on
+        the GLMM (``None`` for the statsmodels backends and when nothing was fit). If the
+        optimizer or lme4's own convergence checks failed (``converged=False``), every
+        term's ``p`` is ``None`` and ``significant`` is ``False``, because the standard
+        errors of such a fit are not valid; ``warnings`` says so.
     """
     from cafe.stats._frame import analysis_frame
 
@@ -449,6 +461,30 @@ def fit_logistic(
         res.reason = "no factor varies across at least two levels"
         return res
 
+    # Cap the order to what the design can estimate, as fit_effects and fit_clmm do (so the
+    # reports agree): in an aliased design (e.g. a fractional factorial below resolution V)
+    # interaction columns are collinear, and a logistic fit of them diverges — |log-odds|
+    # far above 10, which the separation guard then reads as separation, withholding every
+    # p-value — while the likelihood-ratio tests of the aliased terms fail.
+    design_notes: list[str] = []
+    order = max(1, min(interactions, len(usable)))
+    if order >= 2:
+        from cafe.stats.inferential import _design_rank_deficient
+
+        aliased = _design_rank_deficient(df, usable, order)
+        if aliased:
+            interactions = 1
+            design_notes.append(
+                "interactions are aliased in this design (e.g. a fractional factorial below "
+                "resolution V) — they can't be separated, so only main effects are fit"
+            )
+        elif aliased is None:
+            design_notes.append(
+                "statsmodels is not installed, so the design wasn't checked for aliased "
+                "interactions; for a fractional factorial below resolution V, read the "
+                "interaction terms as confounded (or pass interactions=1)"
+            )
+
     # Backend selection: prefer the GLMM (glmer) when available.
     want_glmer = backend in ("auto", "glmer")
     fallback_note = None
@@ -458,6 +494,7 @@ def fit_logistic(
             glmm = _fit_glmer(df, usable, alpha=alpha, interactions=interactions, timeout=timeout,
                               lr_tests=lr_tests)
             if glmm is not None:
+                glmm.warnings[:0] = design_notes
                 return glmm
             fallback_note = "R GLMM did not converge; used the statsmodels logistic instead"
         elif backend == "glmer":
@@ -469,4 +506,5 @@ def fit_logistic(
     res = _fit_statsmodels(df, usable, alpha=alpha, interactions=interactions)
     if fallback_note and res.available:
         res.warnings.insert(0, fallback_note)
+    res.warnings[:0] = design_notes
     return res
