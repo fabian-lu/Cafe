@@ -101,8 +101,8 @@ stage with a **single** technique is *fixed* — it needs no factor of its own; 
 
 Within one run (one configuration on one input), a repeated `ctx.run` with the same stage,
 technique, parameters and inputs returns the first result without running the technique again;
-the trace marks the repeat `cached: True` and its cost and tokens count once. Inputs are compared
-by value: plain JSON values (strings, numbers, booleans, `None`, lists, dicts with string keys)
+the trace marks the repeat `cached: True` and its cost, tokens and energy count once. Inputs are
+compared by value: plain JSON values (strings, numbers, booleans, `None`, lists, dicts with string keys)
 by their JSON, anything else (a tuple, a numpy array, a dataclass) by its pickle. Two calls share
 a result only if their inputs have the same type and content, never because they print alike. A
 call with an input that can't be pickled (a lambda, an open client) is not cached: it runs every
@@ -163,6 +163,41 @@ concurrently (`await asyncio.gather(ctx.run("a", ...), ctx.run("b", ...))`) or n
 technique that itself calls `ctx.run`); each step keeps its own cost. `ctx.add_cost` called
 in the compose function itself, outside any `ctx.run`, counts toward the answer's total
 `cost_usd` but belongs to no stage, so it does not show up in `cafe.stage_report`.
+
+### Energy of a run
+
+Energy is **opt-in**. CAFE never guesses a figure: a step, and the answer, get an `energy_wh`
+only once you declare one. Declare it **per model**, the way you set a price, in Wh per 1,000
+tokens:
+
+```python
+cafe.set_model_energy("ollama_cloud/gpt-oss:20b", wh_per_1k_tokens=0.06)
+cafe.set_model_energy("ollama_cloud/gpt-oss:120b", wh_per_1k_tokens=0.15)
+```
+
+Every `cafe.complete` call made inside a technique then counts its tokens at the figure of the
+model it called, looked up by the model string passed to `cafe.complete` (as prices are). So the
+model can be a parameter of one technique and each level still gets its own energy, and a
+technique that calls two models (a small one drafts, a large one checks) gets each call's energy
+from its own model:
+
+```python
+MODELS = {"gpt-oss-20b": "ollama_cloud/gpt-oss:20b", "gpt-oss-120b": "ollama_cloud/gpt-oss:120b"}
+
+@pipe.technique("generate", "llm")
+async def generate(ctx, query, chunks, model="gpt-oss-20b"):
+    return await cafe.complete(MODELS[model], [{"role": "user", "content": ...}])
+
+cafe.Factor("generate.model", ["gpt-oss-20b", "gpt-oss-120b"])   # energy differs per level
+```
+
+A technique can also declare energy itself: `energy_wh=` is a fixed amount per run (e.g. for
+non-LLM work), and `energy_wh_per_1k_tokens=` counts the tokens of its calls to models that have
+**no** figure of their own. A model's figure wins for its calls, so no token is counted twice;
+the fixed `energy_wh` is always added. A figure set with `cafe.set_model_energy` holds for the
+whole process, like a price, so it applies to every pipeline that calls that model. Each step's
+energy is in the trace and, averaged, in `cafe.stage_report`. A black-box system reports its
+own `energy_wh` in the dict it returns.
 
 ## Reading the config
 

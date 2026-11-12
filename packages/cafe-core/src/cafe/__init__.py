@@ -74,7 +74,7 @@ from cafe.judging import (
     build_judge_prompt,
     judge_results,
 )
-from cafe.llm import LLMError, complete, set_model_cost
+from cafe.llm import LLMError, complete, set_model_cost, set_model_energy
 from cafe._env import load_env
 from cafe.execution.results import Observation, Results, config_id, config_label
 from cafe.judging.rubric import ANSWER_QUALITY_1_5, Level, Rubric, ScaleType
@@ -155,6 +155,7 @@ __all__ = [
     # ── judging ──
     "complete",
     "set_model_cost",
+    "set_model_energy",
     "load_env",
     "LLMError",
     "Rubric",

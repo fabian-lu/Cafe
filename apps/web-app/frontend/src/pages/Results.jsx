@@ -46,7 +46,7 @@ const G = {
   vc: <><b>Variance components.</b> Splits the leftover (unexplained) variance into differences <i>between questions</i> vs plain <i>residual</i> noise. A large between-question share means some questions are just harder.</>,
   clmm: <><b>Cumulative-link mixed model.</b> Treats verdicts as <i>ordered categories</i> (0&lt;1&lt;2), not numbers — the statistically-correct model for an ordinal rubric. Includes a random effect per question.</>,
   marginal: <><b>Marginal mean.</b> The average quality at one factor level, averaged over all the other factors. "Is this level better on average?"</>,
-  energy: <><b>Energy (Wh).</b> Estimated, not measured: each technique <i>declares</i> its coefficient (a fixed Wh per run and/or Wh per 1k tokens), and CAFE multiplies by the tokens each answer actually used. Techniques without a declaration contribute nothing — a study whose pipeline declares nothing shows no energy at all. CO₂e and trees are display-time conversions you can adjust below.</>,
+  energy: <><b>Energy (Wh).</b> Estimated, not measured: the pipeline <i>declares</i> coefficients, per model (Wh per 1k tokens of each call to that model, via <span className="mono">cafe.set_model_energy</span>) and/or per technique (a fixed Wh per run and/or Wh per 1k tokens of calls to models without their own), and CAFE multiplies by the tokens each answer actually used. Whatever has no declaration contributes nothing — a study whose pipeline declares nothing shows no energy at all. CO₂e and trees are display-time conversions you can adjust below.</>,
 };
 const SigLegend = () => <span className="mono"> *** p&lt;.001 · ** &lt;.01 · * &lt;.05 · . &lt;.1</span>;
 
@@ -800,7 +800,7 @@ export default function Results() {
 
           {res.energy && (
             <Section title="Energy by factor level"
-              hint={<>estimated from each technique's declared coefficient × observed tokens — see <InfoTip label="how energy works">{G.energy}</InfoTip>. Shown only because this study's pipeline declares coefficients.</>}>
+              hint={<>estimated from the declared coefficients (per model or per technique) × observed tokens — see <InfoTip label="how energy works">{G.energy}</InfoTip>. Shown only because this study's pipeline declares coefficients.</>}>
               <Energy energy={res.energy} />
             </Section>
           )}

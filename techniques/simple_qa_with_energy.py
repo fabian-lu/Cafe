@@ -1,9 +1,11 @@
 """simple_qa with per-model ENERGY declarations — demonstrates opt-in energy tracking.
 
 Unlike `simple_qa.py` (kept as the energy-free counterpart), the model here is the
-*technique* (not a parameter), because energy coefficients are declared per technique:
-each model carries its own `energy_wh_per_1k_tokens`. The prompting style is a tunable
-parameter (`answer.style`) instead.
+*technique* (not a parameter), and each model's technique carries its own
+`energy_wh_per_1k_tokens`. The prompting style is a tunable parameter (`answer.style`)
+instead. (With `cafe.set_model_energy` the model could be a parameter, but a figure set
+that way holds for the whole process, like a price: the web app loads every pipeline in
+this folder into one process, so it would give `simple_qa.py` energy too.)
 
 Energy coefficients are EDUCATED GUESSES, not measurements — Wh per 1k OUTPUT-side
 tokens, folding together active parameter count, H100-class batched serving

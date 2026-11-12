@@ -1,6 +1,8 @@
 """Mode B (composed pipelines) framework — wiring tested offline (no LLM)."""
 
 import asyncio
+import sys
+import types
 
 import pytest
 
@@ -18,6 +20,14 @@ class _PrintsAlike:
 
     def __str__(self):
         return "same"
+
+
+@pytest.fixture(autouse=True)
+def _empty_model_registries(monkeypatch):
+    # cafe.set_model_energy / set_model_cost fill process-wide registries: every test starts
+    # with empty ones (restored afterwards), so no figure leaks into another test.
+    monkeypatch.setattr(llm, "_model_energy", {})
+    monkeypatch.setattr(llm, "_model_prices", {})
 
 
 def _pipe():
@@ -444,3 +454,222 @@ def test_equal_inputs_still_share_the_cache():
     for first, second in [((1, 2), (1, 2)), (_PrintsAlike(4), _PrintsAlike(4))]:
         outs, cached, calls = _echo_twice(first, second)
         assert cached == [False, True] and len(calls) == 1
+
+
+# ── energy declared per model (cafe.set_model_energy) ─────────────────────────────────────
+
+
+def _offline_llm(monkeypatch, tokens):
+    """Stand in for LiteLLM, offline: a call to ``model`` (the string LiteLLM receives) uses
+    ``tokens[model]`` = (prompt, completion) tokens. Returns the models called, in order."""
+    called = []
+
+    async def acompletion(*, model, messages, **kwargs):
+        called.append(model)
+        prompt, completion = tokens[model]
+        message = types.SimpleNamespace(content=f"reply from {model}")
+        return types.SimpleNamespace(
+            choices=[types.SimpleNamespace(message=message)],
+            usage=types.SimpleNamespace(prompt_tokens=prompt, completion_tokens=completion,
+                                        total_tokens=prompt + completion),
+        )
+
+    fake = types.ModuleType("litellm")
+    fake.acompletion = acompletion
+    fake.completion_cost = lambda **kwargs: 0.0   # no LiteLLM price table: unpriced
+    monkeypatch.setitem(sys.modules, "litellm", fake)
+    monkeypatch.setattr(llm, "load_env", lambda *args, **kwargs: None)   # no .env lookup
+    return called
+
+
+def _one_stage_pipe(**energy):
+    """A pipeline whose single ``reply`` technique calls ``model`` (a parameter) once."""
+    pipe = cafe.Pipeline()
+
+    @pipe.technique("reply", "llm", **energy)
+    async def reply(ctx, q, model="acme/small"):
+        return await cafe.complete(model, [{"role": "user", "content": q}])
+
+    @pipe.compose
+    async def system(config, item, ctx):
+        return await ctx.run("reply", q=item)
+
+    return pipe
+
+
+def test_set_model_energy_validates_and_clears():
+    assert "set_model_energy" in cafe.__all__
+    assert cafe.set_model_energy is llm.set_model_energy
+    cafe.set_model_energy("acme/model", wh_per_1k_tokens=0.06)
+    assert llm._model_energy == {"acme/model": 0.06}
+    assert llm._energy_from_figure("acme/model", 500) == pytest.approx(0.03)
+    assert llm._energy_from_figure("acme/other", 500) is None
+    cafe.set_model_energy("acme/model", wh_per_1k_tokens=0)   # 0 is a figure: declared free
+    assert llm._model_energy == {"acme/model": 0.0}
+    with pytest.raises(ValueError, match="non-negative"):
+        cafe.set_model_energy("acme/model", wh_per_1k_tokens=-0.1)
+    assert llm._model_energy == {"acme/model": 0.0}          # a rejected figure changes nothing
+    cafe.set_model_energy("acme/model")                       # None clears the figure
+    assert llm._model_energy == {}
+    cafe.set_model_energy("acme/unset", wh_per_1k_tokens=None)   # clearing an unset model: no-op
+    assert llm._model_energy == {}
+
+
+def test_model_parameter_gets_each_models_energy(monkeypatch):
+    # The model is a parameter of ONE technique; every level is charged at its own figure.
+    _offline_llm(monkeypatch, {"acme/small": (300, 100), "acme/large": (300, 100)})
+    cafe.set_model_energy("acme/small", wh_per_1k_tokens=0.05)
+    cafe.set_model_energy("acme/large", wh_per_1k_tokens=0.5)
+    study = cafe.Study(
+        name="t", system=_one_stage_pipe(),
+        factors=[cafe.Factor("reply.model", ["acme/small", "acme/large"])],
+        dataset=["q1", "q2"],
+    )
+    res = study.run()
+    assert len(res) == 4 and not res.errors
+    for o in res.observations:
+        expected = {"acme/small": 0.02, "acme/large": 0.2}[o.config["reply.model"]]  # 400 tokens
+        assert o.metadata["energy_wh"] == expected
+        assert o.metadata["trace"][0]["energy_wh"] == expected
+        assert o.metadata["tokens"] == 400
+
+
+def test_two_models_in_one_technique_each_count_their_own_energy(monkeypatch):
+    # A small model drafts, a large model checks: each call is charged at its own model's
+    # figure (and price), not at one figure for the whole technique.
+    _offline_llm(monkeypatch, {"acme/small": (100, 100), "acme/large": (500, 300)})
+    cafe.set_model_energy("acme/small", wh_per_1k_tokens=0.05)
+    cafe.set_model_energy("acme/large", wh_per_1k_tokens=0.5)
+    cafe.set_model_cost("acme/small", per_1k_tokens=0.001)
+    cafe.set_model_cost("acme/large", per_1k_tokens=0.01)
+    pipe = cafe.Pipeline()
+
+    @pipe.technique("reply", "draft_then_check")
+    async def draft_then_check(ctx, q):
+        draft = await cafe.complete("acme/small", [{"role": "user", "content": q}])
+        return await cafe.complete("acme/large", [{"role": "user", "content": draft}])
+
+    @pipe.compose
+    async def system(config, item, ctx):
+        return await ctx.run("reply", q=item)
+
+    out = asyncio.run(pipe.run({}, "q"))
+    assert out["output"] == "reply from acme/large"
+    # 200 tokens x 0.05 Wh/1k + 800 tokens x 0.5 Wh/1k = 0.01 + 0.4
+    assert out["energy_wh"] == 0.41
+    assert out["trace"][0]["energy_wh"] == 0.41
+    assert out["tokens"] == 1000
+    assert out["cost_usd"] == 0.0082   # 200 x $0.001/1k + 800 x $0.01/1k
+
+
+def test_model_figure_wins_over_technique_per_1k_tokens(monkeypatch):
+    # For the same tokens the model's figure wins (no double counting); the technique's
+    # per-1k figure covers only calls to models without one; its fixed energy_wh always adds.
+    _offline_llm(monkeypatch, {"acme/small": (600, 400), "acme/unfigured": (150, 50)})
+    cafe.set_model_energy("acme/small", wh_per_1k_tokens=0.5)
+    declared = {"energy_wh": 0.25, "energy_wh_per_1k_tokens": 2.0}
+
+    out = asyncio.run(_one_stage_pipe(**declared).run({}, "q"))
+    assert out["energy_wh"] == 0.75   # 0.25 fixed + 1,000 tokens x 0.5 (not also x 2.0)
+
+    out = asyncio.run(_one_stage_pipe(**declared).run({"reply.model": "acme/unfigured"}, "q"))
+    assert out["energy_wh"] == 0.65   # 0.25 fixed + 200 tokens x 2.0 (the fallback)
+
+    pipe = cafe.Pipeline()
+
+    @pipe.technique("reply", "mixed", **declared)
+    async def mixed(ctx, q):
+        await cafe.complete("acme/small", [{"role": "user", "content": q}])
+        return await cafe.complete("acme/unfigured", [{"role": "user", "content": q}])
+
+    @pipe.compose
+    async def system(config, item, ctx):
+        return await ctx.run("reply", q=item)
+
+    out = asyncio.run(pipe.run({}, "q"))
+    assert out["energy_wh"] == 1.15   # 0.25 fixed + 1,000 x 0.5 + 200 x 2.0
+    assert out["tokens"] == 1200
+
+
+@pytest.mark.parametrize(
+    ("energy_wh", "per_1k", "expected"),
+    [(0.5, None, 0.5), (None, 2.0, 0.4), (0.1, 1.0, 0.3), (0.0, 0.0, 0.0)],
+)
+def test_per_technique_energy_is_unchanged_without_a_model_figure(
+    monkeypatch, energy_wh, per_1k, expected
+):
+    # Existing declarations give the numbers they gave before (fixed + per-1k x all tokens of
+    # the run), also when some OTHER model has a figure.
+    _offline_llm(monkeypatch, {"acme/small": (123, 77)})
+    cafe.set_model_energy("acme/other", wh_per_1k_tokens=9.0)
+    pipe = _one_stage_pipe(energy_wh=energy_wh, energy_wh_per_1k_tokens=per_1k)
+    out = asyncio.run(pipe.run({}, "q"))
+    assert out["energy_wh"] == expected
+    assert out["trace"][0]["energy_wh"] == expected
+    assert expected == round((energy_wh or 0.0) + (per_1k or 0.0) * 200 / 1000, 6)
+
+
+def test_no_energy_figure_anywhere_reports_no_energy(monkeypatch):
+    _offline_llm(monkeypatch, {"acme/small": (100, 100)})
+    cafe.set_model_cost("acme/small", per_1k_tokens=0.01)       # a price is not an energy figure
+    cafe.set_model_energy("acme/other", wh_per_1k_tokens=0.5)   # a figure for another model
+    cafe.set_model_energy("acme/small", wh_per_1k_tokens=0.5)
+    cafe.set_model_energy("acme/small")                         # ...cleared again
+    study = cafe.Study(name="t", system=_one_stage_pipe(), factors=[cafe.Factor("x", ["a"])],
+                       dataset=["q1"])
+    res = study.run()
+    (o,) = res.observations
+    assert o.metadata["tokens"] == 200 and o.metadata["cost_usd"] == 0.002
+    assert "energy_wh" not in o.metadata
+    assert all("energy_wh" not in step for step in o.metadata["trace"])
+    assert all("mean_energy_wh" not in row for row in stage_report(res))
+
+
+def test_cached_step_counts_model_energy_once(monkeypatch):
+    called = _offline_llm(monkeypatch, {"acme/small": (300, 100)})
+    cafe.set_model_energy("acme/small", wh_per_1k_tokens=0.5)
+    pipe = _one_stage_pipe()
+
+    @pipe.compose
+    async def twice(config, item, ctx):
+        first = await ctx.run("reply", q=item)
+        again = await ctx.run("reply", q=item)   # identical call → served from the stage cache
+        assert again == first
+        return again
+
+    out = asyncio.run(pipe.run({}, "q"))
+    assert called == ["acme/small"]             # the model ran once
+    assert [s["cached"] for s in out["trace"]] == [False, True]
+    assert [s["energy_wh"] for s in out["trace"]] == [0.2, 0.2]   # the replay shows the step...
+    assert out["energy_wh"] == 0.2              # ...but its energy is counted once
+    assert out["tokens"] == 400
+
+
+def test_model_energy_is_keyed_by_the_model_string_passed_to_complete(monkeypatch):
+    # cafe.complete routes "ollama_cloud/<tag>" to LiteLLM as "openai/<tag>"; the figure, like a
+    # price, is looked up under the string the technique passed to cafe.complete.
+    monkeypatch.setenv("OLLAMA_API_KEY", "test-key")
+    called = _offline_llm(monkeypatch, {"openai/gpt-oss:20b": (700, 300)})
+    cafe.set_model_energy("ollama_cloud/gpt-oss:20b", wh_per_1k_tokens=0.06)
+    out = asyncio.run(_one_stage_pipe().run({"reply.model": "ollama_cloud/gpt-oss:20b"}, "q"))
+    assert called == ["openai/gpt-oss:20b"]
+    assert out["energy_wh"] == 0.06   # 1,000 tokens x 0.06 Wh/1k
+
+
+def test_model_energy_leaves_black_box_systems_alone(monkeypatch):
+    # A black-box system reports its own energy_wh; CAFE adds none for its LLM calls.
+    _offline_llm(monkeypatch, {"acme/small": (300, 100)})
+    cafe.set_model_energy("acme/small", wh_per_1k_tokens=0.5)
+
+    async def silent(config, item):
+        return await cafe.complete("acme/small", [{"role": "user", "content": item}])
+
+    async def reporting(config, item):
+        answer = await cafe.complete("acme/small", [{"role": "user", "content": item}])
+        return {"output": answer, "energy_wh": 0.123}
+
+    for system, expected in [(silent, None), (reporting, 0.123)]:
+        study = cafe.Study(name="t", system=system, factors=[cafe.Factor("x", ["a"])],
+                           dataset=["q1"])
+        (o,) = study.run().observations
+        assert o.ok and o.metadata.get("energy_wh") == expected

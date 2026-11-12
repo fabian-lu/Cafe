@@ -111,7 +111,7 @@ class Context:
         self.total_cost: float = 0.0
         self.total_tokens: int = 0
         self.total_energy_wh: float = 0.0
-        self.energy_declared: bool = False  # True once any executed technique declared energy
+        self.energy_declared: bool = False  # True once any executed step had declared energy
         self._cache: dict[str, Any] = {}
 
     def add_cost(self, usd: float) -> None:
@@ -137,12 +137,16 @@ class Context:
     async def run(self, stage: str, *, cache: bool = True, **inputs: Any) -> Any:
         """Run whichever technique the config selected for ``stage`` and return its output.
 
-        The step is timed, metered and appended to :attr:`trace`. A call identical to an
-        earlier cached one in this run (same stage, technique, params and inputs) returns
-        that call's output without running the technique: it is traced with
-        ``cached: True`` and adds no cost, tokens or energy. Params and inputs are compared
-        by value — as JSON, or else by their pickle, never by ``str()`` — and a call with a
-        value that can't be pickled is never cached.
+        The step is timed, metered and appended to :attr:`trace`. Its energy adds up the
+        tokens of each LLM call at the figure of the model it called
+        (:func:`cafe.set_model_energy`), the tokens of calls to models without a figure at the
+        technique's ``energy_wh_per_1k_tokens``, and the technique's fixed ``energy_wh``; with
+        none of these declared the step has no ``energy_wh``. A call identical to an earlier
+        cached one in this run (same stage, technique, params and inputs) returns that call's
+        output without running the technique: it is traced with ``cached: True`` and adds no
+        cost, tokens or energy. Params and inputs are compared by value — as JSON, or else by
+        their pickle, never by ``str()`` — and a call with a value that can't be pickled is
+        never cached.
 
         Parameters
         ----------
@@ -275,9 +279,15 @@ class Context:
             "tokens": auto_tokens,
             "cached": False,
         }
-        # Energy is opt-in per technique: computed (and traced) only when declared.
-        if spec.energy_wh is not None or spec.energy_wh_per_1k_tokens is not None:
-            energy = (spec.energy_wh or 0.0) + (spec.energy_wh_per_1k_tokens or 0.0) * auto_tokens / 1000
+        # Energy is opt-in: computed (and traced) only when declared, per model (each call to
+        # a model with a cafe.set_model_energy figure carries its own energy_wh) or per
+        # technique. The technique's Wh per 1k tokens covers only the tokens of calls without
+        # a model figure, so no token is counted twice; its fixed Wh per run always adds.
+        model_energy = [u["energy_wh"] for u in sink if "energy_wh" in u]
+        if model_energy or spec.energy_wh is not None or spec.energy_wh_per_1k_tokens is not None:
+            other_tokens = sum(u["tokens"] for u in sink if "energy_wh" not in u)
+            per_1k = spec.energy_wh_per_1k_tokens or 0.0
+            energy = (spec.energy_wh or 0.0) + per_1k * other_tokens / 1000 + sum(model_energy)
             meta["energy_wh"] = round(energy, 6)
             self.total_energy_wh += energy
             self.energy_declared = True

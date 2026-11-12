@@ -79,16 +79,40 @@ class Pipeline:
     ) -> Callable:
         """Register ``fn`` as the technique ``name`` for ``stage`` (decorator).
 
-        ``cost_usd`` is a fixed cost charged every time this technique runs — for a non-LLM
-        component whose price CAFE can't see (a paid reranker, a web-search API, a human
-        step). It's added to any LLM cost tracked inside the function and shows up in
-        ``stage_report`` / Pareto / ``report()``.
+        Energy is strictly opt-in: declare it per model with :func:`cafe.set_model_energy`
+        (each LLM call then counts at its own model's figure, so the model can be a
+        parameter of one technique) and/or per technique with ``energy_wh`` /
+        ``energy_wh_per_1k_tokens``. With no figure for the calls made and neither argument
+        set, no energy is computed or reported anywhere. CAFE never guesses a coefficient;
+        you declare it (e.g. derived from the model's active parameter count and serving
+        hardware).
 
-        ``energy_wh`` / ``energy_wh_per_1k_tokens`` declare this technique's energy use:
-        a fixed Wh per run, and/or Wh per 1k tokens used inside the run (scaled by the
-        tokens CAFE observes). Energy is strictly opt-in — leave both unset and no energy
-        is computed or reported anywhere. CAFE never guesses a coefficient; you declare it
-        (e.g. derived from the model's active parameter count and serving hardware).
+        Parameters
+        ----------
+        stage:
+            The stage this technique fills (e.g. ``"retrieve"``).
+        name:
+            The technique's name: its level in the stage's factor.
+        description:
+            A short human-readable description (shown in the web app).
+        cost_usd:
+            A fixed cost charged every time this technique runs — for a non-LLM component
+            whose price CAFE can't see (a paid reranker, a web-search API, a human step).
+            It's added to any LLM cost tracked inside the function and shows up in
+            ``stage_report`` / Pareto / ``report()``.
+        energy_wh:
+            A fixed energy use (Wh) charged every time this technique runs, e.g. for non-LLM
+            work. It adds to the energy of the LLM calls made inside the run.
+        energy_wh_per_1k_tokens:
+            Wh per 1,000 tokens of the LLM calls made inside the run (scaled by the tokens
+            CAFE observes), for calls to models without a figure of their own. A call to a
+            model declared with :func:`cafe.set_model_energy` counts at that model's figure
+            instead, so no token is counted twice.
+
+        Returns
+        -------
+        Callable
+            The decorator: it registers ``fn`` and returns it unchanged.
 
         Raises
         ------
@@ -108,7 +132,24 @@ class Pipeline:
         energy_wh: float | None = None, energy_wh_per_1k_tokens: float | None = None,
     ) -> "Pipeline":
         """Register a technique programmatically (not as a decorator) — e.g. a deployed
-        catalog assembling a pipeline per run. Returns ``self`` for chaining.
+        catalog assembling a pipeline per run.
+
+        Parameters
+        ----------
+        stage:
+            The stage this technique fills.
+        name:
+            The technique's name: its level in the stage's factor.
+        fn:
+            The async technique function, called as ``fn(ctx, **inputs, **params)``.
+        description, cost_usd, energy_wh, energy_wh_per_1k_tokens:
+            As for :meth:`technique`. A model declared with :func:`cafe.set_model_energy`
+            takes priority over ``energy_wh_per_1k_tokens`` for its calls.
+
+        Returns
+        -------
+        Pipeline
+            ``self``, for chaining.
 
         Raises
         ------
@@ -205,7 +246,8 @@ class Pipeline:
         -------
         dict
             ``{"output", "cost_usd", "tokens", "trace"}``, plus ``"energy_wh"`` once energy
-            was declared. The totals are summed over the stages that ran, plus any
+            was declared (per model with :func:`cafe.set_model_energy`, or per technique).
+            The totals are summed over the stages that ran, plus any
             ``cost_usd`` / ``tokens`` / ``energy_wh`` the compose function reports itself by
             returning ``{"output": answer, "cost_usd": ..., ...}`` — spent outside any
             stage, so not in ``trace``. Other keys of that dict are kept as metadata;
@@ -231,8 +273,9 @@ class Pipeline:
             "tokens": tokens,
             "trace": ctx.trace,
         }
-        # Energy is opt-in: the key exists only if a technique that ran (or the compose
-        # fn) declared it.
+        # Energy is opt-in: the key exists only if a step that ran had declared energy (a
+        # model figure for one of its calls, or the technique's own), or the compose fn
+        # reported it.
         if ctx.energy_declared or energy is not None:
             out["energy_wh"] = round(ctx.total_energy_wh + float(energy or 0.0), 6)
         return out

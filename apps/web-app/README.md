@@ -48,6 +48,6 @@ All pages are implemented:
   the ordinal or binary model (by rubric scale), variance components, latency, verdict distribution, run timing and
   cost/quality. Multi-rubric studies get a dimension selector. Extra question fields (2–30 distinct
   values) become filters that recompute the statistics on that subset of questions. Energy is shown
-  when the pipeline's techniques declare coefficients.
+  when the pipeline declares coefficients, per model (`cafe.set_model_energy`) or per technique.
 - **Raters** — score a study's answers by name on the judge's rubric and see judge↔human and
   human↔human Krippendorff's α (on the primary dimension).

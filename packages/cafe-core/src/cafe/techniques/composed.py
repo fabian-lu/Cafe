@@ -33,7 +33,7 @@ def stage_report(results: Any) -> list[dict[str, Any]]:
             a["elapsed"] += step.get("elapsed_s", 0.0)
             a["cost"] += step.get("cost_usd", 0.0)
             a["tokens"] += step.get("tokens", 0)
-            if "energy_wh" in step:  # opt-in: only techniques that declared energy have it
+            if "energy_wh" in step:  # opt-in: only steps with declared energy have it
                 a["energy"] += step["energy_wh"]
                 a["energy_n"] += 1
             a["n"] += 1

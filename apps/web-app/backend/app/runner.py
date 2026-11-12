@@ -267,8 +267,9 @@ def _factor_keys(ev) -> list[str]:
 def _energy(answers) -> dict[str, Any] | None:
     """Aggregate opt-in per-answer energy (Wh) into totals + per-level + per-config means.
 
-    Energy exists only where the pipeline's techniques declared coefficients; when no
-    observation carries it, return None so the UI shows nothing (strictly opt-in)."""
+    Energy exists only where the pipeline declared coefficients (per model or per
+    technique); when no observation carries it, return None so the UI shows nothing
+    (strictly opt-in)."""
     obs = [
         o for o in answers.observations
         if o.ok and (o.metadata or {}).get("energy_wh") is not None
