@@ -161,11 +161,16 @@ async def create_study(body: schemas.StudyIn, db: AsyncSession = Depends(get_ses
     Raises
     ------
     HTTPException
-        422 if cafe-core rejects its factors or replication count; the detail carries
-        cafe-core's message.
+        422 if cafe-core rejects its factors or replication count (the detail carries
+        cafe-core's message), or if it has a rubric (``rubric_id`` or ``rubric_ids``) but no
+        ``judge_model``: a run would then grade nothing and drop the extra dimensions.
     """
     if (err := _study_error(body.factors, body.replications)) is not None:
         raise HTTPException(422, f"invalid study: {err}")
+    if (body.rubric_id is not None or body.rubric_ids) and not body.judge_model.strip():
+        raise HTTPException(422, "invalid study: a rubric needs a judge model to grade the "
+                                 "answers; choose one, or leave out the rubric to only "
+                                 "generate answers")
     obj = models.Study(**body.model_dump(), status="draft", progress=0)
     db.add(obj)
     await db.commit()

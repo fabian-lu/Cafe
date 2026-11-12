@@ -115,6 +115,10 @@ function CreateStudy({ pipelines, datasets, rubrics, onCreated }) {
       .filter((s) => s.techniques.length > 1 && !s.techniques.some((t) => stageSel[s.stage]?.[t.name]))
       .map((s) => s.stage), [pipe, stageSel]);
 
+  // The judge model grades the answers on the rubric(s): with a rubric but no model, a run would
+  // grade nothing (the backend refuses such a study).
+  const needsJudge = !!rubricId && !judge.trim();
+
   const submit = async () => {
     setErr(null);
     try {
@@ -222,9 +226,11 @@ function CreateStudy({ pipelines, datasets, rubrics, onCreated }) {
         <div className="hint">
           {unconfigured.length > 0
             ? <span style={{ color: "var(--error)" }}>configure {unconfigured.join(", ")} — each stage with multiple techniques needs a selection</span>
-            : `${factors.length} factor${factors.length === 1 ? "" : "s"} · ${nConfigs} configuration${nConfigs === 1 ? "" : "s"}`}
+            : needsJudge
+              ? <span style={{ color: "var(--error)" }}>choose a judge model — it grades the answers on the rubric (or clear the rubric to only generate answers)</span>
+              : `${factors.length} factor${factors.length === 1 ? "" : "s"} · ${nConfigs} configuration${nConfigs === 1 ? "" : "s"}`}
         </div>
-        <button className="btn primary" disabled={!name || factors.length === 0 || !datasetId || unconfigured.length > 0} onClick={submit}>Create study</button>
+        <button className="btn primary" disabled={!name || factors.length === 0 || !datasetId || unconfigured.length > 0 || needsJudge} onClick={submit}>Create study</button>
       </div>
     </div>
   );
