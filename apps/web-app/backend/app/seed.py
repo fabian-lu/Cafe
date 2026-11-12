@@ -42,6 +42,7 @@ async def seed_if_empty() -> None:
             factors=s["factors"],
             dataset_id=dataset.id,
             rubric_id=rubric.id,
+            rubric_ids=[rubric.id],
             judge_model=s.get("judge_model", ""),
             replications=s.get("replications", 1),
             concurrency=s.get("concurrency", 8),
@@ -50,7 +51,9 @@ async def seed_if_empty() -> None:
         )
         db.add(study)
         await db.flush()
-        db.add(models.StudyResult(study_id=study.id, payload=blob["payload"]))
+        # under the rubric's name: the dimension a re-run of the study writes
+        db.add(models.StudyResult(study_id=study.id, dimension=rubric.name,
+                                  payload=blob["payload"]))
         await db.commit()
         print(f"[seed] inserted demo study '{study.name}' "
               f"({len(blob['payload'].get('records', []))} records)")

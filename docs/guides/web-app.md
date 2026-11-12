@@ -57,7 +57,8 @@ shows it like any other study, without re-running anything.
    and a cost/time estimate before you commit.
 4. **Run** — launch it and watch **live progress** stream as cells complete. A run
    executes inside the backend process: if the backend restarts mid-run, the study is
-   marked **failed** and can be re-run from its page (the run starts over).
+   marked **failed** and can be re-run from its page (the run starts over). A re-run
+   replaces all of the study's results, on every dimension, with the new run's.
 5. **Results** — the same analysis as `report()`, in the browser: per-factor
    attribution (F, p, partial η², variance share), effect sizes, per-level marginal
    means, and the best configuration. A study created with extra rubrics (each judges

@@ -33,6 +33,16 @@ async def _replace_payload(path: str, study_id: int) -> None:
 
 
 async def _run(path: str) -> None:
+    """Insert the recovered study as a new, finished study.
+
+    Its results are stored under its rubric's name, the dimension a re-run of the study writes,
+    and that rubric is its one dimension (``rubric_ids``), as for a study made in the app.
+
+    Parameters
+    ----------
+    path : str
+        The ``{study, rubric, dataset, payload}`` JSON file written by ``recover_build.py``.
+    """
     blob = json.load(open(path, encoding="utf-8"))
     await init_db()
     async with SessionLocal() as db:
@@ -44,13 +54,14 @@ async def _run(path: str) -> None:
         s = blob["study"]
         study = models.Study(
             name=s["name"], pipeline=s.get("pipeline", "pipeline"), factors=s["factors"],
-            dataset_id=dataset.id, rubric_id=rubric.id, judge_model=s.get("judge_model", ""),
+            dataset_id=dataset.id, rubric_id=rubric.id, rubric_ids=[rubric.id],
+            judge_model=s.get("judge_model", ""),
             replications=s.get("replications", 1), status="done", progress=100,
         )
         db.add(study)
         await db.flush()
 
-        db.add(models.StudyResult(study_id=study.id, payload=blob["payload"]))
+        db.add(models.StudyResult(study_id=study.id, dimension=rubric.name, payload=blob["payload"]))
         await db.commit()
         print(f"recovered study id={study.id} '{study.name}' "
               f"({len(blob['payload'].get('records', []))} records) → rubric {rubric.id}, dataset {dataset.id}")
