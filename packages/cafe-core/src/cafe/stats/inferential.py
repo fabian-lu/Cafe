@@ -170,6 +170,60 @@ def _exact_fit_ss(dfs, factors: list[str], safe: dict[str, str], order: int,
     return out
 
 
+def _type2_by_comparison(fit, tokens: list[str]):
+    """The Type-II ANOVA table of an OLS ``fit`` with a rank-deficient design, from nested
+    least-squares comparisons — laid out like ``sm.stats.anova_lm(fit, typ=2)``, which it
+    equals for a full-rank design. ``tokens`` are the model's factors as they appear in its
+    column names (``"C(Q('cafe_f0'))"``, the block ``"C(input_id)"``); a term is the set of
+    tokens its columns share.
+
+    anova_lm counts every column of a term as a degree of freedom, so a term whose columns
+    other terms already span (e.g. a factor whose levels were answered on different
+    questions, which the question block spans) still gets df > 0 and an F-test of what those
+    other terms explain. Here, as R's ``car::Anova(type=2)`` does for a model with aliased
+    coefficients, a term's SS = SSR(model without the term and the terms containing it) −
+    SSR(model without the terms containing it) and its df is the rank the term adds. A term
+    that adds none (df 0) is not estimable: its ``sum_sq``, ``F`` and ``PR(>F)`` are NaN.
+    Raises ``ValueError`` when no residual df is left (like anova_lm).
+    """
+    import numpy as np
+    import pandas as pd
+    from scipy import stats
+
+    X, y = np.asarray(fit.model.exog), np.asarray(fit.model.endog)
+    cols: dict[frozenset, list[int]] = {}
+    for j, name in enumerate(fit.model.exog_names):
+        cols.setdefault(frozenset(t for t in tokens if t in name), []).append(j)
+
+    def ssr_rank(terms: list[frozenset]) -> tuple[float, int]:
+        x = X[:, [j for t in terms for j in cols[t]]]
+        r = y - x @ np.linalg.lstsq(x, y, rcond=None)[0]
+        return float(r @ r), int(np.linalg.matrix_rank(x))
+
+    ssr_full, rank_full = ssr_rank(list(cols))
+    df_resid = len(y) - rank_full
+    if df_resid <= 0:
+        raise ValueError("no residual degrees of freedom")
+    mse = ssr_full / df_resid
+    rows = {}
+    for t in cols:
+        if not t:  # the intercept
+            continue
+        with_t = [u for u in cols if not t < u]  # drop the terms containing t
+        ssr_with, rank_with = ssr_rank(with_t)
+        ssr_without, rank_without = ssr_rank([u for u in with_t if u != t])
+        df = rank_with - rank_without
+        name = ":".join(tok for tok in tokens if tok in t)
+        if df <= 0:
+            rows[name] = (float("nan"), 0.0, float("nan"), float("nan"))
+            continue
+        ss = max(0.0, ssr_without - ssr_with)
+        F = (ss / df) / mse if mse > 0 else float("nan")  # mse 0: the exact-fit path scores it
+        rows[name] = (ss, float(df), F, float(stats.f.sf(F, df, df_resid)) if F == F else F)
+    rows["Residual"] = (ssr_full, float(df_resid), float("nan"), float("nan"))
+    return pd.DataFrame.from_dict(rows, orient="index", columns=["sum_sq", "df", "F", "PR(>F)"])
+
+
 def _cohens_d(arr_a, arr_b):
     import numpy as np
 
@@ -290,6 +344,10 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
     most), ``3`` = up to three-way. It's auto-capped at the number of factors, and falls
     back to main-effects-only if the interaction model can't be estimated on the data.
 
+    With two or more questions the F-tests are blocked by question, also when some
+    configurations have no answer to some questions (a failed generation, an unparseable
+    verdict): such a question just adds fewer within-question comparisons.
+
     Returns
     -------
     Effects
@@ -298,7 +356,10 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
         answer within a configuration got the same score) the F-tests are degenerate, so a
         term with any effect is reported as ``F=inf``, ``p=0.0``, ``partial_eta_sq=1.0``
         (significant) and a term with no effect as ``None`` (not significant); ``model``
-        and ``warnings`` say so.
+        and ``warnings`` say so. A term **confounded with the questions** — its levels were
+        answered on different questions, so the question block already explains whatever it
+        might — is not estimable: ``df=0`` and ``F`` / ``p`` / ``partial_eta_sq`` ``None``
+        (not significant); ``warnings`` names it.
     """
     import numpy as np
 
@@ -344,14 +405,11 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
     dfs, safe, _back = _safe_factor_frame(df, usable)
     main_terms = " + ".join(f"C(Q('{safe[c]}'))" for c in usable)
 
-    # Blocking needs ≥2 questions, and questions crossed with configurations: if a question
-    # was answered by only one configuration, its block would soak up that config's effect.
+    # Block by question whenever there are ≥2 questions. A question only some configurations
+    # answered (e.g. one generation failed) just fits its own block parameter: the factors are
+    # still compared within the questions their levels share.
     multi_q = "input_id" in df.columns and df["input_id"].nunique() >= 2
-    crossed = False
-    if multi_q:
-        config_key = dfs[[safe[c] for c in usable]].astype(str).agg("|".join, axis=1)
-        crossed = bool((config_key.groupby(dfs["input_id"]).nunique() >= 2).all())
-    block = "C(input_id)" if crossed else ""
+    block = "C(input_id)" if multi_q else ""
 
     def _formula(o: int, blocked: bool = True) -> str:
         rhs = f"({main_terms})**{o}" if o >= 2 and len(usable) >= 2 else main_terms
@@ -369,12 +427,6 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
         res.formula = " · ".join(f"verdict ~ {c}" for c in usable)  # one test per factor
         res.terms = _oneway(df, usable, res.warnings, alpha)
         return res
-    if not crossed:
-        res.warnings.append(
-            "some question was answered by only one configuration, so the F-tests can't be "
-            "blocked by question: question difficulty stays in the error term, which makes "
-            "them conservative"
-        )
 
     # How much the questions differ: the random-intercept model's variance components.
     mfit = _fit_random_intercept(smf, _formula(1, blocked=False), dfs)
@@ -397,49 +449,47 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
     # below (rank, exact fit) turn the ones that matter into clear notes.
     import warnings as _warnings
 
-    confounded_note = (
-        "a factor is confounded with the questions (configurations answered different "
-        "questions), so the F-tests can't be blocked by question: question difficulty stays "
-        "in the error term, which makes them conservative"
-    )
-
     def _ols(o: int, blocked: bool):
         """OLS fit at interaction order ``o`` and whether its design is rank-deficient."""
         f = smf.ols(_formula(o, blocked), dfs).fit()
         x = f.model.exog
         return f, bool(np.linalg.matrix_rank(x) < x.shape[1])
 
+    def _anova(o: int, blocked: bool, fitted=None):
+        """The fit at order ``o`` (``fitted``: its :func:`_ols` result, if already made), its
+        Type-II table, and whether the question block made the design rank-deficient — a term
+        confounded with the questions (its levels were answered on different questions). Such
+        a design's table comes from nested comparisons, which give that term 0 df: anova_lm
+        would test question difficulty as its effect."""
+        f, deficient = fitted or _ols(o, blocked)
+        if deficient and blocked and not _ols(o, False)[1]:
+            return f, _type2_by_comparison(f, [*(f"C(Q('{safe[c]}'))" for c in usable), block]), True
+        note = ("some factors are confounded with each other in this design (one determines "
+                "another), so their separate effects can't be estimated — read them together")
+        if deficient and note not in res.warnings:
+            res.warnings.append(note)
+        return f, sm.stats.anova_lm(f, typ=2), False
+
     with _warnings.catch_warnings():
         _warnings.simplefilter("ignore")
         # Per-term F / p / partial η² via Type-II ANOVA, blocked by question, at the requested
         # interaction order. A rank-deficient design can't separate its terms (statsmodels would
-        # silently split their variance into meaningless parts), so: if the question block is
-        # what breaks it, drop the block; if interactions are aliased (a fractional factorial
-        # below resolution V: at resolution IV model×sabotage IS verbosity×hedge), fit main
-        # effects only.
+        # silently split their variance into meaningless parts), so: if interactions are aliased
+        # among the factors (a fractional factorial below resolution V: at resolution IV
+        # model×sabotage IS verbosity×hedge), fit main effects only; a term the question block
+        # makes inestimable is reported as such (see _anova).
         order_used, table, exact, use_block = order, None, False, bool(block)
+        q_confounded = False
         try:
-            fit, deficient = _ols(order, use_block)
-            if deficient and use_block and not _ols(order, False)[1]:
-                use_block, (fit, deficient) = False, _ols(order, False)
-                res.warnings.append(confounded_note)
-            if deficient and order >= 2:
-                order_used = 1
+            fitted = _ols(order, use_block)
+            if fitted[1] and order >= 2 and _ols(order, False)[1]:
+                order_used, fitted = 1, None
                 res.warnings.append(
                     "interactions are aliased in this design (e.g. a fractional factorial "
                     "below resolution V) — they can't be separated, so only main effects are "
                     "fit; read the design's alias structure to interpret them"
                 )
-                fit, deficient = _ols(1, use_block)
-                if deficient and use_block and not _ols(1, False)[1]:
-                    use_block, (fit, deficient) = False, _ols(1, False)
-                    res.warnings.append(confounded_note)
-            if deficient:
-                res.warnings.append(
-                    "some factors are confounded with each other in this design (one determines "
-                    "another), so their separate effects can't be estimated — read them together"
-                )
-            table = sm.stats.anova_lm(fit, typ=2)
+            fit, table, q_confounded = _anova(order_used, use_block, fitted)
         except Exception:  # noqa: BLE001
             if order_used >= 2:
                 order_used = 1
@@ -447,8 +497,7 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
                 try:
                     # Rebind `fit`: the residuals/fitted attached below must come from the
                     # main-effects model the table reports, not the abandoned interaction fit.
-                    fit = smf.ols(_formula(1, use_block), dfs).fit()
-                    table = sm.stats.anova_lm(fit, typ=2)
+                    fit, table, q_confounded = _anova(1, use_block)
                 except Exception as exc:  # noqa: BLE001
                     res.warnings.append(f"ANOVA failed ({exc})")
             else:
@@ -464,10 +513,11 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
             # table's F-tests are 0/0 (NaN) or rounding noise (needs residual df to mean anything).
             exact = (float(table.loc["Residual", "df"]) > 0
                      and ss_resid <= _EXACT_FIT_RTOL * ss_total)
-            if exact and use_block:
+            if exact and use_block and not q_confounded:
                 # With few answers per question the block alone can make the fit exact by chance
                 # (a null factor would read F=inf); unless the factors alone fit exactly too,
-                # test without the block instead.
+                # test without the block instead. (Not when a term is confounded with the
+                # questions: without the block it would be tested on question difficulty.)
                 fit_u = smf.ols(_formula(order_used, False), dfs).fit()
                 if float(fit_u.ssr) > _EXACT_FIT_RTOL * ss_total:
                     use_block, fit, exact = False, fit_u, False
@@ -533,6 +583,14 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
                         "partial_eta_sq": eta,
                         "significant": (p < alpha) if p == p else False,
                     }
+                )
+            not_estimable = [t["factor"] for t in res.terms if t["df"] == 0]
+            if not_estimable:
+                res.warnings.append(
+                    f"{', '.join(not_estimable)}: not estimable — confounded with the questions "
+                    "(its levels were answered on different questions), so its effect can't be "
+                    "told apart from question difficulty and it gets no F-test; answer the same "
+                    "questions with each level to test it"
                 )
 
     return res
