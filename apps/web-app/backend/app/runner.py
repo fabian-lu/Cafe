@@ -36,22 +36,52 @@ def _build_rubric(row: models.Rubric) -> cafe.Rubric:
 
 
 def _coerce_levels(levels: list[Any]) -> list[Any]:
-    # None stays None (skip level); numeric-looking strings → numbers.
+    """A factor's levels as a run passes them to the pipeline.
+
+    Parameters
+    ----------
+    levels : list
+        The stored levels. The study form sends a list that mixes words and numbers (e.g.
+        ``["default", "1e-3"]``) as strings.
+
+    Returns
+    -------
+    list
+        The levels, where ``None`` stays ``None`` (skip the stage) and a string that spells a
+        finite number becomes that number: an int if it spells one (``"3"``), else a float
+        (``"0.5"``, ``"1e-3"``). Any other string, ``"inf"`` and ``"nan"`` included, stays
+        as it is. Never raises.
+    """
     out = []
     for v in levels:
         if v is None:
             out.append(None)
         elif isinstance(v, str) and v.strip() != "" and _is_num(v):
-            out.append(float(v) if "." in v else int(v))
+            try:
+                out.append(int(v))
+            except ValueError:  # "0.5", "1e-3": not an int literal, but a finite float
+                out.append(float(v))
         else:
             out.append(v)
     return out
 
 
 def _is_num(s: str) -> bool:
+    """Whether a string spells a finite number.
+
+    Parameters
+    ----------
+    s : str
+        The string.
+
+    Returns
+    -------
+    bool
+        ``True`` for e.g. ``"3"``, ``"0.5"`` or ``"1e-3"``; ``False`` for ``"inf"``, ``"nan"``
+        and anything ``float`` can't read.
+    """
     try:
-        float(s)
-        return True
+        return math.isfinite(float(s))
     except ValueError:
         return False
 
