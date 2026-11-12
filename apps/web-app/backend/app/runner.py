@@ -25,8 +25,58 @@ PROGRESS: dict[int, dict[str, Any]] = {}
 STATS_VERSION = 4  # 3: CLMM per-factor likelihood-ratio tests · 4: same for the logistic GLMM
 
 
+def _level_value(value: Any) -> int:
+    """A rubric level's stored value as the whole number a ``cafe.Level`` holds.
+
+    Parameters
+    ----------
+    value : Any
+        The stored value: a JSON number, or a numeric string.
+
+    Returns
+    -------
+    int
+        The value; an integral float such as ``2.0`` gives ``2``.
+
+    Raises
+    ------
+    ValueError
+        If it is not a whole number (``0.5``, ``nan``, ``"abc"``). It is never truncated: the
+        judge grades on whole scale points, so levels ``0, 0.5, 1`` would reach it as
+        ``0, 0, 1``.
+    """
+    if isinstance(value, int):
+        return int(value)
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"level value {value!r} is not a number") from None
+    if not number.is_integer():
+        raise ValueError(f"level value {value!r} is not a whole number — the judge grades on "
+                         "whole scale points (use e.g. 0, 1, 2 rather than 0, 0.5, 1)")
+    return int(number)
+
+
 def _build_rubric(row: models.Rubric) -> cafe.Rubric:
-    levels = [cafe.Level(int(l["value"]), l.get("label", ""), l.get("description", ""))
+    """The ``cafe.Rubric`` a run judges with, built from a stored rubric row.
+
+    Parameters
+    ----------
+    row : models.Rubric
+        The stored rubric.
+
+    Returns
+    -------
+    cafe.Rubric
+        The rubric, its levels in stored order.
+
+    Raises
+    ------
+    ValueError
+        If a level value is not a whole number (see :func:`_level_value`), or cafe-core
+        rejects the rubric.
+    """
+    levels = [cafe.Level(_level_value(l["value"]), l.get("label", ""), l.get("description", ""))
               for l in row.levels]
     return cafe.Rubric(
         name=row.name, scale_type=row.scale_type, levels=levels,

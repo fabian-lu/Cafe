@@ -87,8 +87,9 @@ async def create_rubric(body: schemas.RubricIn, db: AsyncSession = Depends(get_s
     Raises
     ------
     HTTPException
-        422 if cafe-core rejects the rubric (levels, scale type, preset, or a prompt template
-        it cannot render); the detail carries cafe-core's message.
+        422 if a level value is not a whole number, or cafe-core rejects the rubric (levels,
+        scale type, preset, or a prompt template it cannot render); the detail carries the
+        message.
     """
     obj = models.Rubric(**body.model_dump())
     if (err := _rubric_error(obj)) is not None:

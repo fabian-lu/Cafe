@@ -8,6 +8,7 @@ import cafe
 from cafe.judging.prompts import JUDGE_PRESETS
 
 from app import schemas
+from app.runner import _level_value
 
 router = APIRouter(prefix="/api", tags=["judge"])
 
@@ -20,12 +21,20 @@ def presets():
 
 @router.post("/judge/preview")
 def preview(body: schemas.JudgePreviewIn):
-    """Return the exact [SYSTEM]/[USER] the judge would see for the given rubric — no LLM call."""
+    """Return the exact [SYSTEM]/[USER] the judge would see for the given rubric — no LLM call.
+
+    Raises
+    ------
+    HTTPException
+        400 if the rubric or judge can't be built — e.g. a level value that is not a whole
+        number, which would otherwise reach the judge truncated.
+    """
     try:
         r = body.rubric
         rubric = cafe.Rubric(
             name=r.name or "rubric", scale_type=r.scale_type,
-            levels=[cafe.Level(int(l["value"]), l.get("label", ""), l.get("description", ""))
+            levels=[cafe.Level(_level_value(l["value"]), l.get("label", ""),
+                               l.get("description", ""))
                     for l in r.levels],
             instruction=r.instruction or "Judge the answer.",
             prompt_template=r.prompt_template or None,
