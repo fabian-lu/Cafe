@@ -110,9 +110,10 @@ class PipelineView:
 
     CAFE doesn't hard-code your topology — it *observes* it from a run's traces (the order
     in which ``ctx.run`` fired, merged across configurations, so a stage that only some
-    configurations run still sits where it runs). ``str(view)`` renders it as
+    configurations run still sits where it runs). ``view.show()`` renders it as
     ``retrieve → rerank → generate`` with the levels underneath — handy for the notebook and
-    (later) the web app's pipeline diagram. Get one via :func:`cafe.pipeline`.
+    (later) the web app's pipeline diagram; ``str(view)`` is the one-line
+    ``PipelineView(retrieve → rerank → generate)``. Get one via :func:`cafe.pipeline`.
     """
 
     def __init__(self, stages: list[dict[str, Any]]) -> None:
