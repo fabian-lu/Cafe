@@ -251,7 +251,10 @@ class Pipeline:
             ``cost_usd`` / ``tokens`` / ``energy_wh`` the compose function reports itself by
             returning ``{"output": answer, "cost_usd": ..., ...}`` — spent outside any
             stage, so not in ``trace``. Other keys of that dict are kept as metadata;
-            ``trace`` is always the pipeline's own.
+            ``trace`` is always the pipeline's own. ``cost_usd`` is ``None`` (unknown) if
+            a stage's cost is unknown because it called a model without a known price (set
+            one with :func:`cafe.set_model_cost`), never the partial sum of the known
+            costs; ``tokens`` still counts every call.
         """
         if self._compose is None:
             raise ValueError("this Pipeline has no compose function — decorate one with @pipe.compose")
@@ -263,13 +266,15 @@ class Pipeline:
         # its cost/tokens/energy add to the run's totals (not to any stage's step).
         output, extra = normalize_output(result)
         extra.pop("trace", None)
-        cost = ctx.total_cost + float(extra.pop("cost_usd", 0.0) or 0.0)
+        extra_cost = float(extra.pop("cost_usd", 0.0) or 0.0)
+        # An unknown stage cost (None: a model without a known price) leaves the total unknown.
+        cost = None if ctx.total_cost is None else round(ctx.total_cost + extra_cost, 6)
         tokens = ctx.total_tokens + int(extra.pop("tokens", 0) or 0)
         energy = extra.pop("energy_wh", None)
         out = {
             "output": output,
             **extra,
-            "cost_usd": round(cost, 6),
+            "cost_usd": cost,
             "tokens": tokens,
             "trace": ctx.trace,
         }

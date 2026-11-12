@@ -203,15 +203,19 @@ def estimate(results: Results, total_cells: int) -> dict[str, Any]:
     Returns
     -------
     dict
-        ``sampled_cells``, ``total_cells``, ``labels``, and the extrapolated
-        ``est_total_compute_s`` / ``est_total_cost_usd``. An estimate is ``None`` only
-        when nothing was measured (no successful cell with a time, or none reporting a
-        ``cost_usd``); a measured mean of 0.0 (e.g. a free, cached or local model)
+        ``sampled_cells``, ``total_cells``, ``labels``, the extrapolated
+        ``est_total_compute_s`` / ``est_total_cost_usd``, and ``cost_known_cells``: how
+        many of the sampled cells the cost estimate rests on. A cell whose ``cost_usd`` is
+        ``None`` or missing — the system reports none, or a pipeline called a model without
+        a known price — is left out of the mean, not counted as 0. An estimate is ``None``
+        only when nothing was measured (no successful cell with a time, or none with a
+        known ``cost_usd``); a measured mean of 0.0 (e.g. a free, cached or local model)
         gives an estimate of 0.0.
     """
     oks = [o for o in results.observations if o.ok]
     times = [o.elapsed_s for o in oks if o.elapsed_s is not None]
-    # A ``cost_usd`` of None means "not reported", like a missing key; 0.0 is a real cost.
+    # A ``cost_usd`` of None means "not reported" or "unknown", like a missing key; 0.0 is
+    # a real cost.
     costs = [o.metadata["cost_usd"] for o in oks if o.metadata.get("cost_usd") is not None]
     mean_t = sum(times) / len(times) if times else None
     mean_c = sum(costs) / len(costs) if costs else None
@@ -220,5 +224,6 @@ def estimate(results: Results, total_cells: int) -> dict[str, Any]:
         "total_cells": total_cells,
         "est_total_compute_s": round(mean_t * total_cells, 2) if mean_t is not None else None,
         "est_total_cost_usd": round(mean_c * total_cells, 4) if mean_c is not None else None,
+        "cost_known_cells": len(costs),
         "labels": [config_label(o.config) for o in oks[:1]],
     }

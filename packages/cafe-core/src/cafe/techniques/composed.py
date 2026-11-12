@@ -19,10 +19,19 @@ def stage_report(results: Any) -> list[dict[str, Any]]:
     A repeated identical call that a run served from its stage cache (``cached: True``
     in the trace) is not counted again; a call made with ``ctx.run(..., cache=False)``
     always runs, so each one counts.
+
+    Returns
+    -------
+    list of dict
+        ``stage``, ``technique``, ``calls``, ``mean_elapsed_s``, ``mean_cost_usd`` and
+        ``mean_tokens`` (plus ``mean_energy_wh`` for a technique that declares energy),
+        slowest first. ``mean_cost_usd`` is ``None`` (unknown) if any of the technique's
+        calls has an unknown cost — it called a model without a known price — rather than
+        the mean of only its known costs.
     """
     from collections import defaultdict
 
-    agg: dict[tuple[str, str], dict[str, float]] = defaultdict(
+    agg: dict[tuple[str, str], dict[str, Any]] = defaultdict(
         lambda: {"elapsed": 0.0, "cost": 0.0, "tokens": 0.0, "energy": 0.0, "energy_n": 0, "n": 0}
     )
     for obs in getattr(results, "observations", []):
@@ -31,7 +40,9 @@ def stage_report(results: Any) -> list[dict[str, Any]]:
                 continue
             a = agg[(step["stage"], step["technique"])]
             a["elapsed"] += step.get("elapsed_s", 0.0)
-            a["cost"] += step.get("cost_usd", 0.0)
+            cost = step.get("cost_usd", 0.0)
+            # None = unknown (a model without a known price), and so is any sum including it.
+            a["cost"] = None if cost is None or a["cost"] is None else a["cost"] + cost
             a["tokens"] += step.get("tokens", 0)
             if "energy_wh" in step:  # opt-in: only steps with declared energy have it
                 a["energy"] += step["energy_wh"]
@@ -45,7 +56,7 @@ def stage_report(results: Any) -> list[dict[str, Any]]:
             "technique": tech,
             "calls": a["n"],
             "mean_elapsed_s": round(a["elapsed"] / n, 4),
-            "mean_cost_usd": round(a["cost"] / n, 6),
+            "mean_cost_usd": None if a["cost"] is None else round(a["cost"] / n, 6),
             "mean_tokens": round(a["tokens"] / n, 1),
         }
         if a["energy_n"]:
