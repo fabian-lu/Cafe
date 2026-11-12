@@ -115,6 +115,13 @@ export default function StudyDetail() {
   const del = () => confirm("Permanently delete?",
     `“${study.name}” and its results/ratings will be destroyed for good — this cannot be undone.`,
     () => { setErr(null); api.deleteStudy(id).then(() => nav("/studies")).catch((e) => setErr(e.message)); });
+  // a finished or failed study: archive it, or — once archived — restore it or delete it for good
+  const archiveActions = study?.archived
+    ? <>
+        <button className="btn" onClick={restore}>Restore</button>
+        <button className="btn danger" onClick={del}>Delete forever</button>
+      </>
+    : <button className="btn" onClick={archive}>Archive</button>;
 
   const running = study?.status === "running" || prog?.status === "running";
   const judging = isJudgingPhase(prog?.phase);
@@ -159,12 +166,7 @@ export default function StudyDetail() {
                 <button className="btn primary" onClick={() => nav(`/results?study=${study.id}`)}>View results →</button>
                 <div style={{ display: "flex", gap: 8 }}>
                   {canRun && <button className="btn" onClick={rerun}>Re-run</button>}
-                  {study.archived
-                    ? <>
-                        <button className="btn" onClick={restore}>Restore</button>
-                        <button className="btn danger" onClick={del}>Delete forever</button>
-                      </>
-                    : <button className="btn" onClick={archive}>Archive</button>}
+                  {archiveActions}
                 </div>
               </div>
             )}
@@ -173,7 +175,7 @@ export default function StudyDetail() {
                 <div className="hint" style={{ margin: 0, color: "var(--error)" }}>The last run failed. {prog?.error}</div>
                 <div style={{ display: "flex", gap: 8 }}>
                   {canRun && <button className="btn primary" onClick={run}>Re-run</button>}
-                  <button className="btn" onClick={archive}>Archive</button>
+                  {archiveActions}
                 </div>
               </div>
             )}
