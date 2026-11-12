@@ -306,10 +306,14 @@ function FactorTests({ tests }) {
 // only then does installing R help — any other reason is about the data or the fit itself
 const rMissing = (reason) =>
   /Rscript not found|Rscript present but failed|packages? .*(is|are) missing|R package .* not installed/.test(reason || "");
+// "<model> not fitted — <reason>." with a single full stop: some of cafe-core's reasons (the
+// install instructions, for one) end with their own
+const notFitted = (model, reason) =>
+  `${model} not fitted${reason ? ` — ${reason}` : ""}${/[.!?]\s*$/.test(reason || "") ? "" : "."}`;
 
 function CLMMTable({ clmm }) {
   if (!clmm.available) return <div className="card" style={{ marginBottom: 16 }}>
-    <div className="hint">ordinal model not fitted{clmm.reason ? ` — ${clmm.reason}` : ""}.{rMissing(clmm.reason) && <> Install R + the <span className="mono">ordinal</span> package (<span className="mono">cafe doctor</span>) to enable it.</>}</div></div>;
+    <div className="hint">{notFitted("ordinal model", clmm.reason)}{rMissing(clmm.reason) && <> Install R + the <span className="mono">ordinal</span> package (<span className="mono">cafe doctor</span>) to enable it.</>}</div></div>;
   const coefs = [...clmm.coefficients].sort((a, b) => Math.abs(b.estimate || 0) - Math.abs(a.estimate || 0));
   return (
     <div className="card" style={{ marginBottom: 16 }}>
@@ -351,7 +355,7 @@ function RandomIntercept({ vc }) {
 // ── binary logistic ──────────────────────────────────────────────────────────────
 function LogisticTable({ logistic }) {
   if (!logistic.available) return <div className="card" style={{ marginBottom: 16 }}>
-    <div className="hint">logistic model not fitted{logistic.reason ? ` — ${logistic.reason}` : ""}.</div></div>;
+    <div className="hint">{notFitted("logistic model", logistic.reason)}</div></div>;
   const terms = [...logistic.terms].sort((a, b) => Math.abs(b.coef || 0) - Math.abs(a.coef || 0));
   return (
     <div className="card" style={{ marginBottom: 16 }}>
