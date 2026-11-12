@@ -16,6 +16,12 @@ reply that isn't usable JSON with a ``grade`` goes to the regex parser, so struc
 can never do worse than the default. A JSON verdict whose grade is off the rubric's scale
 is an error rating: the regex is not re-run over the JSON text, where it could pick up a
 ``grade: N`` from inside the reasoning.
+
+Only a refused request falls back to the plain call: HTTP 400, 404 or 422, the way
+providers, and LiteLLM's own check, reject a ``response_format``. A timeout, a rate limit,
+or a server, connection or auth error would fail the plain call the same way, after the
+same wait and on the same quota, so it is an error rating at once, as when a plain call
+fails.
 """
 
 from __future__ import annotations
@@ -108,6 +114,39 @@ async def _probe(model: str) -> bool:
         return isinstance(_loads(out), dict)
     except (LLMError, ValueError, json.JSONDecodeError):
         return False
+
+
+#: HTTP statuses with which a provider refuses a request for what it asks, as it answers a
+#: ``response_format`` it doesn't support: 400 (LiteLLM's own ``UnsupportedParamsError`` is a
+#: 400 too), 422 (e.g. Text Generation Inference) or 404 (OpenRouter, when no endpoint can
+#: handle the requested parameters).
+_REFUSED_STATUSES = frozenset({400, 404, 422})
+
+
+def _refused_request(exc: LLMError) -> bool:
+    """Whether a failed structured call was refused for what it asked, perhaps for its
+    ``response_format``: the one failure the plain call can get past.
+
+    :func:`cafe.complete` raises every provider error as an :class:`~cafe.llm.LLMError` whose
+    ``__cause__`` is LiteLLM's exception, which carries the HTTP status. A refusal comes back
+    at once, so a plain call after one costs a quick request, even when the refusal was for
+    something else (a prompt too long for the model fails the plain call too). A timeout
+    (408, 504), a rate limit (429), a server or connection error (5xx), an auth, payment or
+    permission error (401–403), or an error raised before any request (no cause) has nothing
+    to do with ``response_format``: the plain call would fail the same way, after the same
+    wait and retries and on the same quota.
+
+    Parameters
+    ----------
+    exc:
+        The error the structured call raised.
+
+    Returns
+    -------
+    bool
+        ``True`` if its cause reports one of the statuses in :data:`_REFUSED_STATUSES`.
+    """
+    return getattr(exc.__cause__, "status_code", None) in _REFUSED_STATUSES
 
 
 def _loads(raw: str) -> Any:

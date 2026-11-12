@@ -325,6 +325,86 @@ def test_structured_off_scale_grade_is_not_reparsed_from_the_reasoning(monkeypat
     assert score("not_json") == (4, 4, "The answer is fine.")
 
 
+class _ProviderError(Exception):
+    """Stands in for a LiteLLM exception, which carries the provider's HTTP status."""
+
+    def __init__(self, status_code):
+        super().__init__(f"HTTP {status_code}")
+        self.status_code = status_code
+
+
+def _score_with_failing_json_call(monkeypatch, json_complete):
+    """Score in structured mode; ``json_complete`` makes the JSON call (and fails), and a
+    plain call answers ``GRADE: 4``. Returns the output and the calls made, in order."""
+    calls = []
+
+    async def fake_complete(model, messages, **kwargs):
+        if "response_format" in kwargs:
+            calls.append("json")
+            return await json_complete(model, messages, **kwargs)
+        calls.append("plain")
+        return "Fine.\nGRADE: 4"
+
+    monkeypatch.setattr("cafe.judging.judge.complete", fake_complete)
+    judge = cafe.LLMJudge("m", structured=True, retries=0)
+    return asyncio.run(judge.score(cafe.ANSWER_QUALITY_1_5, "Q?", "A.")), calls
+
+
+@pytest.mark.parametrize(
+    "status", [400, 401, 402, 403, 404, 408, 422, 429, 500, 502, 503, 504, None]
+)
+def test_structured_call_falls_back_only_when_the_provider_refuses_it(monkeypatch, status):
+    async def json_complete(model, messages, **kwargs):
+        if status is None:  # cafe's own error, raised before any request (e.g. a missing key)
+            raise cafe.LLMError("model 'ollama_cloud/...' needs OLLAMA_API_KEY")
+        cause = _ProviderError(status)
+        raise cafe.LLMError(f"_ProviderError: {cause}") from cause
+
+    out, calls = _score_with_failing_json_call(monkeypatch, json_complete)
+    if status in (400, 404, 422):  # a refusal, as of an unsupported response_format
+        assert calls == ["json", "plain"]
+        assert (out.value, out.value_numeric, out.reasoning) == (4, 4, "Fine.")
+        return
+    # a timeout, rate limit, server or auth error would fail the plain call too: not sent
+    assert calls == ["json"]
+    assert (out.value, out.value_numeric, out.raw_response) == (None, None, None)
+    assert out.reasoning.startswith("judge call failed: ")
+    as_json = cafe.LLMJudge("m").render_messages(
+        cafe.ANSWER_QUALITY_1_5, "Q?", "A.", structured=True)
+    assert out.prompt == as_json[-1]["content"]  # the prompt that was sent
+
+
+@pytest.mark.parametrize("name, refused", [
+    ("UnsupportedParamsError", True),  # LiteLLM's own check: no response_format for the provider
+    ("BadRequestError", True),         # the provider's 400, e.g. "Invalid parameter: ..."
+    ("NotFoundError", True),
+    ("Timeout", False),
+    ("RateLimitError", False),
+    ("InternalServerError", False),
+    ("ServiceUnavailableError", False),
+    ("APIConnectionError", False),
+    ("AuthenticationError", False),
+])
+def test_structured_fallback_reads_litellm_errors(monkeypatch, name, refused):
+    exceptions = pytest.importorskip("litellm.exceptions")
+    import litellm
+
+    from cafe.llm import complete
+
+    error = getattr(exceptions, name)(message="provider error", model="m", llm_provider="openai")
+
+    async def acompletion(**kwargs):
+        raise error
+
+    monkeypatch.setattr(litellm, "acompletion", acompletion)
+    monkeypatch.setattr("cafe.llm.load_env", lambda: None)  # keep a local .env out of the test
+    out, calls = _score_with_failing_json_call(monkeypatch, complete)  # wraps it in LLMError
+    assert calls == (["json", "plain"] if refused else ["json"])
+    assert out.value_numeric == (4 if refused else None)
+    if not refused:
+        assert out.reasoning.startswith(f"judge call failed: {name}: ")
+
+
 def test_structured_forced_decisions_need_no_llm():
     assert asyncio.run(cafe.LLMJudge("m", structured=False).prepare()) is False
     assert asyncio.run(cafe.LLMJudge("m", structured=True).prepare()) is True
