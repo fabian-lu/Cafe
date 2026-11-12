@@ -26,6 +26,10 @@ const levelOrder = (a, b) => {
   if (fa !== fb) return fa ? -1 : 1;
   return String(a).localeCompare(String(b));
 };
+// Add a value to the list under a key of a Map. Group by factor or level in a Map, not an object:
+// a factor or level may be named like an Object member ("constructor", "toString"), and an
+// object's key lookup would find that member instead.
+const pushTo = (map, key, value) => { if (!map.has(key)) map.set(key, []); map.get(key).push(value); };
 const PALETTE = ["var(--amber)", "var(--green)", "var(--cyan)", "var(--chart-4)", "var(--chart-5)", "var(--chart-6)"];
 
 // ── glossary (hover explanations) ───────────────────────────────────────────────
@@ -637,17 +641,17 @@ export default function Results() {
   })), [res]);
 
   const byFactor = useMemo(() => {
-    const g = {};
-    (res?.marginal_means || []).forEach((r) => { (g[r.factor] ||= []).push(r); });
-    return Object.entries(g).map(([factor, rows]) => ({ factor, rows }));
+    const g = new Map();
+    (res?.marginal_means || []).forEach((r) => pushTo(g, r.factor, r));
+    return [...g].map(([factor, rows]) => ({ factor, rows }));
   }, [res]);
 
   const latency = useMemo(() => {
     const recs = res?.records || [], facs = res?.factors || [];
     return facs.map((f) => {
-      const byLevel = {};
-      for (const r of recs) { if (r.elapsed_s == null) continue; (byLevel[r[f]] ||= []).push(r.elapsed_s); }
-      const rows = Object.entries(byLevel).map(([level, arr]) => ({ level, mean: arr.reduce((a, b) => a + b, 0) / arr.length, n: arr.length })).sort((a, b) => levelOrder(a.level, b.level));
+      const byLevel = new Map();   // the level as text -> its answers' latencies
+      for (const r of recs) { if (r.elapsed_s == null) continue; pushTo(byLevel, String(r[f]), r.elapsed_s); }
+      const rows = [...byLevel].map(([level, arr]) => ({ level, mean: arr.reduce((a, b) => a + b, 0) / arr.length, n: arr.length })).sort((a, b) => levelOrder(a.level, b.level));
       return { factor: f, rows };
     }).filter((g) => g.rows.length);
   }, [res]);
