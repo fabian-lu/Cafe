@@ -24,6 +24,9 @@ const DEFAULT_INSTRUCTION =
   "Grade whether the ANSWER correctly answers the QUESTION, using the REFERENCE as the gold answer. " +
   "Judge substance, not style or length; award partial credit for a partially-correct answer.";
 const DEFAULT_SYSTEM = "You are a strict, fair, impartial evaluator.";
+// "+ level" goes one above the highest value: after a level in the middle was removed, the
+// number of levels is a value still in use (0 · 1 · 2 → 0 · 2, then a third level → 3, not 2)
+const nextValue = (levels) => (levels.length ? Math.max(...levels.map((l) => l.value)) + 1 : 0);
 
 export default function Rubrics() {
   const confirm = useConfirm();
@@ -127,7 +130,7 @@ export default function Rubrics() {
                 {!isBinary && <button className="btn btn-sm danger" onClick={() => setLevels(levels.filter((_, j) => j !== i))}>✕</button>}
               </div>
             ))}
-            {!isBinary && <button className="btn btn-sm ghost" onClick={() => setLevels([...levels, { value: levels.length, label: "", description: "" }])}>+ level</button>}
+            {!isBinary && <button className="btn btn-sm ghost" onClick={() => setLevels([...levels, { value: nextValue(levels), label: "", description: "" }])}>+ level</button>}
           </div>)}
 
         {field("Instruction", "the task told to the judge",

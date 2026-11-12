@@ -77,6 +77,16 @@ def test_rubric_needs_two_distinct_levels(levels):
         cafe.Rubric(name="degenerate", levels=levels)
 
 
+@pytest.mark.parametrize("scale_type", list(cafe.ScaleType))
+def test_rubric_rejects_levels_that_share_a_value(scale_type):
+    # 0 / 1 / 2 with the middle level removed and one added back as "2": the judge prompt
+    # would list two "2 = …" lines, and a rater two buttons that both score 2
+    levels = [cafe.Level(0, "incorrect", "x"), cafe.Level(2, "correct", "y"),
+              cafe.Level(2, "excellent", "z")]
+    with pytest.raises(ValueError, match=r"more than one level with the value 2 \('correct', 'excellent'\)"):
+        cafe.Rubric(name="dup", scale_type=scale_type, levels=levels)
+
+
 def test_grade_hint_is_scale_aware():
     # numeric → a range (any integer valid); ordinal/binary → exact allowed values
     assert cafe.rubrics.HELPFULNESS_0_10.grade_hint() == "an integer from 0 to 10"
