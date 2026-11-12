@@ -39,7 +39,8 @@ cd apps/web-app/frontend && npm install && npm run dev
 All pages are implemented:
 
 - **Studies** — create a study over one of the discovered pipelines, optionally with extra rubrics
-  (each judges the same answers as its own dimension); estimate time/cost, run it with live progress,
+  (each judges the same answers as its own dimension, named after its rubric, so a study's rubrics
+  need distinct names); estimate time/cost, run it with live progress,
   archive/restore/delete. **Import study** loads a `cafe.save_evaluation` bundle (or a
   multi-dimension bundle) without re-running anything.
 - **Questions / Rubrics** — create, view and delete question datasets and rubrics.

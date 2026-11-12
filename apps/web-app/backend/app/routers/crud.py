@@ -161,10 +161,17 @@ async def create_study(body: schemas.StudyIn, db: AsyncSession = Depends(get_ses
     Raises
     ------
     HTTPException
-        422 if cafe-core rejects its factors or replication count; the detail carries
-        cafe-core's message.
+        422 if cafe-core rejects its factors or replication count (the detail carries
+        cafe-core's message), or if two of its dimensions — the primary rubric and the
+        extra ones in ``rubric_ids`` — use rubrics of the same name: a dimension's results
+        are stored under its rubric's name, so one would overwrite the other's.
     """
+    from app.runner import _dimension_clash, _dimension_names, _dimension_rubrics
+
     if (err := _study_error(body.factors, body.replications)) is not None:
+        raise HTTPException(422, f"invalid study: {err}")
+    primary, extras = await _dimension_rubrics(db, body.rubric_id, body.rubric_ids)
+    if (err := _dimension_clash(_dimension_names(primary, extras))) is not None:
         raise HTTPException(422, f"invalid study: {err}")
     obj = models.Study(**body.model_dump(), status="draft", progress=0)
     db.add(obj)
@@ -207,12 +214,34 @@ def _rubric_row(ev) -> models.Rubric:
 
 
 async def _attach_dimension(db: AsyncSession, study: models.Study, ev, payload) -> None:
-    """Add one Evaluation as an additional dimension (Rubric + StudyResult row) of ``study``."""
+    """Add one Evaluation as an additional dimension (Rubric + StudyResult row) of ``study``.
+
+    Parameters
+    ----------
+    db : AsyncSession
+        The request's session; the caller commits.
+    study : models.Study
+        The study to add the dimension to.
+    ev : cafe.Evaluation
+        The judged evaluation; the dimension is named after its rubric.
+    payload : dict
+        Its results payload.
+
+    Raises
+    ------
+    HTTPException
+        409 if the study already has a dimension of that name: stored results, or one of
+        the rubrics it is judged on (a draft has no results yet, and a run would store
+        both dimensions' results under the one name).
+    """
+    from app.runner import _dimension_names, _dimension_rubrics
+
     rb_name = ev.ratings.rubric.name
     dupe = (await db.execute(select(models.StudyResult).where(
         models.StudyResult.study_id == study.id,
         models.StudyResult.dimension == rb_name))).scalars().first()
-    if dupe is not None:
+    names = _dimension_names(*await _dimension_rubrics(db, study.rubric_id, study.rubric_ids))
+    if dupe is not None or rb_name in names:
         raise HTTPException(409, f"study {study.id} already has a dimension {rb_name!r} — "
                                  "rename the rubric or delete that dimension first")
     rubric = _rubric_row(ev)
@@ -240,12 +269,13 @@ async def import_study(request: Request, attach_to: int | None = None,
     ------
     HTTPException
         400 if the body is not a valid bundle — including a rubric or factors that cafe-core
-        rejects (the imported rubrics can be reused by new studies); 404 for an unknown
-        ``attach_to`` study; 409 for a dimension that study already has.
+        rejects (the imported rubrics can be reused by new studies), or two dimensions
+        scored on rubrics of the same name (a dimension is stored under its rubric's name);
+        404 for an unknown ``attach_to`` study; 409 for a dimension that study already has.
     """
     import cafe
 
-    from app.runner import _results_payload
+    from app.runner import _dimension_clash, _results_payload
 
     raw_body = await request.body()
     try:
@@ -272,6 +302,8 @@ async def import_study(request: Request, attach_to: int | None = None,
         if (err := _rubric_error(_rubric_row(ev))) is not None:
             raise HTTPException(400, f"not a valid cafe evaluation bundle: {err}")
         evs.append(ev)
+    if (err := _dimension_clash([ev.ratings.rubric.name for ev in evs])) is not None:
+        raise HTTPException(400, f"not a valid cafe evaluation bundle: {err}")
     # Fitting the statistics (incl. the R models) takes a while for a large study; do it in a worker
     # thread so the server keeps answering other requests in the meantime.
     payloads = [await asyncio.to_thread(_results_payload, ev) for ev in evs]
