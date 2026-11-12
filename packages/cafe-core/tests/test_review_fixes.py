@@ -155,6 +155,52 @@ async def test_judging_resume_retries_errors_and_counts_them_once(tmp_path):
     assert progress == [(3, 3)]  # 2 carried forward + 1 retried, not 3 + 1
 
 
+# ── resuming keeps the design's level values, which JSON can't hold ──
+async def test_resume_keeps_the_designs_level_values(tmp_path):
+    # The checkpoint is JSON: a tuple level comes back as a list and a NumPy number as a
+    # string, under the same config id. Rows carried forward must get the design's own
+    # levels, or one level is two groups in the stats once mixed with fresh rows (and a
+    # list can't be grouped at all).
+    from cafe.execution import run_study
+
+    np = pytest.importorskip("numpy")
+    ckpt = str(tmp_path / "run.jsonl")
+    flaky = {"fail": True}
+
+    def system(config, item):
+        if flaky["fail"] and item == "q2":
+            raise RuntimeError("transient")
+        return "x"
+
+    study = cafe.Study(name="levels", system=system,
+                       factors=[cafe.Factor("chunking", [(256, 0), (512, 64)]),
+                                cafe.Factor("top_k", [np.int64(3), np.int64(5)])],
+                       dataset=["q1", "q2"])
+    await run_study(study, checkpoint_path=ckpt)
+    flaky["fail"] = False
+    res = await run_study(study, checkpoint_path=ckpt)  # q1 carried forward, q2 re-run
+
+    design = cafe.generate(study)
+    assert len(res) == 8 and all(o.config in design for o in res.observations)
+    assert {type(o.config["top_k"]) for o in res.observations} == {np.int64}
+
+
+async def test_judging_resume_keeps_the_answers_level_values(tmp_path):
+    ckpt = str(tmp_path / "judge.jsonl")
+
+    def answers(outputs):
+        return Results(study_name="t", factors=["chunking"], observations=[
+            Observation(config={"chunking": (256, 0)}, input_id=f"q{i}", rep=0, output=o)
+            for i, o in enumerate(outputs)])
+
+    await judge_results(answers(["one", "two"]), _FixedJudge(), cafe.ANSWER_QUALITY_1_5,
+                        checkpoint_path=ckpt)
+    # resume with one more answer: two verdicts carried forward, one fresh
+    ratings = await judge_results(answers(["one", "two", "three"]), _FixedJudge(),
+                                  cafe.ANSWER_QUALITY_1_5, checkpoint_path=ckpt)
+    assert [r.config for r in ratings.items] == [{"chunking": (256, 0)}] * 3
+
+
 # ── C-10: Study.check() guardrails ──
 def test_check_warns_single_factor_and_judge_rubric_mismatch():
     data = [{"text": f"q{i}"} for i in range(10)]
