@@ -71,6 +71,13 @@ shows it like any other study, without re-running anything.
    earlier ratings stop counting toward α until you re-rate (the reliability API reports
    them as `stale_ratings`).
 
+An answer fails when the pipeline raises for it, say because the provider's API key is
+missing. The estimate lists the configurations whose sample answer failed, with the
+error. A run in which every answer fails is marked **failed**, with the first error as the
+reason. When only some fail, the run finishes, and the study page and Results say how many
+failed, in which configurations, and why: a failed answer has no verdict, so the
+statistics leave it out.
+
 ## Local development (without Docker)
 
 ```bash

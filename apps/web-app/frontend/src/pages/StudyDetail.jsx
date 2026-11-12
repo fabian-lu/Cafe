@@ -4,6 +4,7 @@ import { api, isJudgingPhase, phaseLabel } from "../lib/api.js";
 import Breadcrumb from "../components/Breadcrumb.jsx";
 import { useConfirm } from "../components/ConfirmModal.jsx";
 import Spinner from "../components/Spinner.jsx";
+import AnswerFailures, { configText } from "../components/AnswerFailures.jsx";
 
 const fmtDate = (iso) => {
   if (!iso) return "—";
@@ -22,6 +23,28 @@ const fmtSecs = (s) => {
   const h = Math.floor(m / 60);
   return `${h}h ${m % 60}m`;
 };
+
+// The configurations whose sample answer failed in the estimate (e.g. a missing API key): a full
+// run would fail there too. Each distinct error is listed once, with the configurations it hit.
+function PreflightErrors({ errors, sampled }) {
+  const byError = {};
+  for (const e of errors) (byError[e.error] ||= []).push(configText(e.config));
+  const total = errors.length + (sampled || 0);
+  return (
+    <div className="banner" style={{ marginBottom: 12 }}>
+      <b>{errors.length} of {total} configuration{total === 1 ? "" : "s"} failed</b> on the sample
+      question, so a full run would fail there too.{" "}
+      {sampled ? `The estimate below comes from the ${sampled} that answered.` : "There is nothing to estimate from."}
+      {Object.entries(byError).slice(0, 5).map(([msg, cfgs]) => (
+        <div key={msg} style={{ marginTop: 8 }}>
+          <div className="mono" style={{ fontSize: 12, color: "var(--error)", overflowWrap: "anywhere" }}>{msg}</div>
+          <div className="hint mono" style={{ marginTop: 2 }}>
+            {cfgs.slice(0, 6).join(" · ")}{cfgs.length > 6 && ` · and ${cfgs.length - 6} more`}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // A labelled metadata row (mono label · value).
 function Meta({ k, children }) {
@@ -53,6 +76,7 @@ export default function StudyDetail() {
   const [rubric, setRubric] = useState(null);
   const [dataset, setDataset] = useState(null);
   const [timing, setTiming] = useState(null);
+  const [failures, setFailures] = useState(null);   // the last run's failed answers
   const [err, setErr] = useState(null);
   const [prog, setProg] = useState(null);
   // estimate flow
@@ -65,7 +89,9 @@ export default function StudyDetail() {
     setStudy(s);
     if (s.rubric_id) api.rubric(s.rubric_id).then(setRubric).catch(() => setRubric(null));
     if (s.dataset_id) api.dataset(s.dataset_id).then(setDataset).catch(() => setDataset(null));
-    if (s.status === "done") api.results(id).then((r) => setTiming(r.timing || null)).catch(() => setTiming(null));
+    if (s.status === "done") api.results(id)
+      .then((r) => { setTiming(r.timing || null); setFailures(r.answer_failures || null); })
+      .catch(() => { setTiming(null); setFailures(null); });
     return s;
   }).catch((e) => setErr(e.message));
 
@@ -82,7 +108,8 @@ export default function StudyDetail() {
   };
 
   useEffect(() => {
-    load().then((s) => { if (s?.status === "running") listen(); });
+    // a failed run's reason is kept by the server process that ran it: the stream hands it over
+    load().then((s) => { if (s?.status === "running" || s?.status === "failed") listen(); });
     return () => es.current?.close();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
@@ -168,6 +195,9 @@ export default function StudyDetail() {
                 </div>
               </div>
             )}
+            {study.status === "done" && !running && (
+              <AnswerFailures failures={failures} style={{ margin: "14px 0 0" }} />
+            )}
             {study.status === "failed" && !running && (
               <div className="row-between" style={{ flexWrap: "wrap", gap: 12 }}>
                 <div className="hint" style={{ margin: 0, color: "var(--error)" }}>The last run failed. {prog?.error}</div>
@@ -194,6 +224,7 @@ export default function StudyDetail() {
                 {estErr && <div className="hint" style={{ color: "var(--error)" }}>{estErr}</div>}
                 {est && (
                   <div>
+                    {est.errors?.length > 0 && <PreflightErrors errors={est.errors} sampled={est.estimate.sampled_cells} />}
                     <div style={GRID}>
                       <Stat label="full run" value={`${est.estimate.total_cells} cells`} />
                       <Stat label="≈ compute time" value={fmtSecs(est.estimate.est_total_compute_s)} />
