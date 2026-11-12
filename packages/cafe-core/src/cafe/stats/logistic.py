@@ -299,7 +299,9 @@ def _fit_glmer(
 
 def _fit_statsmodels(df, factors: list[str], *, alpha: float, interactions: int) -> Logistic:
     """Self-contained logistic fallback: GEE (cluster-robust by question), or plain
-    logistic when there's one question group / GEE won't fit."""
+    logistic when there's one question group / GEE won't fit or its estimates aren't
+    finite. If the plain logistic's estimates aren't finite either, the result is
+    ``available=False`` with that ``reason`` (never a table of NaN coefficients)."""
     res = Logistic(alpha=alpha, n_obs=len(df))
     try:
         import statsmodels.api as sm
@@ -323,6 +325,11 @@ def _fit_statsmodels(df, factors: list[str], *, alpha: float, interactions: int)
 
     import warnings as _warnings
 
+    def _finite(fit) -> bool:
+        # A GEE whose iterations overflow (e.g. a configuration that passes every question)
+        # returns NaN for every coefficient instead of raising: that is a failed fit too.
+        return all(math.isfinite(float(v)) for v in fit.params)
+
     fit = None
     with _warnings.catch_warnings():
         _warnings.simplefilter("ignore")
@@ -333,12 +340,20 @@ def _fit_statsmodels(df, factors: list[str], *, alpha: float, interactions: int)
                 formula, groups="input_id", data=dfs,
                 family=Binomial(), cov_struct=sm.cov_struct.Exchangeable(),
             ).fit()
+            if not _finite(fit):
+                raise RuntimeError("GEE estimates are not finite")
             res.model = "GEE logistic (binomial, logit link; cluster-robust by question)"
         except PerfectSeparationError:
             return _separation_result(res, factors)
         except Exception:  # noqa: BLE001 — GEE not fittable; fall back to plain logistic
             try:
                 fit = smf.logit(formula, data=dfs).fit(disp=0)
+                if not _finite(fit):
+                    raise RuntimeError(
+                        "its estimates are not finite (a factor or a configuration may "
+                        "separate pass from fail); read the pass rates in the descriptive "
+                        "layer instead"
+                    )
                 res.model = "logistic regression (binomial, logit link)"
                 res.warnings.append(
                     "cluster-robust question effect not estimable; plain logistic regression"

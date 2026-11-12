@@ -855,6 +855,56 @@ def test_fit_logistic_suppresses_pvalues_under_separation():
     assert "near-degenerate" in log.show() or "separation" in log.show()
 
 
+def _gee_diverging_ratings() -> Ratings:
+    """Binary A × B over nine questions (a random design from a stats audit) in which
+    A=10 · B=off passes every question it answered. On this data statsmodels' GEE diverges:
+    every coefficient comes back NaN, and no error is raised."""
+    from cafe.rubrics import CORRECT_PASS_FAIL
+
+    rows = {("5", "off"): "1011..10.", ("5", "on"): ".10010011",      # q0..q8; "." = no answer
+            ("10", "off"): "11.111111", ("10", "on"): "000100000"}
+    items = [Rating(obs_key=f"{a}{b}{q}", config={"A": a, "B": b}, input_id=f"q{q}", rep=0,
+                    judge_rep=0, value=int(v), value_numeric=int(v))
+             for (a, b), verdicts in rows.items() for q, v in enumerate(verdicts) if v != "."]
+    return Ratings(rubric=CORRECT_PASS_FAIL, judge_model="x", factors=["A", "B"], items=items)
+
+
+def test_statsmodels_logistic_falls_back_when_the_gee_estimates_are_nan():
+    """A GEE fit with NaN coefficients is a failed fit: it used to be reported as available,
+    with a table of "+nan" log-odds. The plain logistic is fit instead (here it shows the
+    separation, so its p-values are withheld)."""
+    import math
+
+    from cafe import fit_logistic
+
+    log = fit_logistic(_gee_diverging_ratings(), backend="statsmodels")
+    assert log.available
+    assert log.model == "logistic regression (binomial, logit link)"
+    assert any("cluster-robust question effect not estimable" in w for w in log.warnings)
+    assert log.terms and all(math.isfinite(t["coef"]) for t in log.terms)
+    assert all(t["p"] is None for t in log.terms)          # |log-odds| > 10: separation
+    assert "nan" not in log.show() and "near-degenerate" in log.show()
+
+
+def test_statsmodels_logistic_unavailable_when_no_fit_is_finite(monkeypatch):
+    """If the plain logistic's estimates aren't finite either, there is no model to report:
+    available=False with a reason, not a table of NaN."""
+    import types
+
+    import pandas as pd
+    import statsmodels.formula.api as smf
+
+    from cafe import fit_logistic
+
+    diverged = types.SimpleNamespace(params=pd.Series([float("nan")] * 4),
+                                     pvalues=pd.Series([float("nan")] * 4))
+    monkeypatch.setattr(smf, "logit", lambda *a, **k: types.SimpleNamespace(fit=lambda **kw: diverged))
+    log = fit_logistic(_gee_diverging_ratings(), backend="statsmodels")
+    assert not log.available and log.terms == []
+    assert "estimates are not finite" in log.reason
+    assert log.show().startswith("logistic model unavailable: logistic fit failed")
+
+
 def _colon_level_ratings(binary: bool, model: str = "model", prompt: str = "prompt") -> Ratings:
     """An ollama-style level with a ':' (``llama3:8b``, the better model) plus a second
     factor, over 30 questions with a per-question difficulty."""
