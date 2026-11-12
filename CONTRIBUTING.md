@@ -29,7 +29,8 @@ pip install -e "packages/cafe-core[stats,dev]"
 
 The core engine has no hard dependencies; the `stats` extra pulls in pandas/numpy/statsmodels/scipy/
 matplotlib for the analysis layer. The ordinal CLMM and binary GLMM models additionally need **R** with
-the `ordinal` / `lme4` packages — CAFE degrades gracefully without them. Check your environment with:
+the `ordinal` / `lme4` packages and `jsonlite` — CAFE degrades gracefully without them. Check your
+environment with:
 
 ```bash
 cafe doctor

@@ -73,14 +73,15 @@ cd Cafe
 pip install -e "packages/cafe-core[all]"
 ```
 
-Either way, install R and its two model packages, then check the setup:
+Either way, install R and the three R packages CAFE uses (the model packages `ordinal` and `lme4`,
+plus `jsonlite`), then check the setup:
 
 ```bash
 # Debian/Ubuntu shown; macOS: `brew install r`
 sudo apt install r-base
-Rscript -e 'install.packages(c("ordinal", "lme4"))'
+Rscript -e 'install.packages(c("ordinal", "lme4", "jsonlite"))'
 
-cafe doctor           # verify the environment: Python, R engine, LLM access
+cafe doctor           # verify the environment: Python + extras, R engine, LLM access
 cafe run example      # runs a bundled toy study — no API keys needed
 ```
 

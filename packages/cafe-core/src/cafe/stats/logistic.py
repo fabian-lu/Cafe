@@ -10,8 +10,8 @@ So the primary model is a **logistic mixed model** (GLMM: ``verdict ~ factors +
 ordinal CLMM and the numeric linear mixed model, all three conditional random-intercept
 models.
 
-R is a *runtime* prerequisite for the GLMM (same as the CLMM). When R or ``lme4`` is
-missing, ``fit_logistic`` falls back to a self-contained **statsmodels** logistic (GEE,
+R is a *runtime* prerequisite for the GLMM (same as the CLMM). When R, ``lme4`` or ``jsonlite``
+is missing, ``fit_logistic`` falls back to a self-contained **statsmodels** logistic (GEE,
 cluster-robust by question, or plain logistic) and says so. Either way a binary rubric
 always gets a logistic model. Needs the ``stats`` extra (statsmodels) for the fallback.
 """
@@ -136,20 +136,29 @@ class Logistic:
 
 
 def check_glmer() -> tuple[bool, str]:
-    """Return ``(ok, message)`` for R + ``lme4`` (the GLMM backend) availability."""
+    """Check that R can fit the logistic GLMM (the ``glmer`` backend of :func:`fit_logistic`).
+
+    That needs ``Rscript`` on the PATH and the R packages ``lme4`` and ``jsonlite`` (glmm.R
+    returns its result as JSON, and ``lme4`` doesn't depend on ``jsonlite``, so it can be
+    missing).
+
+    Returns
+    -------
+    tuple of (bool, str)
+        ``(True, message)`` when all of it is available, else ``(False, message)`` naming what
+        is missing (and, for a missing package, the command that installs it).
+    """
+    from cafe.stats.ordinal import _missing_r_message, _missing_r_packages
+
     if shutil.which("Rscript") is None:
         return False, "Rscript not found on PATH"
     try:
-        proc = subprocess.run(
-            ["Rscript", "-e",
-             'cat(requireNamespace("lme4", quietly=TRUE) && requireNamespace("jsonlite", quietly=TRUE))'],
-            capture_output=True, text=True, timeout=30,
-        )
+        missing = _missing_r_packages(("lme4", "jsonlite"))
     except Exception as exc:  # noqa: BLE001
         return False, f"Rscript present but failed to run: {exc}"
-    if "TRUE" in proc.stdout:
-        return True, "R and the 'lme4' package are available."
-    return False, "R is installed but the 'lme4' package is missing"
+    if missing:
+        return False, _missing_r_message(missing)
+    return True, "R and the R packages 'lme4' and 'jsonlite' are available."
 
 
 def _display_formula(usable: list[str], order: int) -> str:

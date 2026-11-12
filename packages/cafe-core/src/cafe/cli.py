@@ -167,7 +167,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
 
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
-    """Check the CAFE environment: Python, the R statistics engine, and LLM access.
+    """Check the CAFE environment: Python and its extras, the R statistics engine, and LLM access.
 
     With ``--app``, also checks the web-app prerequisites (Docker + Docker Compose).
     """
@@ -176,12 +176,19 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     import subprocess
 
     from cafe import __version__
-    from cafe.stats import check_glmer, check_r
+    from cafe.stats.ordinal import _R_PACKAGES, _missing_r_packages, _r_install_command
 
     def mark(ok: bool) -> str:
         return "✓" if ok else "✗"
 
+    def installed(module: str) -> bool:  # checked without importing it
+        try:
+            return importlib.util.find_spec(module) is not None
+        except (ImportError, ValueError):
+            return False
+
     issues = 0
+    warns = 0  # marked "!": worth fixing, but the statistics and execution layers work
     print("cafe doctor — environment check\n")
 
     # --- Runtime -------------------------------------------------------------
@@ -194,12 +201,33 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     print(f"  ✓  cafe {__version__}")
     print()
 
+    # --- Python extras -------------------------------------------------------
+    # The engine itself has no dependencies. Without the stats extra the statistics layer
+    # can't run (an issue); litellm is only needed to call LLMs, like an API key (a warning).
+    print("Python extras  (the core engine needs none)")
+    for extra, modules, used_for, required in (
+        ("stats", ("pandas", "numpy", "statsmodels", "scipy", "matplotlib"),
+         "the statistics layer", True),
+        ("llm", ("litellm",), "LLM calls: cafe.complete, cafe.LLMJudge", False),
+    ):
+        absent = [m for m in modules if not installed(m)]
+        if not absent:
+            print(f"  ✓  {extra:<7}{', '.join(modules)}   ({used_for})")
+            continue
+        print(f"  {'✗' if required else '!'}  {extra:<7}missing {', '.join(absent)}   ({used_for})")
+        print(f'       fix →  pip install "cafe-core[{extra}]"')
+        if required:
+            issues += 1
+        else:
+            warns += 1
+    print()
+
     # --- Statistics engine (R) -----------------------------------------------
     print("Statistics engine  (R — runs the ordinal and logistic mixed models)")
     if shutil.which("Rscript") is None:
         print("  ✗  R not found")
         print("       fix →  install R (e.g. `sudo apt install r-base` or `brew install r`),")
-        print("              then:  Rscript -e 'install.packages(c(\"ordinal\", \"lme4\"))'")
+        print(f"              then:  {_r_install_command(_R_PACKAGES)}")
         issues += 1
     else:
         try:
@@ -209,14 +237,23 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         except Exception:  # noqa: BLE001
             ver = "R (version unknown)"
         print(f"  ✓  {ver}   (Rscript on PATH)")
-        for pkg, (ok, _msg), label in (
-            ("ordinal", check_r(), "ordinal CLMM"),
-            ("lme4", check_glmer(), "binary logistic GLMM"),
-        ):
-            print(f"  {mark(ok)}  {pkg:<9}{label}")
-            if not ok:
-                print(f"       fix →  Rscript -e 'install.packages(\"{pkg}\")'")
-                issues += 1
+        # The same check check_r / check_glmer make before fit_clmm / fit_logistic call R,
+        # for all three packages in one R call.
+        try:
+            missing = _missing_r_packages(_R_PACKAGES)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  ✗  R could not be asked for its packages: {exc}")
+            issues += 1
+        else:
+            for pkg, label in (
+                ("ordinal", "ordinal CLMM"),
+                ("lme4", "binary logistic GLMM"),
+                ("jsonlite", "returns both models' results to Python"),
+            ):
+                print(f"  {mark(pkg not in missing)}  {pkg:<10}{label}")
+            if missing:
+                print(f"       fix →  {_r_install_command(missing)}")
+                issues += len(missing)
     print()
 
     # --- LLM access ----------------------------------------------------------
@@ -264,8 +301,11 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         print()
 
     # --- Summary -------------------------------------------------------------
-    if issues == 0:
+    if issues == 0 and warns == 0:
         print("All set — CAFE's statistics and execution layers are ready.")
+        return 0
+    if issues == 0:
+        print("CAFE's statistics and execution layers are ready; see the items marked ! above.")
         return 0
     word = "issue" if issues == 1 else "issues"
     print(f"{issues} {word} — install the items marked ✗ above.")

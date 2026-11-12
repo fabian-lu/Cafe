@@ -18,11 +18,11 @@ Requires Python ≥ 3.11 and R; the mixed-effects models (ordinal CLMM, logistic
 ```bash
 pip install "cafe-core[all]"    # library + LLM judge + datasets + notebooks
 
-# R + the model packages  (Debian/Ubuntu shown; macOS: `brew install r`)
+# R + the model packages and jsonlite  (Debian/Ubuntu shown; macOS: `brew install r`)
 sudo apt install r-base
-Rscript -e 'install.packages(c("ordinal", "lme4"))'
+Rscript -e 'install.packages(c("ordinal", "lme4", "jsonlite"))'
 
-cafe doctor                     # verify the environment: Python, R engine, LLM access
+cafe doctor                     # verify the environment: Python + extras, R engine, LLM access
 ```
 
 To work on the code, or to get the example notebooks and the self-hostable web app, install from

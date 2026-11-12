@@ -4,8 +4,8 @@ ordinal judge verdicts.
 R has the gold-standard implementation (``ordinal::clmm``); Python has no equal. So
 this layer shells out to R via ``Rscript`` and a JSON contract — there is **no
 rpy2 build dependency**, the Python package installs cleanly with pip, and R is a
-*runtime* prerequisite only for this one layer. If R (or the ``ordinal`` package)
-isn't present, ``fit_clmm`` returns a result with ``available=False`` and clear
+*runtime* prerequisite only for this one layer. If R (or its ``ordinal`` or ``jsonlite``
+package) isn't present, ``fit_clmm`` returns a result with ``available=False`` and clear
 install instructions, and the rest of CAFE (incl. the Gaussian mixed model in
 :mod:`cafe.stats.inferential`) keeps working.
 
@@ -23,9 +23,23 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from cafe.judging.ratings import Ratings
 
+#: The R packages CAFE's R models load: ``ordinal`` (the CLMM, clmm.R), ``lme4`` (the logistic
+#: GLMM, glmm.R) and ``jsonlite``, with which both scripts send their result back. Neither ordinal
+#: nor lme4 depends on jsonlite, so installing just those two can leave it missing.
+_R_PACKAGES = ("ordinal", "lme4", "jsonlite")
+
+
+def _r_install_command(packages: tuple[str, ...] | list[str]) -> str:
+    """The ``Rscript -e 'install.packages(...)'`` command that installs ``packages``."""
+    names = ", ".join(f'"{p}"' for p in packages)
+    if len(packages) > 1:
+        names = f"c({names})"
+    return f"Rscript -e 'install.packages({names})'"
+
+
 _INSTALL_HINT = (
-    "Install R (https://www.r-project.org/, e.g. `apt install r-base`) and the "
-    "ordinal package: Rscript -e 'install.packages(\"ordinal\")'."
+    "Install R (https://www.r-project.org/, e.g. `apt install r-base`) and its packages: "
+    f"{_r_install_command(_R_PACKAGES)}."
 )
 
 
@@ -60,20 +74,54 @@ def _r_coef_term(c: dict[str, Any], factors: list[str]) -> tuple[str, str | None
     return _readable_term(term, factors), _term_factor(term, factors), ":" in term  # R names interactions a:b
 
 
+def _missing_r_packages(packages: tuple[str, ...]) -> list[str]:
+    """The packages among ``packages`` that R cannot load (``[]`` when it has them all).
+
+    One ``Rscript`` call that tries ``requireNamespace`` on each. Raises ``RuntimeError`` when
+    R gives no answer, and what ``subprocess.run`` raises when ``Rscript`` can't run.
+    """
+    names = ", ".join(f'"{p}"' for p in packages)
+    proc = subprocess.run(
+        ["Rscript", "-e", f"p <- c({names}); "
+         'cat("cafe-missing:", p[!vapply(p, requireNamespace, NA, quietly = TRUE)], "\\n")'],
+        capture_output=True, text=True, timeout=30,
+    )
+    for line in proc.stdout.splitlines():
+        if line.startswith("cafe-missing:"):
+            return line.split()[1:]
+    error = proc.stderr.strip()[-300:]
+    raise RuntimeError(error or f"no answer from R (exit code {proc.returncode})")
+
+
+def _missing_r_message(missing: list[str]) -> str:
+    """Name the R packages in ``missing`` and the command that installs them."""
+    names = " and ".join(f"'{p}'" for p in missing)
+    which = f"package {names} is" if len(missing) == 1 else f"packages {names} are"
+    return f"R is installed but the R {which} missing — install with: {_r_install_command(missing)}"
+
+
 def check_r() -> tuple[bool, str]:
-    """Return ``(ok, message)`` describing R + ``ordinal`` availability."""
+    """Check that R can fit the ordinal CLMM.
+
+    That needs ``Rscript`` on the PATH and the R packages ``ordinal`` and ``jsonlite`` (clmm.R
+    returns its result as JSON, and ``ordinal`` doesn't depend on ``jsonlite``, so it can be
+    missing). :func:`fit_clmm` runs this check before it calls R.
+
+    Returns
+    -------
+    tuple of (bool, str)
+        ``(True, message)`` when all of it is available, else ``(False, message)`` naming what
+        is missing and the command that installs it.
+    """
     if shutil.which("Rscript") is None:
         return False, f"Rscript not found on PATH. {_INSTALL_HINT}"
     try:
-        proc = subprocess.run(
-            ["Rscript", "-e", 'cat(requireNamespace("ordinal", quietly=TRUE))'],
-            capture_output=True, text=True, timeout=30,
-        )
+        missing = _missing_r_packages(("ordinal", "jsonlite"))
     except Exception as exc:  # noqa: BLE001
         return False, f"Rscript present but failed to run: {exc}"
-    if "TRUE" in proc.stdout:
-        return True, "R and the 'ordinal' package are available."
-    return False, f"R is installed but the 'ordinal' package is missing. {_INSTALL_HINT}"
+    if missing:
+        return False, _missing_r_message(missing)
+    return True, "R and the R packages 'ordinal' and 'jsonlite' are available."
 
 
 # Residual variance of a logit-link model on its latent scale (the variance of the standard
