@@ -160,7 +160,12 @@ CAFE just decides which combination to run — your code decides what that means
 
 `inputs` is a list; each element is one `item`. If an element is a mapping with an
 `"id"` key, that id is used for resumable checkpointing; otherwise the item's
-position is used.
+position is used (`in0`, `in1`, …).
+
+Ids must be **unique**: answers, verdicts and the judge's question and reference are
+looked up by id, so two items sharing one would be mixed up. CAFE checks this before
+anything runs and raises a `ValueError` naming the repeated ids. An id is compared as
+text, so `1` and `"1"` are the same id.
 
 ```python
 inputs = [

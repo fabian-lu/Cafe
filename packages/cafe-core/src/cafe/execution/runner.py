@@ -35,6 +35,43 @@ def _input_id(item: Any, index: int) -> str:
     return f"in{index}"
 
 
+def _check_unique_input_ids(items: list[Any]) -> None:
+    """Refuse a dataset in which two items get the same input id.
+
+    Answers, ratings, checkpoints and the judge's question / reference lookup are all keyed
+    by the input id, so two items sharing one would be confused with each other: the judge
+    would grade an answer against the other item's question and reference.
+
+    Parameters
+    ----------
+    items:
+        The dataset items, in order.
+
+    Raises
+    ------
+    ValueError
+        If two items have the same id (see :func:`_input_id`: an item's ``"id"`` as text,
+        or ``in<position>`` for an item without one, so ``1`` and ``"1"`` are the same id).
+    """
+    first: dict[str, int] = {}
+    dupes: dict[str, list[int]] = {}
+    for idx, item in enumerate(items):
+        iid = _input_id(item, idx)
+        if iid in first:
+            dupes.setdefault(iid, [first[iid]]).append(idx)
+        else:
+            first[iid] = idx
+    if dupes:
+        shown = "; ".join(f"{iid!r} (items {', '.join(map(str, pos))})"
+                          for iid, pos in list(dupes.items())[:5])
+        more = f"; and {len(dupes) - 5} more" if len(dupes) > 5 else ""
+        raise ValueError(
+            f"dataset item ids must be unique, but {len(dupes)} id(s) repeat: {shown}{more}. "
+            "Answers, ratings and the judge's question/reference are keyed by the id (an "
+            "item's \"id\" as text, or in<position> without one), so give every item its own."
+        )
+
+
 async def _run_cell(
     system: System, config: dict[str, Any], item: Any, input_id: str, rep: int
 ) -> Observation:
@@ -96,6 +133,13 @@ async def run_study(
         committing to the full study.
     on_progress:
         Called as ``on_progress(observation, completed, total)`` after each cell.
+
+    Raises
+    ------
+    ValueError
+        If ``replications`` is below 1, the dataset is empty, or two dataset items have the
+        same id (checked on the whole dataset, also for a ``smoke`` run) — before any cell
+        runs.
     """
     reps = study.replications if replications is None else replications
     if reps < 1:
@@ -104,6 +148,7 @@ async def run_study(
 
     configs = design.generate(study)
     inputs = list(study.dataset)
+    _check_unique_input_ids(inputs)
     if smoke:
         inputs = inputs[:1]
         reps = 1
