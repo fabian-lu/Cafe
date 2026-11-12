@@ -103,11 +103,43 @@ async def _in_use(db: AsyncSession, col, id_: int) -> bool:
     return (await db.execute(select(models.Study.id).where(col == id_))).first() is not None
 
 
+async def _rubric_in_use(db: AsyncSession, id_: int) -> bool:
+    """Whether a study, archived or not, judges on this rubric.
+
+    Parameters
+    ----------
+    db : AsyncSession
+        The session to query.
+    id_ : int
+        The rubric's id.
+
+    Returns
+    -------
+    bool
+        True if a study has it as its primary rubric (``rubric_id``) or among its dimensions
+        (``rubric_ids``). That column is a JSON list, so it is searched in Python: the same
+        on SQLite and Postgres.
+    """
+    if await _in_use(db, models.Study.rubric_id, id_):
+        return True
+    rubric_ids = (await db.execute(select(models.Study.rubric_ids))).scalars()
+    return any(id_ in (ids or []) for ids in rubric_ids)
+
+
 @router.delete("/rubrics/{id_}", status_code=204)
 async def delete_rubric(id_: int, db: AsyncSession = Depends(get_session)):
+    """Delete a rubric that no study uses.
+
+    Raises
+    ------
+    HTTPException
+        404 for an unknown rubric; 409 if a study, archived or not, judges on it, as its primary
+        rubric or as an extra dimension (the study's next run could no longer judge it).
+    """
     await _get_or_404(db, models.Rubric, id_)
-    if await _in_use(db, models.Study.rubric_id, id_):
-        raise HTTPException(409, "rubric is used by a study — delete the study first")
+    if await _rubric_in_use(db, id_):
+        raise HTTPException(409, "rubric is used by a study (as its rubric or an extra dimension) "
+                                 "— delete the study first")
     await db.execute(sql_delete(models.Rubric).where(models.Rubric.id == id_))
     await db.commit()
 
