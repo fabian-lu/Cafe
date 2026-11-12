@@ -570,7 +570,8 @@ function Records({ records, factors }) {
 // ── page ──────────────────────────────────────────────────────────────────────
 export default function Results() {
   const [params, setParams] = useSearchParams();
-  const [studies, setStudies] = useState([]);
+  const [studies, setStudies] = useState(null);   // finished live studies (null until loaded)
+  const [unlisted, setUnlisted] = useState(null); // the selected study, when the list leaves it out
   // ?study= is the single source of truth, so Back/Forward and the page can't disagree.
   // Filling an empty selection (the auto-default below) replaces the entry; switching pushes.
   const sel = params.get("study") || "";
@@ -588,6 +589,15 @@ export default function Results() {
     setStudies(done);
     if (!sel && done.length) setSel(String(done[0].id));
   }).catch((e) => setErr(e.message)); }, []);
+
+  // The list holds live studies only: a study opened by id that it leaves out (an archived one,
+  // from its overview page or the archived list) is fetched on its own, so the selector names it.
+  useEffect(() => {
+    if (!sel || !studies || studies.some((s) => String(s.id) === sel)) return;
+    let active = true;
+    api.study(sel).then((s) => { if (active) setUnlisted(s); }).catch(() => {});
+    return () => { active = false; };
+  }, [sel, studies]);
 
   useEffect(() => {
     const req = ++viewReq.current;
@@ -672,7 +682,9 @@ export default function Results() {
         </div>
         <select className="select" style={{ width: 240 }} value={sel} onChange={(e) => setSel(e.target.value)}>
           <option value="">— select a study —</option>
-          {studies.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          {(studies || []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          {unlisted && String(unlisted.id) === sel && (
+            <option value={unlisted.id}>{`${unlisted.name}${unlisted.archived ? " (archived)" : ""}`}</option>)}
         </select>
       </div>
 
