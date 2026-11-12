@@ -51,7 +51,8 @@ shows it like any other study, without re-running anything.
    (the built-in rubrics, or your own). Rubrics and studies are checked by cafe-core when
    you save them: a definition it would reject — say, a custom judge prompt with a stray
    `{` (write `{{` / `}}` for a literal brace) — is refused right away with cafe-core's
-   message, instead of failing when the study runs.
+   message, instead of failing when the study runs. Rubric levels are whole numbers, as
+   the judge grades on whole scale points: a level such as 0.5 is refused too.
 3. **New study** — choose which stages/parameters to vary as factors, the questions, a
    judge and rubric, and the number of replications. CAFE shows the configuration count
    and a cost/time estimate before you commit.
