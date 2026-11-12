@@ -41,7 +41,9 @@ async def judge_results(
         as it lands and a resumed run skips already-scored ``(answer, judge_rep)``
         pairs — the same guarantee :func:`cafe.run_study` gives the answer phase. Only
         verdicts for the answers judged now, with ``judge_rep < repetitions``, are
-        carried forward; any other rows in the file are dropped with a warning.
+        carried forward; any other rows in the file are dropped with a warning. A
+        carried-forward verdict gets its answer's configuration, so a level JSON can't
+        hold (a NumPy number, a tuple) keeps its value on resume.
     resume:
         Load ``checkpoint_path`` and skip what it already holds. ``False`` judges
         everything again (still appending to the file).
@@ -106,6 +108,13 @@ async def judge_results(
             "ratings contain only the current answers' verdicts.",
             stacklevel=2,
         )
+
+    # A checkpointed verdict's config has been through JSON (np.int64(3) comes back as "3", a
+    # tuple as a list). Give each carried-forward verdict its answer's config, as a fresh
+    # verdict gets, so every verdict of one configuration carries the same level values.
+    answer_configs = {o.key(): o.config for o in targets}
+    for r in kept.values():
+        r.config = dict(answer_configs[r.obs_key])
 
     todo = [(o, jr) for o in targets for jr in range(repetitions)
             if _key(o.key(), jr) not in kept]

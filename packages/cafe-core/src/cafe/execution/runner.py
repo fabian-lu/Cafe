@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from cafe import design
-from cafe.execution.results import Observation, Results, config_label
+from cafe.execution.results import Observation, Results, config_id, config_label
 from cafe.study import Study
 from cafe.system import System, as_system, normalize_output
 
@@ -86,6 +86,8 @@ async def run_study(
     checkpoint_path:
         If given, observations are appended here as they complete and a resumed
         run skips already-done cells. If ``None``, the run is in-memory only.
+        Rows carried forward from the file get the design's own configuration, so a
+        level JSON can't hold (a NumPy number, a tuple) keeps its value on resume.
     retry_errors:
         On resume, re-run checkpointed cells that ended in an error (transient
         provider failures heal on the next run; a permanent error just fails
@@ -158,6 +160,14 @@ async def run_study(
             "written); resumed results contain only the current design's cells.",
             stacklevel=2,
         )
+
+    # A checkpoint row's config has been through JSON, so a level JSON can't hold comes back
+    # changed under the same config_id (np.int64(3) as "3", (256, 0) as [256, 0]). Give each
+    # carried-forward row the design's own config, so resumed and fresh rows share one value
+    # per level (two values of one level would be two groups in the statistics).
+    design_configs = {config_id(cfg): cfg for cfg in configs}
+    for o in kept.values():
+        o.config = dict(design_configs[o.config_id])
 
     total = len(configs) * len(inputs) * reps
     observations: list[Observation] = list(kept.values())
