@@ -355,7 +355,17 @@ async def estimate_study(study_id: int) -> dict[str, Any]:
 
 
 async def run_study_task(study_id: int) -> None:
-    """Background task: execute the study and cache its results."""
+    """Background task: execute the study and cache its results.
+
+    The statistics of each dimension are fitted in a worker thread, so the event loop (every
+    other request, and the run's own progress stream) is not blocked while they compute.
+
+    Parameters
+    ----------
+    study_id : int
+        The study to run. Its row ends ``"done"``, or ``"failed"`` with the error in
+        :data:`PROGRESS`.
+    """
     PROGRESS[study_id] = {"phase": "starting", "done": 0, "total": 0, "status": "running"}
     try:
         import time as _time
@@ -404,11 +414,14 @@ async def run_study_task(study_id: int) -> None:
             dim_ev = Evaluation(study_name=f"{study_obj.name} · {dim_name}", answers=answers,
                                 ratings=dim_ratings, attribution=attribute(dim_ratings),
                                 questions=questions, references=references)
-            dim_payloads[dim_name] = _results_payload(dim_ev)
+            # Fitting the statistics (incl. the R models) takes seconds per dimension: in a
+            # worker thread, so the server keeps answering requests and progress streams. The
+            # evaluation is the thread's alone until it returns (awaited, one at a time).
+            dim_payloads[dim_name] = await asyncio.to_thread(_results_payload, dim_ev)
 
         PROGRESS[study_id].update({"phase": "saving", "done": total, "total": total})
 
-        payload = _results_payload(ev)
+        payload = await asyncio.to_thread(_results_payload, ev)  # in a worker thread, as above
         # true end-to-end wall clock (answers + judging), the "total time it took to run"
         payload["timing"]["run_wall_s"] = round(_time.monotonic() - run_started, 2)
         dim_payloads = {primary_dim: payload, **dim_payloads}
