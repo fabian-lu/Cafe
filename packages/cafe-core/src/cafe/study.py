@@ -12,6 +12,7 @@ stance is what makes CAFE general across compound AI systems.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -62,7 +63,10 @@ class Factor:
     ------
     ValueError
         If ``name`` is empty or reserved (one of :data:`RESERVED_FACTOR_NAMES`, e.g.
-        ``rep``, ``error``, ``verdict``, ``output``, ``tokens``), or ``levels`` is empty.
+        ``rep``, ``error``, ``verdict``, ``output``, ``tokens``), ``levels`` is empty, or
+        ``levels`` lists a level more than once. Levels are compared by their JSON text, as
+        a configuration's id is computed: ``3`` and ``"3"`` are different levels, while
+        ``(1, 2)`` and ``[1, 2]`` are the same one.
     """
 
     name: str
@@ -76,6 +80,26 @@ class Factor:
         self.levels = list(self.levels)
         if len(self.levels) == 0:
             raise ValueError(f"factor {self.name!r} must have at least one level")
+        # Compare levels as a configuration's id encodes them (the json.dumps of
+        # cafe.execution.results.config_id, which this module can't import): two levels with
+        # one encoding make two configurations with one id, whose answers share their keys.
+        positions: dict[str, list[int]] = {}
+        for i, level in enumerate(self.levels):
+            positions.setdefault(json.dumps(level, sort_keys=True, default=str), []).append(i)
+        repeated = [pos for pos in positions.values() if len(pos) > 1]
+        if repeated:
+            shown = "; ".join(
+                " / ".join(dict.fromkeys(repr(self.levels[i]) for i in pos))
+                + f" (levels {', '.join(map(str, pos))})"
+                for pos in repeated
+            )
+            raise ValueError(
+                f"factor {self.name!r} lists a level more than once: {shown}. A configuration "
+                "is identified by its levels (compared as JSON text), so a repeated level runs "
+                "one configuration twice under the same key: verdicts get paired with the wrong "
+                "answer, and the statistics merge the two answers as if one had been judged "
+                "twice. List each level once."
+            )
         if isinstance(self.type, str):
             self.type = FactorType(self.type)
 

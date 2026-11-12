@@ -60,6 +60,22 @@ def test_factor_validation():
     assert f.type is FactorType.ordinal
 
 
+def test_repeated_factor_levels_rejected():
+    """A repeated level made two configurations with one config id, so their answers shared
+    one key: Evaluation.records() paired a verdict with the wrong answer, and the statistics
+    averaged the two answers' verdicts as if the judge had scored one answer twice. Levels
+    are compared as the config id encodes them (JSON text)."""
+    import pytest
+
+    with pytest.raises(ValueError, match=r"'cot' \(levels 0, 2\)"):
+        Factor("prompt", ["cot", "plain", "cot"])
+    with pytest.raises(ValueError, match=r"\(256, 0\) / \[256, 0\] \(levels 0, 1\)"):
+        Factor("chunking", [(256, 0), [256, 0]])
+    with pytest.raises(ValueError, match="more than once"):
+        Factor("filters", [{"a": 1, "b": 2}, {"b": 2, "a": 1}])
+    assert Factor("k", [3, "3", None, 0.5]).levels == [3, "3", None, 0.5]  # distinct as JSON
+
+
 def test_reserved_factor_names_rejected():
     """A factor named like a bookkeeping column would crash the stats ('rep', 'input_id',
     'verdict'), silently merge configurations ('error', 'reasoning', 'judge_rep') or be
