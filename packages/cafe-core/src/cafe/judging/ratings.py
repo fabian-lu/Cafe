@@ -85,8 +85,10 @@ class Ratings:
         return [r for r in self.items if not r.ok]
 
     def failures(self) -> list[dict[str, Any]]:
-        """The unparseable verdicts, for debugging — exactly what the judge was given
-        (``prompt``) and returned (``raw_response``), plus the error. Feed to pandas::
+        """The failed verdicts, for debugging — an unparseable reply, a judge call that
+        failed (``"judge call failed: …"``), an answer with no output to judge — with exactly
+        what the judge was given (``prompt``) and returned (``raw_response``), plus the
+        error. Feed to pandas::
 
             import pandas as pd; pd.DataFrame(ratings.failures())
         """
