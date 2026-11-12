@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import weakref
 from typing import Any
 
 from cafe.judging.prompts import JUDGE_PRESETS
@@ -69,13 +70,30 @@ def build_json_prompt(prompt: str, rubric: Rubric) -> str:
 
 # model string -> does it support response_format JSON (resolved once, then cached)
 _support_cache: dict[str, bool] = {}
-_probe_lock = asyncio.Lock()
+# Probes run one at a time, so concurrent checks of a model wait for its single probe. One
+# lock per event loop: an asyncio.Lock binds to the first loop that waits on it, and every
+# study.evaluate() or asyncio.run() runs a loop of its own. An entry goes away with its loop.
+_probe_locks: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _probe_lock() -> asyncio.Lock:
+    """The probe lock of the running event loop (made the first time that loop needs it)."""
+    loop = asyncio.get_running_loop()
+    lock = _probe_locks.get(loop)
+    if lock is None:
+        lock = _probe_locks[loop] = asyncio.Lock()
+    return lock
 
 
 async def supports_structured(model: str) -> bool:
     """Whether ``model`` can return JSON via ``response_format``.
 
-    Static capability map first; on a no/unknown, a single cached runtime probe.
+    Static capability map first; on a no/unknown, a single cached runtime probe. The answer
+    is cached for the whole process, so later checks in any event loop (another
+    ``study.evaluate()``, another ``asyncio.run()``) reuse it; checks that run while the
+    probe is in flight in the same loop wait for it rather than probing again.
     """
     if model in _support_cache:
         return _support_cache[model]
@@ -88,7 +106,7 @@ async def supports_structured(model: str) -> bool:
     except Exception:  # noqa: BLE001 — map lookup is best-effort
         pass
 
-    async with _probe_lock:
+    async with _probe_lock():
         if model in _support_cache:  # another coroutine probed while we waited
             return _support_cache[model]
         ok = await _probe(model)
