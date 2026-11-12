@@ -805,7 +805,7 @@ export default function Results() {
             </Section>
           )}
 
-          {res.records?.length > 0 && (
+          {res.records?.some((r) => r.verdict != null) && (
             <Section title="Verdict distribution">
               <Distribution records={res.records} rubric={res.rubric} />
             </Section>
