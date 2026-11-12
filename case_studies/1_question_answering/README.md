@@ -68,7 +68,7 @@ each other, not as measurements.
 - **Retrieval drives quality far more than the model.** The reranker adds a small but reliable step
   over plain dense retrieval (d = 0.27, 95% CI [0.11, 0.43]).
 - **Retrieval helps the small model most.** Without retrieval the gap between Gemma 3 4B and
-  GPT-OSS 120B is 0.66; with the reranker it is 0.18. Good retrieval partly substitutes for a bigger
+  GPT-OSS 120B is 0.66; with the reranker it is 0.16. Good retrieval partly substitutes for a bigger
   model, which is why the 20B model with the reranker is as good as the 120B.
 - **The placebo comes out as nothing**, as it must: CAFE doesn't invent effects.
 - **Question difficulty is large** (ICC .37 on the scores, .62 on the latent scale of the ordinal model).
