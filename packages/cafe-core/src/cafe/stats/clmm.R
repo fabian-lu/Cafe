@@ -23,6 +23,13 @@ emit <- function(obj) {
 }
 
 args <- commandArgs(trailingOnly = TRUE)
+# Optional `--interactions=1:3,2:3`, anywhere among the arguments: the interactions to fit
+# instead of all of (A + B + ...)^order, as 1-based factor indices (here A:C + B:C) — the
+# caller leaves out those the design can't estimate.
+is_inter <- startsWith(args, "--interactions=")
+inter <- if (any(is_inter)) lapply(strsplit(strsplit(sub("^--interactions=", "", args[is_inter][1]),
+                                                     ",")[[1]], ":"), as.integer) else NULL
+args <- args[!is_inter]
 if (length(args) < 2) {
   emit(list(available = FALSE, error = "usage: clmm.R <csv> <factors>"))
   quit(status = 0)
@@ -35,6 +42,9 @@ lr_tests <- length(args) >= 4 && identical(args[[4]], "1")
 
 fixed_terms <- function(ord) {
   terms <- paste(sprintf("`%s`", factors), collapse = " + ")
+  if (ord >= 2 && length(factors) >= 2 && !is.null(inter))
+    return(paste(c(terms, vapply(inter, function(i) paste(sprintf("`%s`", factors[i]),
+                                                           collapse = ":"), "")), collapse = " + "))
   if (ord >= 2 && length(factors) >= 2) sprintf("(%s)^%d", terms, ord) else terms
 }
 

@@ -112,7 +112,12 @@ The tests stay blocked by question when some configurations miss some questions 
 generation, an unparseable verdict): such a question just adds fewer within-question
 comparisons. But a factor whose levels were answered on *different* questions can't be told
 apart from question difficulty — the table shows `-` for it (0 degrees of freedom, not
-estimable) and a note names it. Run every level on the same questions to test it.
+estimable) and a note names it. Run every level on the same questions to test it. The same
+holds for two factors that always change together (one determines the other): neither can be
+estimated apart from the other. An interaction the design can't separate from the other
+terms — aliased, as in a fractional factorial below resolution V or with an empty cell in a
+2 × 2 table of its levels — is left out of the model and named in a note; the other
+interactions are still tested (the ordinal model below does the same).
 
 Below the table, **Cohen's d** gives each pairwise gap a standardized magnitude with a
 confidence interval:

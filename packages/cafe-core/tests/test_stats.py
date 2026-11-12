@@ -164,6 +164,148 @@ def test_fit_effects_blocks_by_question_when_a_question_misses_an_answer():
     assert not any("conservative" in w for w in eff.warnings)
 
 
+def _ratings_without(seed: int, levels: dict[str, tuple], failed, *, n_q: int, reps: int,
+                     q_sd: float, score, rubric=None) -> Ratings:
+    """Ratings for every combination of ``levels`` except the configurations ``failed(cfg)``
+    rejects (they errored on every question): ``n_q`` questions x ``reps`` answers, scored
+    ``score(cfg, question_effect, rng)`` (rounded, clipped to 0-10 unless ``rubric`` is given)."""
+    import itertools
+    import random
+
+    from cafe.rubrics import HELPFULNESS_0_10
+
+    rng = random.Random(seed)
+    qe = [rng.gauss(0, q_sd) for _ in range(n_q)]
+    items = []
+    for values in itertools.product(*levels.values()):
+        cfg = dict(zip(levels, values))
+        if failed(cfg):
+            continue
+        for q in range(n_q):
+            for r in range(reps):
+                v = score(cfg, qe[q], rng)
+                v = v if rubric else min(10, max(0, round(v)))
+                items.append(Rating(obs_key=f"{values}{q}{r}", config=cfg, input_id=f"q{q}", rep=r,
+                                    judge_rep=0, value=v, value_numeric=v))
+    return Ratings(rubric=rubric or HELPFULNESS_0_10, judge_model="x", factors=list(levels),
+                   items=items)
+
+
+_ABC = {"A": ("x", "y"), "B": ("b1", "b2"), "C": ("c1", "c2")}
+
+
+def test_estimable_terms_drop_only_the_aliased_interactions():
+    """No answers for A=y, B=b2: from (A + B + C)^3 the three-way term goes first, then A × B
+    (its only column is empty); A × C and B × C stay."""
+    import pandas as pd
+
+    from cafe.stats.inferential import _estimable_terms
+
+    df = pd.DataFrame([{"A": a, "B": b, "C": c, "verdict": 1.0} for a, b, c in
+                       [("x", "b1", "c1"), ("x", "b1", "c2"), ("x", "b2", "c1"), ("x", "b2", "c2"),
+                        ("y", "b1", "c1"), ("y", "b1", "c2")]])
+    terms, dropped = _estimable_terms(df, ["A", "B", "C"], 3)
+    assert dropped == [("A", "B", "C"), ("A", "B")]
+    assert terms == [("A",), ("B",), ("C",), ("A", "C"), ("B", "C")]
+
+
+def test_fit_effects_keeps_the_interactions_an_empty_cell_leaves_estimable():
+    """The configurations with A=y, B=b2 failed on every question, so the A × B cell is empty
+    and A × B can't be estimated. Only A × B is left out (and named); A × C and B × C keep the
+    tests R's car::Anova(lm(verdict ~ input_id + (A + B + C)^2), type=2) gives them. Every
+    interaction used to be dropped, with a note blaming a fractional factorial."""
+    r = _ratings_without(5, _ABC, lambda c: c["A"] == "y" and c["B"] == "b2", n_q=8, reps=2,
+                         q_sd=1.5, score=lambda c, qe, rng: 5 + qe + (c["A"] == "y")
+                         + 1.5 * (c["B"] == "b2") * (c["C"] == "c2") + rng.gauss(0, 1))
+    eff = fit_effects(r)
+    assert eff.model == "Type-II ANOVA, blocked by question, up to 2-way"
+    assert eff.formula == "verdict ~ question + A + B + C + A:C + B:C"
+    car = {"A": (12.42156, 0.00069342), "B": (10.87048, 0.00143947), "C": (5.82517, 0.01799927),
+           "A × C": (0.11633, 0.73391031), "B × C": (6.83768, 0.01059866)}
+    terms = {t["factor"]: t for t in eff.terms}
+    assert set(terms) == set(car)
+    for name, (F, p) in car.items():
+        assert terms[name]["df"] == 1
+        assert terms[name]["F"] == pytest.approx(F, rel=1e-5)
+        assert terms[name]["p"] == pytest.approx(p, rel=1e-5)
+    assert any(w.startswith("A × B is aliased in this design") for w in eff.warnings)
+    assert not any("only main effects" in w for w in eff.warnings)
+
+
+def test_fit_effects_steps_down_from_three_way_to_two_way_interactions():
+    """Configuration (y, b2, c2) failed on every question. Asked for three-way interactions,
+    only A × B × C is aliased — the two-way model is full rank — so fit_effects must fit up to
+    two-way (car on (A + B + C)^3: A:B:C 0 df, the rest as below), not jump to main effects."""
+    r = _ratings_without(11, _ABC, lambda c: (c["A"], c["B"], c["C"]) == ("y", "b2", "c2"),
+                         n_q=6, reps=2, q_sd=1.0, score=lambda c, qe, rng: 5 + qe + (c["A"] == "y")
+                         + 1.2 * (c["B"] == "b2") * (c["C"] == "c2") + rng.gauss(0, 1))
+    eff = fit_effects(r, interactions=3)
+    assert eff.model == "Type-II ANOVA, blocked by question, up to 2-way"
+    assert eff.formula == "verdict ~ question + (A + B + C)^2"
+    car = {"A": 36.07624, "B": 3.85578, "C": 3.41550, "A × B": 2.00127, "A × C": 0.72046,
+           "B × C": 9.68615}
+    terms = {t["factor"]: t for t in eff.terms}
+    assert set(terms) == set(car)
+    for name, F in car.items():
+        assert terms[name]["F"] == pytest.approx(F, rel=1e-5)
+    assert any(w.startswith("A × B × C is aliased in this design") for w in eff.warnings)
+
+
+def test_fit_effects_reports_factors_confounded_with_each_other_as_not_estimable():
+    """Configurations (x, b2) and (y, b1) failed on every question, so A and B always change
+    together: neither can be estimated apart from the other. Both get 0 df and no F-test, as in
+    car::Anova (and CAFE's CLMM) — they used to get df=1 and the same "significant" F. C keeps
+    car's test, and the between-question variance is estimated like lme4's ML fit (which drops
+    the redundant column) instead of a note blaming non-convergence."""
+    r = _ratings_without(2, _ABC, lambda c: (c["A"] == "x") != (c["B"] == "b1"), n_q=10, reps=1,
+                         q_sd=1.0, score=lambda c, qe, rng: 5 + 2 * (qe + 1.2 * (c["A"] == "y")
+                                                                    + rng.gauss(0, 0.8)))
+    eff = fit_effects(r, interactions=1)
+    terms = {t["factor"]: t for t in eff.terms}
+    for name in ("A", "B"):
+        assert terms[name]["df"] == 0 and not terms[name]["significant"]
+        assert terms[name]["F"] is None and terms[name]["p"] is None
+        assert terms[name]["partial_eta_sq"] is None
+    assert eff.significant_factors == []
+    assert terms["C"]["F"] == pytest.approx(0.14359, rel=1e-4)
+    assert terms["C"]["p"] == pytest.approx(0.7076, rel=1e-4)
+    assert any(w.startswith("A, B: not estimable — confounded with other terms") for w in eff.warnings)
+    assert eff.variance_components["random_intercept"] == pytest.approx(3.91, rel=1e-4)
+    assert eff.variance_components["residual"] == pytest.approx(2.60, rel=1e-4)
+    assert not any("couldn't be estimated" in w for w in eff.warnings)
+
+
+@pytest.mark.skipif(shutil.which("Rscript") is None, reason="R not installed")
+def test_clmm_fits_the_interactions_an_empty_cell_leaves_estimable():
+    """The configurations (large, dense) failed on every question, so model × retrieve can't
+    be estimated, but the other two-way terms can. fit_clmm used to drop every interaction; it
+    now gives clmm.R only the estimable ones, and retrieve × rerank gets the likelihood-ratio
+    test of R's own two-way CLMM (chi2 = 21.52, p = 3.5e-6)."""
+    from cafe.rubrics import CORRECTNESS_0_3
+    from cafe.stats.ordinal import check_r
+
+    if not check_r()[0]:
+        pytest.skip("R + ordinal not installed")
+    levels = {"model": ("small", "large"), "retrieve": ("bm25", "dense"), "rerank": ("off", "on")}
+
+    def score(c, qe, rng):
+        lat = (qe + 0.8 * (c["model"] == "large")
+               + 1.4 * (c["retrieve"] == "dense") * (c["rerank"] == "on") + rng.gauss(0, 1))
+        return sum(lat > cut for cut in (-0.5, 0.5, 1.5))
+
+    r = _ratings_without(7, levels, lambda c: (c["model"], c["retrieve"]) == ("large", "dense"),
+                         n_q=10, reps=2, q_sd=0.8, score=score, rubric=CORRECTNESS_0_3)
+    res = fit_clmm(r)
+    assert res.available and res.converged
+    assert res.formula == ("verdict ~ (1 | input_id) + model + retrieve + rerank + "
+                           "model:rerank + retrieve:rerank")
+    tests = {t["term"]: t for t in res.factor_tests}
+    assert set(tests) == {"model", "retrieve", "rerank", "model × rerank", "retrieve × rerank"}
+    assert tests["retrieve × rerank"]["chisq"] == pytest.approx(21.5236, rel=1e-3)
+    assert tests["retrieve × rerank"]["significant"]
+    assert any(w.startswith("model × retrieve is aliased in this design") for w in res.warnings)
+
+
 def test_fit_effects_tiny_design_is_not_declared_exact_by_the_question_block():
     """2 questions x 1 answer: question + A explain every score, but A alone doesn't — the
     blocked fit is exact by construction, so the test falls back to the unblocked ANOVA

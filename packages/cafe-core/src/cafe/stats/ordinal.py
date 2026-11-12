@@ -258,6 +258,12 @@ def fit_clmm(
     more); pass ``False`` to skip. With few questions (≲ 10) these tests are somewhat
     liberal, like any likelihood-ratio test for fixed effects in a mixed model.
 
+    Of the interactions up to that order, only the aliased ones are left out — those that
+    add nothing the other terms don't already fit, as in a fractional factorial below
+    resolution V or with an empty cell in a 2 × 2 table of their levels — checked from the
+    highest order down as in :func:`~cafe.stats.inferential.fit_effects`; the others are fit,
+    and a note names the ones left out.
+
     Returns
     -------
     CLMMResult
@@ -312,28 +318,32 @@ def fit_clmm(
         tmp.close()
         r_script = files("cafe.stats").joinpath("clmm.R")
         order = max(1, min(interactions, len(factors)))
-        # Cap the order to what the design can estimate: an aliased fractional factorial is
-        # rank-deficient above main effects, so its 2FIs can't be separated (matches the
-        # Gaussian layer, so the two reports agree).
-        from cafe.stats.inferential import _design_rank_deficient
+        # Fit only the interactions the design can estimate: an aliased one (a fractional
+        # factorial below resolution V, an empty cell in a 2 × 2 table of its levels) can't be
+        # separated from the terms it is confounded with. The same check as the Gaussian
+        # layer's, so the two reports agree.
+        from cafe.stats.inferential import _aliased_note, _estimable_terms
 
-        aliased = _design_rank_deficient(df, factors, order) if order >= 2 else False
-        if aliased:
-            order = 1
-            res.warnings.append(
-                "interactions are aliased in this design (e.g. a fractional factorial below "
-                "resolution V) — they can't be separated, so only main effects are fit"
-            )
-        elif aliased is None:
+        estimable = _estimable_terms(df, factors, order) if order >= 2 else None
+        flags = []  # --interactions=…: what clmm.R fits, when not all of (A + B + …)^order
+        if estimable is None and order >= 2:
             res.warnings.append(
                 "statsmodels is not installed, so the design wasn't checked for aliased "
                 "interactions; for a fractional factorial below resolution V, read the "
                 "interaction terms as confounded (or pass interactions=1)"
             )
+        elif estimable is not None and estimable[1]:
+            kept, dropped = estimable
+            order = max(len(t) for t in kept)
+            res.warnings.append(_aliased_note(dropped, order))
+            if order >= 2:  # 1-based factor indices, "1:3,2:3" = A:C + B:C
+                flags.append("--interactions=" + ",".join(
+                    ":".join(str(factors.index(f) + 1) for f in t) for t in kept if len(t) > 1))
+
         def _run(with_lr: bool):
             return subprocess.run(
                 ["Rscript", str(r_script), tmp.name, ",".join(factors), str(order),
-                 "1" if with_lr else "0"],
+                 "1" if with_lr else "0", *flags],
                 capture_output=True, text=True, timeout=timeout,
             )
 
