@@ -5,8 +5,9 @@
 
 Writes apps/web-app/frontend/public/demo-data/: every GET response the frontend needs for these
 studies, under the file names lib/demo.js's demoFile() expects. Each results view is its own file:
-every dimension, and every value of every question filter (those are recomputed by the backend, so
-exporting a study with many filter values takes a few minutes).
+every dimension, and every value of every question filter (the backend recomputes a filter view the
+first time it is asked for and then stores it, so the first export of a study with many filter
+values takes a few minutes).
 
 To keep the files small, each results view stores every question text and reference answer once
 (``questions`` / ``references``, keyed by question id) instead of in every answer row; the Results

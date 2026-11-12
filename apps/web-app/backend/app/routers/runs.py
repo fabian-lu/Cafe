@@ -10,11 +10,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import models, runner
+from app import filtered_views, models, runner
 from app.db import SessionLocal, get_session
-
-# filtered-results cache: (study_id, result_row_id, dimension, fkey, fval) -> payload
-_FILTER_CACHE: dict[tuple, dict] = {}
 
 # /stream: how long a DB-"running" study may lack an in-memory progress entry before the
 # stream reports that no run is active in this process
@@ -125,6 +122,37 @@ async def get_filters(id_: int, db: AsyncSession = Depends(get_session)):
 async def get_results(id_: int, dimension: str | None = None,
                       fkey: str | None = None, fval: str | None = None,
                       db: AsyncSession = Depends(get_session)):
+    """A study's stored results, or a view of them filtered to a subset of its questions.
+
+    Results stored by an older statistics version are recomputed once from their records (no
+    LLM calls) and stored again. A filtered view refits the whole statistics stack on the
+    questions whose metadata ``fkey`` equals ``fval``. It is computed the first time it is asked
+    for and stored, so later requests, also after a backend restart, load it without
+    recomputing. A view is only served for the results it was computed from: after a re-run or
+    a statistics refresh it is computed again.
+
+    Parameters
+    ----------
+    id_ : int
+        The study.
+    dimension : str, optional
+        The judged dimension (rubric name). Default: the study's first, primary one.
+    fkey, fval : str, optional
+        A question-metadata key and the value it must equal, as listed by
+        ``GET /studies/{id}/filters``. Without both, the unfiltered results are returned.
+
+    Returns
+    -------
+    dict
+        The results payload. A filtered view also has ``filtered``: the key, the value, and
+        how many of the study's questions it covers.
+
+    Raises
+    ------
+    HTTPException
+        404 if the study has no results (for ``dimension``); 400 for a filter on a study whose
+        dataset has no question metadata; 500 if recomputing the filtered view fails.
+    """
     q = select(models.StudyResult).where(models.StudyResult.study_id == id_)
     if dimension is not None:
         q = q.where(models.StudyResult.dimension == dimension)
@@ -139,11 +167,13 @@ async def get_results(id_: int, dimension: str | None = None,
     # Stored by an older statistics version (a run/import before an update, the bundled demo
     # seed): recompute once from the stored records — no LLM calls — and keep the result. Only
     # judged results have statistics to recompute; an unjudged study's payload is left alone.
-    payload, res_id, res_dimension = res.payload, res.id, res.dimension  # read before any rollback
+    payload, res_id = res.payload, res.id  # read before any rollback
     if payload.get("stats_version") != runner.STATS_VERSION and payload.get("rubric"):
         try:
             fresh = await asyncio.to_thread(runner.refresh_payload, payload, items)
             res.payload = fresh
+            # the filtered views of the replaced payload go with it
+            await filtered_views.forget(db, id_, [res_id])
             await db.commit()
             payload = fresh
         except Exception:  # noqa: BLE001 — serve what's stored rather than fail the page
@@ -151,19 +181,17 @@ async def get_results(id_: int, dimension: str | None = None,
     if not fkey or fval is None:
         return payload
 
-    # question-subset view: recompute the whole stats stack on the filtered questions
-    # (keyed by when the stored payload was computed, so a re-run doesn't serve stale views)
-    cache_key = (id_, res_id, res_dimension, payload.get("computed_at"), fkey, fval)
-    if cache_key in _FILTER_CACHE:
-        return _FILTER_CACHE[cache_key]
+    # question-subset view: computed once per stored payload, then served from memory or the
+    # database (matched to the payload's version, so a re-run doesn't serve stale views)
+    version = filtered_views.view_version(payload)
+    view = await filtered_views.lookup(db, id_, res_id, fkey, fval, version)
+    if view is not None:
+        return view
     if not items:
         raise HTTPException(400, "this study's dataset carries no question metadata to filter by")
+    await db.rollback()  # end the read transaction: don't hold a connection while models refit
     try:
         # refits every model on the subset (R included): in a worker thread, so the app stays responsive
-        payload = await asyncio.to_thread(runner.filtered_payload, payload, items, fkey, fval)
+        return await filtered_views.compute(id_, res_id, payload, items, fkey, fval, version)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(500, f"filtered recompute failed: {exc}")
-    if len(_FILTER_CACHE) > 64:
-        _FILTER_CACHE.clear()
-    _FILTER_CACHE[cache_key] = payload
-    return payload
