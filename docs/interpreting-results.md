@@ -50,7 +50,11 @@ pipeline: 900 answers -> 900 judged (1 unparseable) -> 899 usable verdicts
 ```
 
 The counts, the winning configuration, and how many verdicts survived parsing. A few
-unparseable judge replies are normal; they are dropped, not guessed.
+unparseable judge replies are normal; they are dropped, not guessed. Verdicts missing for
+another reason are counted apart: `judge call(s) failed` when the call itself failed (a
+timeout, a missing API key, an error raised by a custom judge), with the first error shown
+in a warning below, and `with no output to judge` for answers that came back empty
+(`None`). `result.ratings.failures()` lists them all.
 
 ### 1 · Descriptive — means & best configuration
 

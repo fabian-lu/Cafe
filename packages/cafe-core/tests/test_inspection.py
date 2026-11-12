@@ -1,5 +1,7 @@
 """Inspecting a finished evaluation: failures() + the unified records() view."""
 
+import warnings
+
 import cafe
 from cafe.evaluation import Evaluation
 from cafe.execution.results import Observation, Results
@@ -71,3 +73,50 @@ def test_records_without_judge_falls_back_to_answers():
     rows = ev.records()
     assert {r["output"] for r in rows} == {"Paris", "banana"}
     assert all("verdict" not in r for r in rows)
+
+
+def test_report_tells_failed_judge_calls_from_unparseable_verdicts():
+    cfg = {"model": "m"}
+    obs = [Observation(config=cfg, input_id=f"q{i}", rep=0, output="ans") for i in range(4)]
+    obs.append(Observation(config=cfg, input_id="q4", rep=0, output=None))
+    errors = [
+        None,
+        "no GRADE marker in judge output: 'it depends'",
+        "judge call failed: model 'm' needs OLLAMA_API_KEY (set it in .env).",
+        "judge raised ConnectionError: 503 from grading service",
+        "unjudgeable: the system produced no output (None)",
+    ]
+    ratings = Ratings(rubric=cafe.ANSWER_QUALITY_1_5, judge_model="j", factors=["model"], items=[
+        Rating(obs_key=o.key(), config=cfg, input_id=o.input_id, rep=0, judge_rep=0,
+               value=None if e else 4, value_numeric=None if e else 4, error=e)
+        for o, e in zip(obs, errors)])
+    ev = Evaluation(study_name="t", answers=Results(study_name="t", factors=["model"],
+                                                    observations=obs), ratings=ratings)
+
+    assert ev._pipeline_line() == (
+        "pipeline: 5 answers  →  5 judged (1 unparseable, 2 judge call(s) failed, "
+        "1 with no output to judge)  →  1 usable verdict(s)")
+    warns = ev._health_warnings()
+    assert len(warns) == 3
+    assert warns[0].startswith("1 answer(s) produced no output")
+    assert warns[1].startswith("2 judge call(s) failed, so those answers have no verdict")
+    assert warns[1].endswith("The first error: judge call failed: model 'm' needs "
+                             "OLLAMA_API_KEY (set it in .env).")
+    assert warns[2] == "1 verdict(s) were unparseable — inspect result.ratings.failures()"
+
+
+def test_judge_calls_that_fail_are_not_called_unparseable(monkeypatch):
+    # No API key: every judge call fails before any reply exists to parse.
+    async def failing(model, messages, **kwargs):
+        raise cafe.LLMError("model 'ollama_cloud/gpt-oss:20b' needs OLLAMA_API_KEY (set it in .env).")
+
+    monkeypatch.setattr("cafe.judging.judge.complete", failing)
+    study = cafe.Study(name="t", system=lambda c, i: "x", factors=[cafe.Factor("m", ["a", "b"])],
+                       dataset=["q0", "q1", "q2", "q3"], rubric=cafe.rubrics.CORRECTNESS_0_3,
+                       judge=cafe.LLMJudge("ollama_cloud/gpt-oss:20b", structured=False))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # the design advisories
+        ev = study.evaluate(progress=False)
+    assert "8 judged (8 judge call(s) failed)" in ev._pipeline_line()  # was: (8 unparseable)
+    [warning] = ev._health_warnings()
+    assert warning.startswith("8 judge call(s) failed") and "needs OLLAMA_API_KEY" in warning

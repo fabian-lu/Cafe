@@ -28,6 +28,26 @@ if TYPE_CHECKING:
 
 ProgressFn = Callable[[Observation, int, int], None]
 
+#: Why a verdict is missing, as ``(kind, label)`` in the order the pipeline line lists them.
+_VERDICT_FAILURES = (
+    ("unparseable", "unparseable"),
+    ("judge_call", "judge call(s) failed"),
+    ("no_output", "with no output to judge"),
+)
+
+
+def _verdict_failure(error: str | None) -> str:
+    """Why a verdict failed, from its error: ``"no_output"`` (the answer was None, so there
+    was nothing to judge), ``"judge_call"`` (the judge call itself failed: an LLMJudge's
+    "judge call failed: …", or "judge raised …" for a judge whose ``score`` raised), else
+    ``"unparseable"`` (the judge replied, but with no verdict on the rubric's scale)."""
+    text = error or ""
+    if text.startswith("unjudgeable"):
+        return "no_output"
+    if text.startswith(("judge call failed", "judge raised")):
+        return "judge_call"
+    return "unparseable"
+
 
 @dataclass
 class Evaluation:
@@ -313,22 +333,27 @@ class Evaluation:
         return _plot(self, kind, **kwargs)
 
     def _pipeline_line(self) -> str:
-        """A funnel: answers attempted → judged → usable, so dropped cells are visible."""
+        """A funnel: answers attempted → judged → usable, so dropped cells are visible. The
+        verdicts that aren't usable are counted by why (see :func:`_verdict_failure`)."""
         n_ans, n_failed = len(self.answers), len(self.answers.errors)
         seg = f"pipeline: {n_ans} answers"
         if n_failed:
             seg += f" ({n_failed} failed to generate)"
         if self.ratings is not None:
-            n_bad = len(self.ratings.errors)
+            errors = self.ratings.errors
             seg += f"  →  {len(self.ratings)} judged"
-            if n_bad:
-                seg += f" ({n_bad} unparseable)"
-            seg += f"  →  {len(self.ratings) - n_bad} usable verdict(s)"
+            if errors:
+                kinds = [_verdict_failure(r.error) for r in errors]
+                counts = [f"{kinds.count(kind)} {label}" for kind, label in _VERDICT_FAILURES
+                          if kind in kinds]
+                seg += f" ({', '.join(counts)})"
+            seg += f"  →  {len(self.ratings) - len(errors)} usable verdict(s)"
         return seg
 
     def _health_warnings(self) -> list[str]:
-        """Problems worth flagging: failed generations (which unbalance the design) and
-        unparseable verdicts — distinguished, since they happen at different stages."""
+        """Problems worth flagging: failed generations (which unbalance the design), answers
+        with no output, failed judge calls and unparseable verdicts — distinguished, since
+        they happen at different stages and need different fixes."""
         from collections import Counter
 
         from cafe.execution.results import config_label
@@ -344,12 +369,20 @@ class Evaluation:
             )
         if self.ratings is not None and self.ratings.errors:
             errs = self.ratings.errors
-            unjudgeable = [r for r in errs if (r.error or "").startswith("unjudgeable")]
-            unparseable = [r for r in errs if r not in unjudgeable]
+            unjudgeable = [r for r in errs if _verdict_failure(r.error) == "no_output"]
+            call_failed = [r for r in errs if _verdict_failure(r.error) == "judge_call"]
+            unparseable = [r for r in errs if _verdict_failure(r.error) == "unparseable"]
             if unjudgeable:
                 out.append(
                     f"{len(unjudgeable)} answer(s) produced no output (None) and could not be "
                     "judged — they are recorded as errors; inspect result.ratings.failures()"
+                )
+            if call_failed:
+                first = (call_failed[0].error or "").strip().split("\n", 1)[0]
+                first = first if len(first) <= 150 else first[:149] + "…"
+                out.append(
+                    f"{len(call_failed)} judge call(s) failed, so those answers have no verdict — "
+                    f"inspect result.ratings.failures(). The first error: {first}"
                 )
             if unparseable:
                 out.append(
