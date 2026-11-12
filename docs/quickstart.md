@@ -111,11 +111,14 @@ line by line.
 
 ## Headless / CI
 
-The same study runs from a Python file via the CLI:
+The answer-generation phase (`study.run()`) also runs from a Python file via the CLI:
 
 ```bash
+cafe run path/to/study.py --smoke    # one input per configuration + the full run's time/cost estimate
 cafe run path/to/study.py --checkpoint .cafe/run.jsonl --out results.jsonl
 ```
 
 where `study.py` defines a module-level `study` (a `cafe.Study`) or a
-`build_study()` function returning one.
+`build_study()` function returning one. `cafe run` records the answers with their
+latency and cost; it doesn't judge them, even when the study has a rubric and a judge.
+For ratings and attribution, call `study.evaluate()` from Python.

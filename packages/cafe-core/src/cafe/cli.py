@@ -7,8 +7,11 @@ Commands:
   cafe doctor                 check the environment (Python, R stats engine, LLM access)
   cafe version                print the version
 
-Flags for `run`: --smoke (preflight), --reps, --concurrency,
---checkpoint PATH (resumable), --out PATH (write results JSONL).
+Flags for `run`: --smoke (preflight + full-run time/cost estimate), --reps,
+--concurrency, --checkpoint PATH (resumable), --out PATH (write results JSONL).
+
+`cafe run` generates and records the answers, like study.run(); it does not judge
+them. For ratings and attribution, call study.evaluate() in Python.
 
 The CLI is the headless/CI path; it shares the exact engine the library uses.
 """
@@ -23,7 +26,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-from cafe import design, run_study
+from cafe import design, estimate, run_study
 from cafe.execution.results import Observation, Results, config_label
 from cafe.study import Study
 
@@ -129,6 +132,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
     print(f"design  : {study.design} -> {design.size(study)} configs")
     print(f"inputs  : {len(study.dataset)}   mode: {mode}")
     print(f"cells   : {n_cells}")
+    if study.judge is not None and study.rubric is not None:
+        print("judging : skipped — cafe run only generates answers; use study.evaluate() to judge")
 
     results = asyncio.run(
         run_study(
@@ -147,6 +152,14 @@ def _cmd_run(args: argparse.Namespace) -> int:
         f"  done: {s['n_answers']} obs over {s['n_configs']} configs, "
         f"{s['n_errors']} errors, {s['total_compute_s']}s compute"
     )
+    if args.smoke:  # extrapolate the smoke run's per-answer time and cost to the full run
+        reps = args.reps or study.replications
+        e = estimate(results, design.size(study) * max(1, len(study.dataset)) * reps)
+        compute = "n/a" if e["est_total_compute_s"] is None else f"~{e['est_total_compute_s']}s"
+        cost = ("n/a (the system reports no cost_usd)" if e["est_total_cost_usd"] is None
+                else f"~${e['est_total_cost_usd']}")
+        print(f"  full run ({reps} reps): {e['total_cells']} cells; est. compute {compute}, "
+              f"est. cost {cost}")
     if args.out:
         results.to_jsonl(args.out)
         print(f"  wrote {args.out}")
@@ -289,9 +302,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--version", action="store_true", help="print version and exit")
     sub = parser.add_subparsers(dest="command")
 
-    p_run = sub.add_parser("run", help="run a study (or `example`)")
+    p_run = sub.add_parser("run", help="run a study and record its answers (no judging)")
     p_run.add_argument("target", help="'example' or a path to a .py study file")
-    p_run.add_argument("--smoke", action="store_true", help="preflight: 1 input, 1 rep, no judging")
+    p_run.add_argument("--smoke", action="store_true",
+                       help="preflight: 1 input, 1 rep, then estimate the full run's time/cost")
     p_run.add_argument("--reps", type=int, default=None, help="replications per (config, input)")
     p_run.add_argument("--concurrency", type=int, default=8, help="max cells in flight")
     p_run.add_argument("--checkpoint", default=None, help="resumable checkpoint JSONL path")
