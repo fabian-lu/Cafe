@@ -355,7 +355,15 @@ async def estimate_study(study_id: int) -> dict[str, Any]:
 
 
 async def run_study_task(study_id: int) -> None:
-    """Background task: execute the study and cache its results."""
+    """Background task: execute the study and cache its results.
+
+    If the study was deleted while it ran, nothing is stored and the run ends as failed.
+
+    Parameters
+    ----------
+    study_id : int
+        The study to run; the caller has already marked it ``"running"``.
+    """
     PROGRESS[study_id] = {"phase": "starting", "done": 0, "total": 0, "status": "running"}
     try:
         import time as _time
@@ -414,9 +422,15 @@ async def run_study_task(study_id: int) -> None:
         dim_payloads = {primary_dim: payload, **dim_payloads}
         async with SessionLocal() as db:
             existing = await db.get(models.Study, study_id)
-            if existing:
-                existing.status = "done"
-                existing.progress = 100
+            if existing is None:
+                # Deleted while it ran (the API refuses that, but a delete racing the run's start
+                # can get through): store nothing, or a study that later gets the same id (SQLite
+                # reuses them) would inherit these results.
+                PROGRESS[study_id] = {"phase": "error", "status": "failed",
+                                      "error": "the study was deleted while it ran"}
+                return
+            existing.status = "done"
+            existing.progress = 100
             # index-keyed (legacy) human ratings point into the results about to be replaced
             from app.routers.raters import pin_legacy_rating_keys
             try:  # best effort: never lose a finished run over legacy rating keys
