@@ -42,7 +42,8 @@ All pages are implemented:
   (each judges the same answers as its own dimension); estimate time/cost, run it with live progress,
   archive/restore/delete. **Import study** loads a `cafe.save_evaluation` bundle (or a
   multi-dimension bundle) without re-running anything.
-- **Questions / Rubrics** — create, view and delete question datasets and rubrics.
+- **Questions / Rubrics** — create, view and delete question datasets and rubrics; one that a
+  study uses (a rubric also as an extra dimension) can't be deleted while that study exists.
 - **Techniques** — the discovered pipelines with their stages, techniques and parameters.
 - **Results** — attribution, marginal means, interactions, the configuration ranking, effect sizes,
   the ordinal or binary model (by rubric scale), variance components, latency, verdict distribution, run timing and
