@@ -298,6 +298,26 @@ def _scores_of(source: Any, judge_label: str = "judge") -> dict[Any, Any]:
     raise TypeError(f"a rater must be an Evaluation or a {{answer_id: score}} dict; got {type(source).__name__}")
 
 
+def _refuse_taken_names(humans: list[str], raters: dict[str, Any] | None,
+                        judge: str | None) -> None:
+    """Raise if a human rater shares a name with another rater, whose scores the human's
+    would otherwise replace: an entry of ``raters`` or, without ``raters``, the ``judge``
+    (the evaluation's judge_label; None when there is no evaluation)."""
+    taken = [name for name in humans if name in (raters if raters else [judge])]
+    if not taken:
+        return
+    if raters:
+        raise ValueError(
+            f"human rater name(s) {', '.join(map(repr, taken))} are also entries of raters=; "
+            "a human's scores would replace that entry's — rename the human rater or the entry"
+        )
+    raise ValueError(
+        f"a human rater is named {judge!r}, which is the judge's name (judge_label={judge!r}); "
+        "their scores would replace the judge's — pass judge_label= another name for the "
+        "judge (e.g. judge_label='llm_judge'), or rename the human rater"
+    )
+
+
 def reliability(
     evaluation: "Evaluation" | None = None,
     human: Any = None,
@@ -318,6 +338,18 @@ def reliability(
     ``raters`` maps a display name to a rater source — an ``Evaluation`` (its judge's
     scores) or a ``{answer_id: score}`` dict. ``human`` is a :class:`HumanRatings` or rows
     for :func:`human_ratings`. The disagreement ``metric`` defaults to the rubric's scale.
+
+    Every rater needs a name of their own. The judge of ``evaluation`` is the rater
+    ``judge_label`` (``"judge"`` by default); with ``raters``, each entry is the rater of
+    its key. A human rater with one of these names is an error, never a silent stand-in
+    for that rater.
+
+    Raises
+    ------
+    ValueError
+        If a human rater has the judge's name (pass ``judge_label=`` another name, e.g.
+        ``judge_label="llm_judge"``) or the name of an entry of ``raters``, or if there
+        are fewer than two raters.
     """
     if metric is None:
         metric = _metric_for(evaluation or next((s for s in (raters or {}).values()
@@ -333,6 +365,8 @@ def reliability(
                 table[judge_label] = js
         if human is not None:
             hr = human if isinstance(human, HumanRatings) else human_ratings(human)
+            judge = judge_label if evaluation is not None else None
+            _refuse_taken_names(hr.raters(), raters, judge)
             table.update(hr.by_rater())
 
     if len(table) < 2:
