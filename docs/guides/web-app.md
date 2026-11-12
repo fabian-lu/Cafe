@@ -24,6 +24,11 @@ Then open **http://localhost:5173**. The first build takes a few minutes (it ins
 and the front-end deps); subsequent starts are fast. Keys come from the repo-root
 `.env` — the same file the library and CLI use.
 
+A fresh database starts with a demo study, the HotpotQA RAG evaluation with its full
+results, so there is something to explore before you run anything. It is added only to
+a database without any study, rubric or question set, so deleting the demo study doesn't
+bring it back when the backend restarts.
+
 ## Your system under test
 
 The app evaluates the pipelines in the repo-root [`techniques/`](https://github.com/fabian-lu/Cafe/tree/main/techniques)
