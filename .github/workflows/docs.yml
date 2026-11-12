@@ -1,8 +1,9 @@
 name: Docs
 
 # Build the MkDocs site and publish it to GitHub Pages.
-# The tutorial notebooks live in examples/ (the single source of truth); this workflow copies them
-# into docs/notebooks/ before building, so nothing is duplicated in git.
+# The notebooks live in examples/ and case_studies/ (the single source of truth); this workflow
+# copies them into docs/notebooks/ before building (scripts/sync_notebooks.py), so nothing is
+# duplicated in git.
 
 on:
   push:
@@ -10,6 +11,8 @@ on:
     paths:
       - "docs/**"
       - "examples/**"
+      - "case_studies/**"
+      - "scripts/sync_notebooks.py"
       - "mkdocs.yml"
       - "packages/cafe-core/**"
       - ".github/workflows/docs.yml"
@@ -47,7 +50,7 @@ jobs:
         # and the docs toolchain (mkdocs-material, mkdocstrings, mkdocs-jupyter).
         run: pip install -e "packages/cafe-core[docs,stats,llm]"
 
-      - name: Sync tutorial notebooks into docs/
+      - name: Sync the tutorial and case-study notebooks into docs/
         run: python scripts/sync_notebooks.py
 
       - name: Build the site
