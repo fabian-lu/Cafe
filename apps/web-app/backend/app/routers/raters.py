@@ -28,6 +28,9 @@ router = APIRouter(prefix="/api", tags=["raters"])
 
 _METRIC = {"ordinal": "ordinal", "numeric": "interval", "binary": "nominal"}
 
+#: The LLM judge's name among the raters of the agreement statistics; no human may take it.
+JUDGE_RATER = "judge"
+
 
 async def _primary_payload(db: AsyncSession, study_id: int) -> dict | None:
     # Multi-dimension studies have one StudyResult per rubric; human rating + IRR operate on
@@ -140,7 +143,31 @@ async def _require_study(db: AsyncSession, study_id: int) -> None:
 
 @router.post("/studies/{id_}/human-ratings", status_code=201)
 async def submit_ratings(id_: int, body: HumanRatingsIn, db: AsyncSession = Depends(get_session)):
+    """Store a human rater's scores, replacing that rater's earlier scores for the same answers.
+
+    Parameters
+    ----------
+    id_ : int
+        The study.
+    body : HumanRatingsIn
+        The rater's name and ``{answer_key: score}``.
+
+    Returns
+    -------
+    dict
+        ``{"saved": <number of scores>}``.
+
+    Raises
+    ------
+    HTTPException
+        404 for an unknown study (or one without results); 400 for an answer key that isn't
+        one of the study's answers; 422 for the rater name ``"judge"``, which the agreement
+        statistics use for the LLM judge.
+    """
     await _require_study(db, id_)
+    if body.rater == JUDGE_RATER:
+        raise HTTPException(422, f"the rater name {JUDGE_RATER!r} is reserved for the LLM judge "
+                                 "— enter another name")
     keys = {str(k) for k in body.scores}
     # only answers of this study can be rated (a stray key would just pile up as "stale")
     unknown = keys - set(_answer_keys(await _results(db, id_)))
@@ -186,12 +213,54 @@ def _alpha(raters: dict, metric: str):
             "interpret": r.interpret(r.alpha) if r.n_units >= 2 else "undefined"}
 
 
+def _legacy_judge_name(names: set[str]) -> str:
+    """The name a human rater called ``"judge"`` is listed under in the agreement statistics.
+
+    ``"judge"`` is the LLM judge's (:data:`JUDGE_RATER`), but ratings saved before the name was
+    reserved can carry it.
+
+    Parameters
+    ----------
+    names : set of str
+        The names of the study's human raters.
+
+    Returns
+    -------
+    str
+        ``"judge (human)"``, numbered (``"judge (human 2)"``, ...) if a rater has that name too.
+    """
+    name, n = f"{JUDGE_RATER} (human)", 1
+    while name in names:
+        n += 1
+        name = f"{JUDGE_RATER} (human {n})"
+    return name
+
+
 @router.get("/studies/{id_}/reliability")
 async def reliability(id_: int, db: AsyncSession = Depends(get_session)):
     """Human↔human (the ceiling) and judge↔human Krippendorff's α, over the current answers.
 
     Scores whose answer text is no longer in the results (the study was re-run since) are left
-    out and counted in ``stale_ratings``."""
+    out and counted in ``stale_ratings``. The LLM judge is the rater ``"judge"``; a human
+    rater saved under that name before it was reserved is listed as ``"judge (human)"``, so
+    their scores never take the judge's place.
+
+    Parameters
+    ----------
+    id_ : int
+        The study.
+
+    Returns
+    -------
+    dict
+        ``metric``, ``n_human_raters``, ``stale_ratings``, ``judge_vs_human`` and, with two
+        or more human raters, ``human_ceiling`` (each ``{alpha, n_units, raters, interpret}``).
+
+    Raises
+    ------
+    HTTPException
+        404 for an unknown study or one without results; 400 if it has no human ratings.
+    """
     payload = await _results(db, id_)
     metric = await _study_metric(db, id_)
 
@@ -200,10 +269,11 @@ async def reliability(id_: int, db: AsyncSession = Depends(get_session)):
     if not rows:
         raise HTTPException(400, "no human ratings yet")
     keys = _answer_keys(payload)
+    as_human = _legacy_judge_name({r.rater for r in rows})
     humans: dict[str, dict] = {}
     stale = 0
     for r in rows:
-        scores = humans.setdefault(r.rater, {})
+        scores = humans.setdefault(as_human if r.rater == JUDGE_RATER else r.rater, {})
         key = _current_key(r.answer_key, keys)
         if key is None:
             stale += 1
@@ -216,5 +286,5 @@ async def reliability(id_: int, db: AsyncSession = Depends(get_session)):
     out = {"metric": metric, "n_human_raters": len(humans), "stale_ratings": stale}
     if len(humans) >= 2:
         out["human_ceiling"] = _alpha(humans, metric)
-    out["judge_vs_human"] = _alpha({"judge": judge, **humans}, metric)
+    out["judge_vs_human"] = _alpha({JUDGE_RATER: judge, **humans}, metric)
     return out

@@ -75,6 +75,8 @@ export default function Raters() {
   const start = () => {
     setErr(null);
     if (!rater) { setErr("enter a rater name"); return; }
+    // the agreement statistics call the LLM judge "judge" (the backend refuses it too)
+    if (rater === "judge") { setErr("the rater name 'judge' is reserved for the LLM judge — enter another name"); return; }
     const v = view.current;
     api.ratingSheet(sel).then((s) => { if (v === view.current) { setSheet(s); setScores({}); } })
       .catch((e) => { if (v === view.current) setErr(e.message); });
