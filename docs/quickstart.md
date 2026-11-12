@@ -81,6 +81,8 @@ for obs in results:
 `study.run()` returns a [`Results`][cafe.Results] object you keep in a variable,
 like any normal value. The optional `checkpoint_path` makes a long run
 **crash-safe**: if it dies halfway, re-running **resumes** instead of restarting.
+In a notebook, interrupting the kernel stops the run right away; re-running the
+cell resumes it.
 
 ## From answers to attribution
 

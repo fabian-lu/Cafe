@@ -1,5 +1,11 @@
+import _thread
 import asyncio
+import contextlib
+import json
+import signal
+import time
 
+import pytest
 
 from cafe import Factor, Study, preflight, run_study
 from cafe.execution import Checkpoint
@@ -130,6 +136,70 @@ async def test_sync_run_inside_event_loop():
     results = study.run()
     assert len(results) == 8
     assert results.summary()["n_errors"] == 0
+
+
+@contextlib.contextmanager
+def _interrupts_raise_keyboard_interrupt():
+    # While a cell runs, ipykernel uses Python's default SIGINT handler, so "interrupt kernel"
+    # raises KeyboardInterrupt in the main thread. (pytest-asyncio's runner installs its own.)
+    previous = signal.signal(signal.SIGINT, signal.default_int_handler)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGINT, previous)
+
+
+async def test_interrupting_a_sync_run_inside_an_event_loop_stops_it(tmp_path):
+    # In a notebook, study.run() runs on a worker thread and "interrupt kernel" interrupts the
+    # thread waiting for it. The run must stop there: no further calls or checkpoint rows once
+    # the interrupt surfaces, so a re-run resumes instead of racing a run still going.
+    cp_path = str(tmp_path / "run.jsonl")
+    calls = []
+
+    async def system(config, item):
+        calls.append((config["model"], item))
+        if len(calls) == 3:
+            _thread.interrupt_main()  # "interrupt kernel", mid-run
+        await asyncio.sleep(0.05)
+        return "x"
+
+    study = Study(name="interrupt", system=system, factors=[Factor("model", ["a", "b"])],
+                  dataset=[f"q{i}" for i in range(20)])  # 40 cells, ~2 s one at a time
+    with _interrupts_raise_keyboard_interrupt(), pytest.raises(KeyboardInterrupt):
+        study.run(concurrency=1, checkpoint_path=cp_path)
+    stopped_at, written = len(calls), len(Checkpoint(cp_path).load())
+    assert stopped_at < 40
+    assert 2 <= written <= stopped_at  # the cells finished before the interrupt are kept
+    time.sleep(0.2)
+    assert len(calls) == stopped_at and len(Checkpoint(cp_path).load()) == written
+
+    # Re-running resumes: only the missing cells run, and every cell is written once.
+    results = study.run(checkpoint_path=cp_path)
+    assert len(results) == 40 and len(calls) == stopped_at + 40 - written
+    with open(cp_path, encoding="utf-8") as fh:
+        keys = [Observation.from_dict(json.loads(line)).key() for line in fh]
+    assert len(keys) == len(set(keys)) == 40
+
+
+async def test_run_blocking_cancels_the_coroutine_when_the_caller_is_interrupted():
+    from cafe._async import run_blocking
+
+    seen = []
+
+    async def work():
+        _thread.interrupt_main()
+        try:
+            await asyncio.sleep(2)
+        except asyncio.CancelledError:
+            seen.append("cancelled")
+            raise
+        seen.append("finished")
+
+    t0 = time.monotonic()
+    with _interrupts_raise_keyboard_interrupt(), pytest.raises(KeyboardInterrupt):
+        run_blocking(work)
+    assert seen == ["cancelled"]  # cancelled, and wound down before the interrupt surfaced
+    assert time.monotonic() - t0 < 1.5
 
 
 async def test_checkpoint_resume_retries_errored_cells(tmp_path):
