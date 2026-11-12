@@ -9,22 +9,27 @@ judge.
 
 1. **Export an answer sheet** — a CSV of answers for your experts to score, blind to
    the judge's verdicts.
-2. **Experts fill in scores** — one column per rater.
+2. **Experts fill in scores** — the sheet has one row per answer and rater, and each
+   rater fills in the `score` column on their own rows.
 3. **Read it back** and measure agreement.
 
 ```python
 result = study.evaluate()          # you already have a judged study
 
-# 1 · export a blank rating sheet (one column per rater)
+# 1 · export a blank rating sheet (one row per answer × rater)
 cafe.answer_sheet(result, "sheet.csv", raters=("expert_1", "expert_2"))
 
-# 2 · experts fill in the score columns in sheet.csv …
+# 2 · each expert fills in the score column on their rows of sheet.csv …
 
 # 3 · read the filled sheet and measure agreement
 human = cafe.human_ratings("sheet.csv")
 rel = cafe.reliability(result, human=human)
 print(rel.show())
 ```
+
+The sheet's columns are `answer_id`, `rater`, `question`, `reference`, `output`, `score`
+and `config`. `human_ratings` reads only each row's `answer_id`, `rater` and `score`, so
+keep that layout: scores typed into extra per-rater columns are not read.
 
 A partially filled sheet is fine — rows with a blank score are skipped, so raters can
 score a stratified sample rather than everything.

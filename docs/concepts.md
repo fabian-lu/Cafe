@@ -28,7 +28,10 @@ A **factor** is a named axis you vary. There are two kinds:
 - **Technique factors** are behaviors — a reranker, a router, a verifier. You
   implement these once in your own system code; then they're a level you select.
 
-Each factor has a **type** that shapes design generation and (later) statistics:
+Each factor has a **type** that says what kind of levels it has. For now the type is
+advisory: designs use the levels as listed whatever the type, the statistics treat every
+factor as categorical (each level is a separate group; no trend is fitted), and
+`study.check()` warns about a factor declared `continuous`.
 
 | Type | Example | Meaning |
 |------|---------|---------|

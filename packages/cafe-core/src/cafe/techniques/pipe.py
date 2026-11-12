@@ -14,7 +14,7 @@ the pipeline itself to the study as its ``system``:
         docs = await ctx.run("retrieve", query=item["text"])
         ...
 
-    study = cafe.Study(system=pipe, factors=[pipe.factor("retrieve"), ...], ...)
+    study = cafe.Study(name="rag", system=pipe, factors=[pipe.factor("retrieve"), ...], ...)
 
 Everything is owned by the instance: re-running a notebook cell rebuilds it cleanly
 (no ``registry.clear()``), and two pipelines never share state. A deployed catalog can
