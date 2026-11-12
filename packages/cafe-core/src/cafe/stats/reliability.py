@@ -315,13 +315,23 @@ def reliability(
         cafe.reliability(raters={"120b": result, "20b": result.rejudge(judge_20b)})  # judge ↔ judge
         cafe.reliability(human=expert_scores)               # humans ↔ each other
 
+    Human scores are held to the rubric's scale, like the judge's grades: when the rubric
+    is known (that of ``evaluation``, else of the first ``Evaluation`` in ``raters``), a
+    score that is not on it, such as a typo ``33`` on a 0–3 scale or an in-between
+    ``2.5``, is left out of α, with a warning naming it (:func:`ratings_from_human` makes
+    it an error rating). Without a rubric (``human`` alone) the scores count as given.
+
     ``raters`` maps a display name to a rater source — an ``Evaluation`` (its judge's
     scores) or a ``{answer_id: score}`` dict. ``human`` is a :class:`HumanRatings` or rows
     for :func:`human_ratings`. The disagreement ``metric`` defaults to the rubric's scale.
     """
+    # The evaluation whose rubric the scores are on (and that picks the metric).
+    source = evaluation or next((s for s in (raters or {}).values()
+                                 if getattr(s, "answers", None) is not None), None)
     if metric is None:
-        metric = _metric_for(evaluation or next((s for s in (raters or {}).values()
-                                                 if getattr(s, "answers", None) is not None), None))
+        metric = _metric_for(source)
+    if human is not None and table is None:
+        human = _human_on_scale(human, getattr(getattr(source, "ratings", None), "rubric", None))
     if table is None:
         table = {}
         if raters:
@@ -374,11 +384,77 @@ def reliability(
 
 # ── Use human ratings as the ratings for the full stats ─────────────────────────────
 
+def _warn_off_scale(off: list[dict[str, Any]], rubric: Any, outcome: str, stacklevel: int) -> None:
+    """Warn that the human scores in ``off`` (``{answer_id, rater, score}`` records) are
+    not on ``rubric``'s scale, naming the first few; ``outcome`` says what became of them.
+    ``stacklevel`` is the one the calling function would pass to :func:`warnings.warn`."""
+    import warnings
+
+    shown = "; ".join(f"{r['score']!r} by rater {r['rater']!r} on answer {r['answer_id']!r}"
+                      for r in off[:5])
+    more = f"; and {len(off) - 5} more" if len(off) > 5 else ""
+    warnings.warn(
+        f"{len(off)} human score(s) are not on the rubric's scale ({rubric.grade_hint()}) "
+        f"and {outcome}: {shown}{more}.",
+        stacklevel=stacklevel + 1,
+    )
+
+
+def _human_on_scale(human: Any, rubric: Any) -> HumanRatings:
+    """``human`` as :class:`HumanRatings` with each score mapped onto ``rubric``'s scale,
+    leaving out (with a warning) the scores that are not on it; as given if ``rubric`` is
+    None."""
+    hr = human if isinstance(human, HumanRatings) else human_ratings(human)
+    if rubric is None:
+        return hr
+    kept, off = [], []
+    for rec in hr.records:
+        numeric = rubric.numeric(rec["score"])
+        if numeric is None:
+            off.append(rec)
+        else:
+            kept.append({**rec, "score": numeric})
+    if off:  # stacklevel: _human_on_scale ← reliability ← the caller
+        _warn_off_scale(off, rubric, "are left out of α", stacklevel=3)
+    return HumanRatings(records=kept)
+
+
 def ratings_from_human(evaluation: "Evaluation", human: Any, *, rubric: Any = None):
     """Turn human scores into a :class:`~cafe.judging.ratings.Ratings`, so the whole stats
     stack (``attribute`` / ``fit_effects`` / ``fit_clmm`` / ``report``) runs on **humans**
     instead of the judge. Each rater's score becomes a verdict; several raters on one
-    answer act like judge replications (averaged before the factor models)."""
+    answer act like judge replications (averaged before the factor models).
+
+    A score must be a point on the rubric's scale, as a judge's grade must: one that is
+    not (a typo such as ``33`` on a 0–3 scale, or an in-between ``2.5``) becomes an error
+    rating rather than a verdict, so the statistics leave it out and ``.failures()``
+    lists it, and a warning names it.
+
+    Parameters
+    ----------
+    evaluation:
+        The judged evaluation whose answers the humans scored (matched by ``answer_id``;
+        scores for other answers are ignored).
+    human:
+        A :class:`HumanRatings`, or anything :func:`human_ratings` reads.
+    rubric:
+        The scale the humans scored on; defaults to the evaluation's judge rubric.
+
+    Returns
+    -------
+    Ratings
+        One rating per human score, with ``judge_model="human"``.
+
+    Raises
+    ------
+    ValueError
+        If no rubric is given and the evaluation has no judge ratings to take it from.
+
+    Warns
+    -----
+    UserWarning
+        If some scores are not on the rubric's scale (they become error ratings).
+    """
     from cafe.judging.ratings import Rating, Ratings
 
     hr = human if isinstance(human, HumanRatings) else human_ratings(human)
@@ -392,16 +468,26 @@ def ratings_from_human(evaluation: "Evaluation", human: Any, *, rubric: Any = No
     for rec in hr.records:
         grouped[rec["answer_id"]].append((rec["rater"], rec["score"]))
 
-    items = []
+    items, off = [], []
     for aid, rs in grouped.items():
         obs = by_key.get(aid)
         if obs is None:
             continue
         for jr, (rater, score) in enumerate(sorted(rs)):
+            numeric = rubric.numeric(score)  # None if off the scale, as for a judge's grade
+            error = None
+            if numeric is None:
+                off.append({"answer_id": aid, "rater": rater, "score": score})
+                error = (f"human score {score!r} by rater {rater!r} not on scale "
+                         f"({rubric.grade_hint()})")
             items.append(Rating(
                 obs_key=aid, config=dict(obs.config), input_id=obs.input_id, rep=obs.rep,
-                judge_rep=jr, value=score, value_numeric=score, reasoning=f"human:{rater}",
+                judge_rep=jr, value=score, value_numeric=numeric, reasoning=f"human:{rater}",
+                error=error,
             ))
+    if off:  # stacklevel: ratings_from_human ← the caller
+        _warn_off_scale(off, rubric, "are error ratings, not verdicts (see .failures())",
+                        stacklevel=2)
     return Ratings(rubric=rubric, judge_model="human",
                    factors=list(evaluation.answers.factors), items=items)
 
@@ -409,7 +495,11 @@ def ratings_from_human(evaluation: "Evaluation", human: Any, *, rubric: Any = No
 def human_evaluation(evaluation: "Evaluation", human: Any, *, rubric: Any = None):
     """An :class:`~cafe.evaluation.Evaluation` backed by **human** ratings — so
     ``.report()`` / ``.plot()`` / ``.effects`` / ``.clmm`` all describe what the *humans*
-    found, letting you compare it against the judge-backed evaluation side by side."""
+    found, letting you compare it against the judge-backed evaluation side by side.
+
+    The ratings come from :func:`ratings_from_human`: a score that is not on the rubric's
+    scale is an error rating (listed by ``.ratings.failures()``), never a verdict, and a
+    warning names it."""
     from cafe.evaluation import Evaluation
     from cafe.stats.descriptive import attribute
 

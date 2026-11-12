@@ -29,6 +29,12 @@ print(rel.show())
 A partially filled sheet is fine — rows with a blank score are skipped, so raters can
 score a stratified sample rather than everything.
 
+Scores must be points on the rubric's scale, as the judge's grades must. A score that
+isn't (a typo such as `33` on a 0–3 sheet, or an in-between `2.5`) is never counted as a
+rating: `human_evaluation` keeps it as an error rating, listed by
+`human_result.ratings.failures()`, and `reliability` leaves it out of α. Either way a
+warning names the score, its rater and its answer.
+
 ## Reliability
 
 `cafe.reliability` computes **Krippendorff's α** with the disagreement metric matched

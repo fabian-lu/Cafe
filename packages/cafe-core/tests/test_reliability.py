@@ -206,3 +206,37 @@ def test_human_evaluation_runs_full_stats():
     assert hev.ratings.judge_model == "human"
     assert hev.attribution.n_usable == len(keys)   # 2 experts collapsed per answer
     assert hev.effects is not None
+
+
+def test_human_scores_off_the_rubric_scale_are_errors_not_verdicts():
+    """A human score must be a point on the rubric's scale, as a judge's grade must. A typo
+    (33 on a 1-5 sheet) or an in-between 2.5 used to become a verdict: the mean jumped and
+    the CLMM got a threshold "3|33". Now each is an error rating, and a warning names it."""
+    ev, keys = _evaluation_with_judge()   # ANSWER_QUALITY_1_5: 1..5
+    human = cafe.human_ratings([{"answer_id": k, "rater": "ann", "score": s}
+                                for k, s in zip(keys, [2, 33, 2.5, 3])])
+    with pytest.warns(UserWarning, match=r"2 human score\(s\) are not on the rubric") as rec:
+        rt = cafe.ratings_from_human(ev, human)
+    message = str(rec[0].message)
+    assert "33 by rater 'ann'" in message and "2.5 by rater 'ann'" in message
+    assert [r.value_numeric for r in rt.items] == [2, None, None, 3]
+    errors = [f["error"] for f in rt.failures()]
+    assert len(errors) == 2 and "33" in errors[0] and "2.5" in errors[1]
+
+    with pytest.warns(UserWarning, match="not on the rubric's scale"):
+        hev = cafe.human_evaluation(ev, human)
+    assert hev.attribution.n_usable == 2      # only the 2 and the 3
+    assert hev.overall_mean == 2.5
+
+
+def test_reliability_leaves_out_human_scores_off_the_rubric_scale():
+    """α counts the human scores human_evaluation counts: one off the rubric's scale (a typo
+    33 for 3) is left out, with a warning, rather than read as a grade far above the scale."""
+    ev, keys = _evaluation_with_judge()   # the judge: 5, 4, 5, 3 on 1..5
+    human = [{"answer_id": k, "rater": "ann", "score": s} for k, s in zip(keys, [5, 4, 5, 33])]
+    with pytest.warns(UserWarning, match="33 by rater 'ann'"):
+        rel = cafe.reliability(ev, human=human)
+    assert rel.alpha == 1.0 and rel.n_units == 3
+    # Without a rubric (humans only) there is no scale to check: the scores count as given.
+    bob = [{"answer_id": keys[3], "rater": "bob", "score": 33}]
+    assert cafe.reliability(human=human + bob).n_units == 1
