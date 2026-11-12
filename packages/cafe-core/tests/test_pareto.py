@@ -45,6 +45,17 @@ def test_pareto_objectives_drop_constant():
     assert set(res.objectives) == {"quality", "cost", "latency"}
 
 
+def test_pareto_rejects_an_unknown_objective():
+    """A misspelled or unsupported objective ("Cost", "energy") used to fail with a bare
+    KeyError from the dominance check; it is a ValueError naming the valid objectives."""
+    import pytest
+
+    for objectives in (["quality", "energy"], ["quality", "Cost"]):
+        with pytest.raises(ValueError, match=r"unknown objective.*'quality', 'cost', 'latency', 'tokens'"):
+            cafe.pareto(_evaluation(), objectives=objectives)
+    assert cafe.pareto(_evaluation(), objectives=["quality", "cost"]).objectives == ["quality", "cost"]
+
+
 def test_pareto_values_are_means():
     rows = {r["label"]: r for r in cafe.pareto(_evaluation()).rows}
     assert rows["sys=A"]["quality"] == 5.0

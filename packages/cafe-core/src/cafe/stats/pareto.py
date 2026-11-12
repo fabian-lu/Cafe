@@ -201,6 +201,15 @@ def pareto(
     By default the objectives are quality plus whichever of cost / latency / tokens
     actually vary across configurations.
 
+    Parameters
+    ----------
+    result:
+        The evaluated study (answers + ratings).
+    objectives:
+        The objectives to compare configurations on, from ``"quality"`` (maximized),
+        ``"cost"``, ``"latency"`` and ``"tokens"`` (minimized). ``None`` (default) picks
+        quality plus the resource objectives that every configuration reports and that vary.
+
     Returns
     -------
     ParetoResult
@@ -212,8 +221,9 @@ def pareto(
     Raises
     ------
     ValueError
-        If ``result`` has no answers/ratings, or an explicitly requested resource objective
-        is not reported for every configuration.
+        If ``result`` has no answers/ratings, an explicitly requested objective is not one of
+        ``quality`` / ``cost`` / ``latency`` / ``tokens``, or an explicitly requested resource
+        objective is not reported for every configuration.
     """
     import statistics
 
@@ -249,6 +259,12 @@ def pareto(
             if None not in values and len(values) > 1:
                 objectives.append(obj)
     else:
+        unknown = [obj for obj in objectives if obj not in _DIRECTION]
+        if unknown:
+            raise ValueError(
+                f"unknown objective(s) {unknown}; pareto() compares configurations on "
+                f"{', '.join(repr(o) for o in _DIRECTION)}"
+            )
         for obj in objectives:
             unreported = [r["label"] for r in rows if obj in r and r[obj] is None]
             if unreported:
