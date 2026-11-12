@@ -22,3 +22,17 @@ def list_pipelines(reload: bool = False):
 def reload_pipelines():
     """Re-scan the techniques folder for new/changed files."""
     return pipeline_loader.list_pipelines(reload=True)
+
+
+@router.get("/pipelines/errors")
+def pipeline_errors() -> dict[str, str]:
+    """The files of the techniques folder that could not be imported, so have no pipeline.
+
+    Returns
+    -------
+    dict
+        ``{file name: error}`` from the last scan (``/pipelines``, ``/pipelines/reload``), e.g.
+        ``{"rag.py": "ModuleNotFoundError: No module named 'faiss'"}``; ``{}`` when every file
+        imported. The backend log has each one's traceback.
+    """
+    return pipeline_loader.import_errors()

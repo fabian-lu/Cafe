@@ -7,6 +7,7 @@ export default function Techniques() {
   const [pipes, setPipes] = useState(null);
   const [sel, setSel] = useState("");
   const [error, setError] = useState(null);
+  const [failed, setFailed] = useState([]);   // [[file, error]]: files the scan could not import
   const [reloading, setReloading] = useState(false);
 
   const apply = (list) => {
@@ -16,7 +17,9 @@ export default function Techniques() {
   const load = (reload) => {
     setError(null);
     (reload ? api.reloadPipelines() : api.pipelines())
-      .then(apply).catch((e) => setError(e.message)).finally(() => setReloading(false));
+      .then(apply).catch((e) => setError(e.message)).finally(() => setReloading(false))
+      .then(() => api.pipelineErrors())        // the files that scan could not import
+      .then((errs) => setFailed(Object.entries(errs || {})), () => setFailed([]));
   };
   useEffect(() => { load(false); }, []);
   const reload = () => { setReloading(true); load(true); };
@@ -40,6 +43,17 @@ export default function Techniques() {
       </div>
 
       {error && <div className="banner">Could not load pipelines: {error}</div>}
+      {failed.length > 0 && (
+        <div className="banner">
+          {failed.length === 1 ? "A file" : `${failed.length} files`} could not be imported, so{" "}
+          {failed.length === 1 ? "it is" : "they are"} skipped — fix the error and hit Reload (the
+          backend log has the traceback):
+          {failed.map(([file, msg]) => (
+            <div key={file} className="mono" style={{ marginTop: 8, fontSize: 12, whiteSpace: "pre-wrap" }}>
+              {file}: {msg}</div>
+          ))}
+        </div>
+      )}
       {!pipes && !error && <div className="loading">loading pipelines…</div>}
       {pipes && pipes.length === 0 && (
         <div className="empty">no pipelines — add a <span className="mono">.py</span> with a

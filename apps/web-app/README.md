@@ -19,10 +19,12 @@ docker compose up
 
 Lives in code, in the repo-root [`techniques/`](../../techniques) folder (mounted into the backend).
 Every `.py` file there whose module-level `pipe` (a `cafe.Pipeline`) has a `@pipe.compose` is a
-selectable pipeline, named after the file; files without a compose are technique libraries. The app
+selectable pipeline, named after the file; files without a compose are technique libraries, which a
+compose file imports like any module next to it (`from retrieval import dense`). The app
 discovers them at startup and builds the study form's factors from the chosen pipeline's
 stages/techniques. Edit that folder (or point `CAFE_TECHNIQUES_DIR` / the docker volume at your own)
-and hit **Reload** on the Techniques page to pick up changes.
+and hit **Reload** on the Techniques page to pick up changes, libraries included. A file that fails
+to import is listed there with its error (the backend log has the traceback).
 
 ## Local dev (without Docker)
 

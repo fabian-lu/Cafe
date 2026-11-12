@@ -46,6 +46,7 @@ export const api = {
   health: () => get("/health"),
   pipelines: () => get("/pipelines"),
   reloadPipelines: () => post("/pipelines/reload", {}),
+  pipelineErrors: () => get("/pipelines/errors"),   // {file: error} — files that failed to import
   judgePreview: (b) => post("/judge/preview", b),
   judgePresets: () => get("/judge/presets"),
   dataset: (id) => get(`/datasets/${id}`),
