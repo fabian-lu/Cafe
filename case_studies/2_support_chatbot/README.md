@@ -74,5 +74,5 @@ measurements.
 - **Knowledge beats size:** GPT-OSS 20B with the handbook (4.20) beats GPT-OSS 120B without it (3.99).
 - **Tone is a different story:** the handbook improves tone for every model; GPT-OSS 120B is the
   friendliest, DeepSeek accurate but curt.
-- The judge was the expensive part: about $16 for the 1,600 Claude Opus judgements, against under
-  $0.10 for all 800 replies.
+- The judge was the expensive part: about $16 for the 1,600 Claude Opus judgements, against about
+  $0.17 for all 800 replies.
