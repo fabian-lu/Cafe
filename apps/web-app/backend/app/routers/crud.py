@@ -113,6 +113,26 @@ async def delete_rubric(id_: int, db: AsyncSession = Depends(get_session)):
 
 
 # ── Datasets (questions) ─────────────────────────────────────────────────────
+def _json_items(items: list) -> list:
+    """Dataset items as a JSON column can store them.
+
+    Parameters
+    ----------
+    items : list
+        The items. One built with pandas holds NaN for an empty cell, and a JSON body or a
+        bundle can carry NaN and Infinity too.
+
+    Returns
+    -------
+    list
+        The items with every non-finite float replaced by ``None``, as results payloads are
+        stored: JSON has no NaN or Infinity, and a Postgres ``json`` column rejects them.
+    """
+    from app.runner import _json_safe
+
+    return _json_safe(list(items))
+
+
 @router.get("/datasets", response_model=list[schemas.DatasetOut])
 async def list_datasets(db: AsyncSession = Depends(get_session)):
     return list((await db.execute(select(models.Dataset).order_by(models.Dataset.id))).scalars())
@@ -125,7 +145,16 @@ async def get_dataset(id_: int, db: AsyncSession = Depends(get_session)):
 
 @router.post("/datasets", response_model=schemas.DatasetOut, status_code=201)
 async def create_dataset(body: schemas.DatasetIn, db: AsyncSession = Depends(get_session)):
+    """Save a dataset.
+
+    Parameters
+    ----------
+    body : schemas.DatasetIn
+        The name and the items. A NaN or infinite number in an item is stored as ``None``
+        (see :func:`_json_items`).
+    """
     obj = models.Dataset(**body.model_dump())
+    obj.items = _json_items(obj.items)
     db.add(obj)
     await db.commit()
     await db.refresh(obj)
@@ -236,6 +265,9 @@ async def import_study(request: Request, attach_to: int | None = None,
     ``?attach_to=<study_id>`` adds the bundle's dimension(s) to an existing study instead of
     creating a new one (rarely needed — e.g. re-judging an old study on a new rubric later).
 
+    A new study's dataset holds the bundle's items, with any NaN or infinite number in them
+    stored as ``None`` (see :func:`_json_items`).
+
     Raises
     ------
     HTTPException
@@ -298,6 +330,7 @@ async def import_study(request: Request, attach_to: int | None = None,
                [{"id": i, "text": first.questions.get(i, ""), "reference": first.references.get(i)}
                 for i in ids]),
     )
+    dataset.items = _json_items(dataset.items)  # e.g. items built with pandas hold NaN
     db.add_all([rubric, dataset])
     await db.flush()  # assign ids
 
