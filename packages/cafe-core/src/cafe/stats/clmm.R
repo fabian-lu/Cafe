@@ -129,6 +129,20 @@ result <- tryCatch({
     used_order <- 1L
   }
   if (is.null(m)) stop("model did not converge")
+  # An interaction model whose optimizer stopped without converging (nlminb's code != 0,
+  # e.g. "false convergence (8)") is not estimable on this data either: its standard errors
+  # are not valid and it gets no likelihood-ratio tests. Fall back to main effects, as for
+  # an interaction model that fails outright — but only to a main-effects fit that
+  # converges (otherwise the requested model is kept, and its p-values are withheld).
+  if (used_order >= 2 && !isTRUE(m$optRes$convergence == 0)) {
+    m1 <- tryCatch(ordinal::clmm(build_formula(1L), data = d, Hess = TRUE),
+                   error = function(e) NULL)
+    if (!is.null(m1) && isTRUE(m1$optRes$convergence == 0)) {
+      m <- m1
+      form <- build_formula(1L)
+      used_order <- 1L
+    }
+  }
   # clmm never checks its optimizer's status. nlminb's `convergence` is 0 only on success
   # (?nlminb); after e.g. "false convergence (8)" the Hessian is meaningless and the
   # standard errors can be ~100x too small. Added to the result after the tryCatch.

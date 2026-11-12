@@ -242,8 +242,10 @@ def test_clmm_accepts_interaction_order():
 
 
 def test_glmer_interaction_fallback_reports_the_fitted_formula():
-    """On this data the A×B glmer fails (PIRLS / VtV errors) and glmm.R refits main effects;
-    the result must show the main-effects formula and say interactions weren't fit."""
+    """On this data the A×B glmer can't be fit — older lme4 versions stop with an error
+    (PIRLS / VtV), lme4 2.1-0 returns a fit that fails its own convergence check (singular
+    Hessian) — and glmm.R refits main effects either way; the result must show the
+    main-effects formula, say interactions weren't fit, and keep the main-effects tests."""
     from cafe import fit_logistic
     from cafe.rubrics import CORRECT_PASS_FAIL
     from cafe.stats.logistic import check_glmer
@@ -262,6 +264,33 @@ def test_glmer_interaction_fallback_reports_the_fitted_formula():
     assert log.formula == "verdict ~ (1 | input_id) + A + B"
     assert any("main effects only" in w for w in log.warnings)
     assert "main effects only" in log.show()
+    assert log.converged is True                                    # a valid fit, with
+    assert {t["term"] for t in log.factor_tests} == {"A", "B"}      # its LR tests
+    assert all(t["p"] is not None for t in log.factor_tests)
+
+
+def test_clmm_falls_back_to_main_effects_when_the_interaction_fit_does_not_converge():
+    """On this data the A×B CLMM stops with nlminb's "false convergence (8)" — no valid
+    standard errors, no likelihood-ratio tests, estimates of ±70 — while the main-effects
+    CLMM converges. clmm.R must refit main effects, as fit_clmm's docstring promises,
+    instead of reporting that unusable fit."""
+    from cafe.stats.ordinal import check_r
+
+    if not check_r()[0]:
+        pytest.skip("R + ordinal not installed")
+    cells = [(a, b) for a in ("a0", "a1") for b in ("b0", "b1", "b2", "b3")]
+    scores = {"q0": "35513415", "q1": "45513515", "q2": "35511314"}
+    items = [Rating(obs_key=f"{q}{a}{b}", config={"A": a, "B": b}, input_id=q, rep=0,
+                    judge_rep=0, value=int(s), value_numeric=int(s))
+             for q, row in scores.items() for (a, b), s in zip(cells, row)]
+    r = Ratings(rubric=ANSWER_QUALITY_1_5, judge_model="x", factors=["A", "B"], items=items)
+    res = fit_clmm(r, interactions=2)
+    assert res.available and res.converged is True
+    assert res.formula == "verdict ~ (1 | input_id) + A + B"
+    assert any("main effects only" in w for w in res.warnings)
+    assert not any(c["interaction"] for c in res.coefficients)
+    assert {t["term"] for t in res.factor_tests} == {"A", "B"}
+    assert all(t["p"] is not None for t in res.factor_tests)
 
 
 def test_clmm_interaction_fallback_is_reported(monkeypatch):

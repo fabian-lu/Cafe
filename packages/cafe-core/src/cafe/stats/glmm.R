@@ -157,15 +157,39 @@ result <- tryCatch({
   }
   # lme4's derivative checks raise false alarms (?convergence), and a different optimizer
   # often lands on a proper optimum: refit once with bobyqa before giving up on the SEs.
-  refit <- NULL
-  if (!converged(m)) {
-    m2 <- tryCatch(suppressWarnings(suppressMessages(
-      lme4::glmer(build_formula(used_order), data = d, family = stats::binomial(),
+  refit_bobyqa <- function(ord) {
+    tryCatch(suppressWarnings(suppressMessages(
+      lme4::glmer(build_formula(ord), data = d, family = stats::binomial(),
                   control = lme4::glmerControl(optimizer = "bobyqa"))
     )), error = function(e) NULL)
+  }
+  refit <- NULL
+  if (!converged(m)) {
+    m2 <- refit_bobyqa(used_order)
     if (!is.null(m2) && converged(m2)) {
       m <- m2
       refit <- "bobyqa"
+    }
+  }
+  # An interaction model that fails lme4's convergence checks even after the refit is not
+  # estimable on this data either: lme4 >= 2 reports e.g. a singular Hessian where older
+  # versions stopped with an error (the fallback above). Such a fit has no valid standard
+  # errors and gets no likelihood-ratio tests, so fall back to main effects — but only to a
+  # main-effects fit that converges (otherwise the requested model is kept, p withheld).
+  if (!converged(m) && used_order >= 2) {
+    m1 <- tryCatch(fit_one(1L), error = function(e) NULL)
+    refit1 <- NULL
+    if (!is.null(m1) && !converged(m1)) {
+      m2 <- refit_bobyqa(1L)
+      if (!is.null(m2) && converged(m2)) {
+        m1 <- m2
+        refit1 <- "bobyqa"
+      }
+    }
+    if (!is.null(m1) && converged(m1)) {
+      m <- m1
+      used_order <- 1L
+      refit <- refit1
     }
   }
   conv <- m@optinfo$conv
