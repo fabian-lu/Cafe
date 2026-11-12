@@ -507,9 +507,22 @@ RESERVED_ITEM_KEYS = {"id", "text", "question", "reference"}
 
 
 def dataset_filters(items: list[dict]) -> dict[str, list[str]]:
-    """The filterable metadata keys of a dataset: every non-reserved item key with between
-    2 and 30 distinct non-empty values (a key with one value filters nothing; free-text
-    keys with dozens of values make useless chips)."""
+    """The filterable metadata keys of a dataset.
+
+    Parameters
+    ----------
+    items : list of dict
+        The dataset's items.
+
+    Returns
+    -------
+    dict
+        ``{key: sorted values}`` for every non-reserved item key with between 2 and 30
+        distinct non-empty values (a key with one value filters nothing; free-text keys with
+        dozens of values make useless chips). ``None``, blank text and a NaN or infinite
+        number (an empty cell of a dataset built with pandas, in items stored before such
+        numbers were stored as ``None``) count as empty.
+    """
     from collections import defaultdict
 
     vals: dict[str, set] = defaultdict(set)
@@ -517,7 +530,8 @@ def dataset_filters(items: list[dict]) -> dict[str, list[str]]:
         if not isinstance(it, dict):
             continue
         for k, v in it.items():
-            if k in RESERVED_ITEM_KEYS or v is None or str(v).strip() == "":
+            if (k in RESERVED_ITEM_KEYS or v is None or str(v).strip() == ""
+                    or (isinstance(v, float) and not math.isfinite(v))):
                 continue
             vals[k].add(str(v).strip())
     return {k: sorted(v) for k, v in vals.items() if 2 <= len(v) <= 30}
