@@ -264,8 +264,9 @@ def _fit_glmer(
 
     res = Logistic(alpha=alpha, available=True, n_obs=payload.get("n_obs", len(df)))
     res.model = "logistic GLMM (binomial, logit link; random intercept: question) [R lme4::glmer]"
-    # Show what R fit: glmm.R refits main effects when the interaction model fails, and the
-    # requested ^2 formula would make the missing interaction rows read as "estimated".
+    # Show what R fit: glmm.R refits main effects when the interaction model fails or does
+    # not converge, and the requested ^2 formula would make the missing interaction rows
+    # read as "estimated".
     used_order = payload.get("used_order", order)
     res.formula = _display_formula(factors, used_order)
     if used_order < order:

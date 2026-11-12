@@ -249,7 +249,8 @@ def fit_clmm(
     """Fit an ordinal CLMM (``verdict ~ factors + (1|question)``) via R.
 
     ``interactions`` is the maximum interaction order (1 = main effects, 2 = also two-way,
-    …); R falls back to main effects if the interaction model doesn't converge.
+    …); R falls back to main effects if the interaction model fails or its optimizer
+    doesn't converge (and the main-effects model does), and ``warnings`` says so.
 
     ``lr_tests`` adds one Type-II likelihood-ratio test per factor and interaction
     (``factor_tests``): the model with every term that doesn't contain it vs. the same model

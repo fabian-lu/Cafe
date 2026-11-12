@@ -135,8 +135,9 @@ matters: without it, this variation would count as noise and every F would be sm
 
 !!! warning "Health notes"
     The report appends notes when something about a fit needs your attention — e.g.
-    interactions that a fractional design can't separate, an ordinal or logistic model
-    whose optimizer did not converge (its p-values are then withheld), or a
+    interactions that a fractional design can't separate, interactions the ordinal or
+    logistic model couldn't fit (it then refits main effects only), an ordinal or
+    logistic model whose optimizer did not converge (its p-values are then withheld), or a
     between-question variance estimated at ≈ 0 (a boundary fit: the questions don't
     differ beyond what the factors explain). Read them: they tell you which numbers to
     trust when the design is small or sparse.
