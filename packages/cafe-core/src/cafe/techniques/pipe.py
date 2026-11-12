@@ -28,7 +28,7 @@ from typing import Any, Awaitable, Callable
 
 from cafe.study import Factor
 from cafe.system import normalize_output
-from cafe.techniques.context import Context
+from cafe.techniques.context import RESERVED_INPUT_NAMES, Context
 from cafe.techniques.registry import TechniqueSpec
 
 ComposeFn = Callable[[dict, Any, Context], Awaitable[Any]]
@@ -50,6 +50,19 @@ class Pipeline:
         self, stage: str, name: str, fn: Callable, description: str, cost_usd: float,
         energy_wh: float | None = None, energy_wh_per_1k_tokens: float | None = None,
     ) -> None:
+        # A runtime input (an argument without a default, after ctx) named like one of
+        # ctx.run's own keywords could never be passed: refuse it now, not at run time.
+        reserved = [
+            p.name for p in list(inspect.signature(fn).parameters.values())[1:]
+            if p.name in RESERVED_INPUT_NAMES and p.default is inspect.Parameter.empty
+            and p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)
+        ]
+        if reserved:
+            raise ValueError(
+                f"technique {stage!r}/{name!r} takes an input named {reserved[0]!r}, but "
+                "ctx.run(stage, *, cache=True, **inputs) uses that keyword itself, so the "
+                "input could never be passed — rename it"
+            )
         params = {
             p.name: p.default
             for p in inspect.signature(fn).parameters.values()
@@ -76,6 +89,13 @@ class Pipeline:
         tokens CAFE observes). Energy is strictly opt-in — leave both unset and no energy
         is computed or reported anywhere. CAFE never guesses a coefficient; you declare it
         (e.g. derived from the model's active parameter count and serving hardware).
+
+        Raises
+        ------
+        ValueError
+            When decorating a function that takes a runtime input (an argument without a
+            default) named ``stage`` or ``cache``: ``ctx.run`` uses both keywords itself, so
+            such an input could never be passed.
         """
         def deco(fn: Callable[..., Any]) -> Callable[..., Any]:
             self._spec(stage, name, fn, description, cost_usd, energy_wh, energy_wh_per_1k_tokens)
@@ -88,7 +108,13 @@ class Pipeline:
         energy_wh: float | None = None, energy_wh_per_1k_tokens: float | None = None,
     ) -> "Pipeline":
         """Register a technique programmatically (not as a decorator) — e.g. a deployed
-        catalog assembling a pipeline per run. Returns ``self`` for chaining."""
+        catalog assembling a pipeline per run. Returns ``self`` for chaining.
+
+        Raises
+        ------
+        ValueError
+            If ``fn`` takes a runtime input named ``stage`` or ``cache`` (see :meth:`technique`).
+        """
         self._spec(stage, name, fn, description, cost_usd, energy_wh, energy_wh_per_1k_tokens)
         return self
 

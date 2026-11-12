@@ -1,7 +1,23 @@
 """Mode B (composed pipelines) framework — wiring tested offline (no LLM)."""
 
+import asyncio
+
+import pytest
+
 import cafe
+from cafe import llm
 from cafe.techniques import stage_report
+
+
+class _PrintsAlike:
+    """Prints as "same" whatever its value, as two long numpy arrays can print alike
+    ("[0. 0. 0. ... 0. 0. 0.]"). Module-level, so it can be pickled."""
+
+    def __init__(self, value):
+        self.value = value
+
+    def __str__(self):
+        return "same"
 
 
 def _pipe():
@@ -240,3 +256,191 @@ def test_stage_cache_is_per_run_not_across_configurations():
         assert [s["cached"] for s in retrieves] == [False, True]
         assert o.metadata["cost_usd"] == 0.01   # the cached repeat is not charged again
     assert {r["stage"]: r["calls"] for r in stage_report(res)}["retrieve"] == 8
+
+
+def _sampler_pipe(calls):
+    """One stochastic stage: every run returns a new sample and costs 0.01 USD, 10 tokens
+    and 0.5 Wh."""
+    pipe = cafe.Pipeline()
+
+    @pipe.technique("generate", "sample", cost_usd=0.01, energy_wh=0.5)
+    async def sample(ctx, query):
+        calls.append(query)
+        llm._usage_sink.get().append({"model": "m", "tokens": 10, "cost_usd": 0.0})
+        return f"{query}#{len(calls)}"
+
+    return pipe
+
+
+def test_cache_false_runs_every_call_and_counts_each_cost():
+    # Best-of-n / self-consistency: n identical calls with cache=False draw n samples, and
+    # each one is traced and paid for.
+    calls = []
+    pipe = _sampler_pipe(calls)
+
+    @pipe.compose
+    async def best_of_3(config, item, ctx):
+        return [await ctx.run("generate", query=item, cache=False) for _ in range(3)]
+
+    out = asyncio.run(pipe.run({}, "q"))
+    assert out["output"] == ["q#1", "q#2", "q#3"]
+    assert calls == ["q", "q", "q"]
+    assert [s["cached"] for s in out["trace"]] == [False, False, False]
+    assert out["cost_usd"] == 0.03
+    assert out["tokens"] == 30
+    assert out["energy_wh"] == 1.5
+
+    res = cafe.Study(name="t", system=pipe, factors=[cafe.Factor("x", ["a"])],
+                     dataset=["q1", "q2"]).run()
+    assert {r["stage"]: r["calls"] for r in stage_report(res)}["generate"] == 6
+
+
+def test_uncached_call_neither_reads_nor_fills_the_cache():
+    calls = []
+    pipe = _sampler_pipe(calls)
+
+    @pipe.compose
+    async def cached_first(config, item, ctx):
+        first = await ctx.run("generate", query=item)                # runs, fills the cache
+        sample = await ctx.run("generate", query=item, cache=False)  # runs again
+        again = await ctx.run("generate", query=item)                # served from `first`
+        return [first, sample, again]
+
+    out = asyncio.run(pipe.run({}, "q"))
+    assert out["output"] == ["q#1", "q#2", "q#1"]
+    assert [s["cached"] for s in out["trace"]] == [False, False, True]
+    assert out["cost_usd"] == 0.02 and out["tokens"] == 20 and out["energy_wh"] == 1.0
+
+    calls.clear()
+
+    @pipe.compose
+    async def uncached_first(config, item, ctx):
+        sample = await ctx.run("generate", query=item, cache=False)  # runs, stores nothing
+        first = await ctx.run("generate", query=item)                # runs: not served the sample
+        again = await ctx.run("generate", query=item)                # served from `first`
+        return [sample, first, again]
+
+    out = asyncio.run(pipe.run({}, "q"))
+    assert out["output"] == ["q#1", "q#2", "q#2"]
+    assert [s["cached"] for s in out["trace"]] == [False, False, True]
+    assert out["cost_usd"] == 0.02
+
+
+def test_cache_is_ctx_runs_own_keyword_not_a_technique_input():
+    pipe = cafe.Pipeline()
+
+    # A technique input can't be named like a ctx.run keyword: it could never be passed.
+    with pytest.raises(ValueError, match="input named 'cache'"):
+        @pipe.technique("lookup", "kv")
+        async def kv_input(ctx, key, cache):
+            return key
+
+    async def stage_input(ctx, stage):
+        return stage
+
+    with pytest.raises(ValueError, match="input named 'stage'"):
+        pipe.add("lookup", "kv", stage_input)
+    assert pipe.names_for("lookup") == []
+
+    # A tunable param (it has a default) may be called cache: it comes from the config.
+    @pipe.technique("lookup", "kv")
+    async def kv(ctx, key, cache="warm"):
+        return f"{key}:{cache}"
+
+    @pipe.compose
+    async def system(config, item, ctx):
+        value = await ctx.run("lookup", key=item, cache=False)
+        # cache= is not an input either, so a stage skipped by a None level still sees
+        # exactly one input to pass through.
+        return await ctx.run("rerank", text=value, cache=False)
+
+    out = asyncio.run(pipe.run({"lookup.cache": "cold", "rerank": None}, "k"))
+    assert out["output"] == "k:cold"
+
+    @pipe.compose
+    async def misuse(config, item, ctx):
+        return await ctx.run("lookup", key=item, cache="yes")
+
+    with pytest.raises(TypeError, match="True or False"):
+        asyncio.run(pipe.run({}, "k"))
+
+
+def _echo_pipe(calls):
+    pipe = cafe.Pipeline()
+
+    @pipe.technique("echo", "same")
+    async def echo(ctx, x):
+        calls.append(x)
+        return x
+
+    return pipe
+
+
+def _echo_twice(first, second):
+    """Run the echo stage on ``first``, then on ``second``, in one run (cache on)."""
+    calls = []
+    pipe = _echo_pipe(calls)
+
+    @pipe.compose
+    async def system(config, item, ctx):
+        return [await ctx.run("echo", x=first), await ctx.run("echo", x=second)]
+
+    out = asyncio.run(pipe.run({}, None))
+    return out["output"], [s["cached"] for s in out["trace"]], calls
+
+
+def test_cache_never_serves_one_input_the_output_of_another():
+    # Different inputs that print the same (str() / JSON-with-default=str) must not share
+    # an entry: each call runs and returns its own result.
+    a, b = _PrintsAlike(1), _PrintsAlike(2)
+    outs, cached, _ = _echo_twice(a, b)
+    assert [o.value for o in outs] == [1, 2] and cached == [False, False]
+
+    outs, cached, _ = _echo_twice("same", _PrintsAlike(3))   # a str, and an object printing it
+    assert outs[0] == "same" and outs[1].value == 3 and cached == [False, False]
+
+    for first, second in [((1, 2), [1, 2]),                   # json writes a tuple as a list
+                          ({1: "a"}, {"1": "a"}),             # ... and an int key as a str
+                          ({"x"}, "{'x'}")]:                  # default=str prints a set
+        outs, cached, _ = _echo_twice(first, second)
+        assert outs == [first, second] and cached == [False, False]
+        assert [type(o) for o in outs] == [type(first), type(second)]
+
+    class Unpicklable:                    # local, so it can't be pickled: never cached
+        def __init__(self, value):
+            self.value = value
+
+        def __str__(self):
+            return "same"
+
+    outs, cached, _ = _echo_twice(Unpicklable(1), Unpicklable(2))
+    assert [o.value for o in outs] == [1, 2] and cached == [False, False]
+    same = Unpicklable(3)
+    outs, cached, calls = _echo_twice(same, same)  # a miss, never a wrong hit
+    assert cached == [False, False] and len(calls) == 2
+
+
+def test_cache_tells_numpy_arrays_that_print_alike_apart():
+    np = pytest.importorskip("numpy")
+    a = np.zeros(2000)
+    b = np.zeros(2000)
+    b[1000] = 1.0
+    assert str(a) == str(b)           # both print as "[0. 0. 0. ... 0. 0. 0.]"
+    outs, cached, _ = _echo_twice(a, b)
+    assert outs[0] is a and outs[1] is b and cached == [False, False]
+
+    outs, cached, calls = _echo_twice(a, a.copy())   # equal content: still one run
+    assert cached == [False, True] and len(calls) == 1
+
+
+def test_equal_inputs_still_share_the_cache():
+    # Equal JSON values hit, however they were built (dict key order doesn't matter) ...
+    first = {"query": "q", "filters": {"year": 2024, "lang": "en"}, "k": [1, 2.5, None, True]}
+    second = {"k": [1, 2.5, None, True], "filters": {"lang": "en", "year": 2024}, "query": "q"}
+    outs, cached, calls = _echo_twice(first, second)
+    assert cached == [False, True] and len(calls) == 1 and outs[1] is outs[0]
+
+    # ... and so do equal non-JSON values (same type, same content).
+    for first, second in [((1, 2), (1, 2)), (_PrintsAlike(4), _PrintsAlike(4))]:
+        outs, cached, calls = _echo_twice(first, second)
+        assert cached == [False, True] and len(calls) == 1

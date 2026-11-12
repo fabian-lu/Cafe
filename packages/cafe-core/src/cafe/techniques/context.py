@@ -9,6 +9,17 @@ When your system calls ``await ctx.run("retriever", query=q)``, CAFE:
     returns the cached output without re-running the technique — it is traced again
     with ``cached: True``, and its cost, tokens and energy are counted once.
 
+Calls are compared by value. If every param and input is plain JSON (str, int, float,
+bool, None, and lists and str-keyed dicts of them), a call is keyed by its JSON; otherwise
+by its pickle — type and full content, never ``str()`` — so two different numpy arrays
+that print alike never share an entry. A call with a value that can't be pickled (a
+lambda, an open client) is not cached: it runs every time.
+
+``ctx.run(stage, ..., cache=False)`` opts one call out, e.g. to sample a stochastic stage
+several times (best-of-n, self-consistency): it always runs, is traced with
+``cached: False`` and pays its own cost, tokens and energy, and it neither reads nor
+fills the cache — a later cached call returns what it would have returned without it.
+
 The cache lives on the ``Context``, and a ``Pipeline`` creates a fresh one for every
 (config, item, replication) cell, so nothing is shared between cells: each configuration
 executes, and pays for, every stage it reaches — even a stage another configuration ran
@@ -21,7 +32,9 @@ loops — so the topology is entirely yours; CAFE only watches the calls.
 from __future__ import annotations
 
 import contextvars
+import hashlib
 import json
+import pickle
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -39,12 +52,52 @@ _manual_cost_sink: contextvars.ContextVar[tuple[Context, list[float]] | None] = 
 )
 
 
-def _cache_key(stage: str, name: str, params: dict, inputs: dict) -> str:
-    payload = json.dumps(
-        {"stage": stage, "name": name, "params": params, "inputs": inputs},
-        sort_keys=True, default=str,
-    )
-    return payload
+# Names a technique's runtime input can't have: ``ctx.run`` takes ``stage`` and ``cache``
+# itself, so an input with either name could never be passed (``Pipeline`` refuses it).
+RESERVED_INPUT_NAMES = frozenset({"stage", "cache"})
+
+# Exact types only: json.dumps writes a subclass (an IntEnum, a numpy float64) as its base
+# type, so it would share a key with a plain value of that type.
+_JSON_SCALARS = (str, int, float, bool, type(None))
+
+
+def _plain_json(value: Any) -> bool:
+    """Whether ``json.dumps`` writes ``value`` without changing what it is.
+
+    True for plain str/int/float/bool/None and for lists and str-keyed dicts of those; false
+    for anything json would convert (a tuple becomes a list, an int key a str) or that only
+    ``default=str`` could write.
+    """
+    kind = type(value)
+    if kind in _JSON_SCALARS:
+        return True
+    if kind is list:
+        return all(_plain_json(v) for v in value)
+    if kind is dict:
+        return all(type(k) is str and _plain_json(v) for k, v in value.items())
+    return False
+
+
+def _cache_key(stage: str, name: str, params: dict, inputs: dict) -> str | None:
+    """The stage-cache key of one call, or ``None`` when the call can't be cached safely.
+
+    Plain JSON payloads are keyed by their canonical JSON. Anything else is keyed by the
+    SHA-256 of its pickle (type and full content), never by ``str()``: a long numpy array
+    prints with "...", so two different arrays can print alike and would share an entry. A
+    payload that can't be pickled gets no key, so the call runs instead of risking a hit
+    on another input's output.
+    """
+    payload = {"stage": stage, "name": name, "params": params, "inputs": inputs}
+    try:
+        if _plain_json(payload):
+            return json.dumps(payload, sort_keys=True)
+        blob = pickle.dumps(
+            (stage, name, sorted(params.items()), sorted(inputs.items())),
+            protocol=pickle.HIGHEST_PROTOCOL,
+        )
+    except Exception:  # can't be pickled (a lambda, a lock, a client), or nested too deep
+        return None
+    return "pickle:" + hashlib.sha256(blob).hexdigest()
 
 
 class Context:
@@ -81,8 +134,55 @@ class Context:
         else:
             self.total_cost += float(usd)
 
-    async def run(self, stage: str, **inputs: Any) -> Any:
-        """Run whichever technique the config selected for ``stage`` and return its output."""
+    async def run(self, stage: str, *, cache: bool = True, **inputs: Any) -> Any:
+        """Run whichever technique the config selected for ``stage`` and return its output.
+
+        The step is timed, metered and appended to :attr:`trace`. A call identical to an
+        earlier cached one in this run (same stage, technique, params and inputs) returns
+        that call's output without running the technique: it is traced with
+        ``cached: True`` and adds no cost, tokens or energy. Params and inputs are compared
+        by value — as JSON, or else by their pickle, never by ``str()`` — and a call with a
+        value that can't be pickled is never cached.
+
+        Parameters
+        ----------
+        stage:
+            The stage to run. The config picks its technique; a stage with a single
+            registered technique needs no factor.
+        cache:
+            ``False`` runs the technique even if an identical call already ran — to sample
+            a stochastic stage several times (best-of-n, self-consistency). Each such call
+            is traced with ``cached: False`` and pays its own cost, tokens and energy; it
+            neither reads nor fills the cache, so a later cached call returns what it
+            would have returned without it. Keyword-only and never passed on to the
+            technique, so no technique can take an input named ``cache``.
+        **inputs:
+            The technique's runtime inputs (its arguments without defaults), by name. Its
+            tunable params come from the config, not from here.
+
+        Returns
+        -------
+        Any
+            The technique's output (the ``"output"`` value if it returned an
+            ``{"output": ..., "cost_usd": ...}`` dict). A stage skipped by a ``None`` level
+            returns its single input unchanged.
+
+        Raises
+        ------
+        TypeError
+            If ``cache`` is not a bool — e.g. a value meant for a technique input named
+            ``cache``, which ``ctx.run`` keeps for itself.
+        KeyError
+            If no technique is registered for ``stage``, several are but no factor picks
+            one, the config picks one this pipeline doesn't have, or a stage skipped by a
+            ``None`` level gets more than one input.
+        """
+        if not isinstance(cache, bool):
+            raise TypeError(
+                f"ctx.run({stage!r}, cache=...) takes True or False, got "
+                f"{type(cache).__name__}; 'cache' is ctx.run's own switch for the stage cache, "
+                "so a technique can't take an input named 'cache' — rename that input"
+            )
         if stage in self.config:
             name = self.config[stage]
         else:
@@ -132,8 +232,9 @@ class Context:
             for pname, default in spec.params.items()
         }
 
-        key = _cache_key(stage, str(name), params, inputs)
-        if key in self._cache:
+        # No key (cache=False, or inputs CAFE can't fingerprint exactly): run, and don't store.
+        key = _cache_key(stage, str(name), params, inputs) if cache else None
+        if key is not None and key in self._cache:
             hit = self._cache[key]
             self.trace.append({**hit["meta"], "cached": True})
             return hit["output"]
@@ -183,5 +284,6 @@ class Context:
         self.total_cost += cost
         self.total_tokens += auto_tokens
         self.trace.append(meta)
-        self._cache[key] = {"output": output, "meta": meta}
+        if key is not None:
+            self._cache[key] = {"output": output, "meta": meta}
         return output

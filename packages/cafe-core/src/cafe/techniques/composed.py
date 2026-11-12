@@ -17,7 +17,8 @@ def stage_report(results: Any) -> list[dict[str, Any]]:
     Returns one row per (stage, technique): mean elapsed, mean cost, count — the
     basis for per-stage statistics ("which stage is slowest / most expensive").
     A repeated identical call that a run served from its stage cache (``cached: True``
-    in the trace) is not counted again.
+    in the trace) is not counted again; a call made with ``ctx.run(..., cache=False)``
+    always runs, so each one counts.
     """
     from collections import defaultdict
 
