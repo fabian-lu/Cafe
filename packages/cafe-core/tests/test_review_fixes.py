@@ -196,3 +196,113 @@ def test_rstyle_accessors_present():
     assert list(ev.effects.to_df().columns)[:2] == ["factor", "interaction"]
     assert set(ev.marginal_means["level"]) == {"good", "bad"}
     assert ev.residuals is not None and len(ev.residuals) == 16
+
+
+# ── NumPy levels keep their type and their answers' keys through the JSON files ──
+class _LengthJudge:
+    model = "length"
+
+    async def score(self, rubric, question, answer, reference=None):
+        return JudgeOutput(len(answer) % 5 + 1, len(answer) % 5 + 1, "ok", "prompt", "raw")
+
+
+def test_config_id_reads_a_numpy_number_as_the_number():
+    np = pytest.importorskip("numpy")
+    from cafe.execution.results import config_id
+
+    assert config_id({"k": np.int64(3)}) == config_id({"k": 3}) != config_id({"k": "3"})
+    assert config_id({"k": np.bool_(True)}) == config_id({"k": True})
+    assert config_id({"k": np.float32(0.5)}) == config_id({"k": 0.5})
+
+
+async def test_numpy_levels_keep_their_type_through_a_saved_evaluation(tmp_path):
+    """save_evaluation wrote np.int64(3) with default=str, so load_evaluation brought the level
+    back as the string "3": the marginals sorted "10" before "3" and records() changed type.
+    It is written as the number now, and config_id encodes it the same way, so the answers
+    keep their keys: every verdict finds its answer, and an answer sheet exported before
+    saving matches the reloaded answers."""
+    np = pytest.importorskip("numpy")
+    from cafe.evaluation import evaluate, load_evaluation, save_evaluation
+
+    study = cafe.Study(name="np", system=lambda config, item: f"{config}:{item}",
+                       factors=[cafe.Factor("top_k", [np.int64(3), np.int64(10)]),
+                                cafe.Factor("m", ["a", "b"])],
+                       dataset=[f"q{i}" for i in range(8)], rubric=cafe.ANSWER_QUALITY_1_5,
+                       judge=_LengthJudge())
+    ev = await evaluate(study, progress=False)
+    sheet = cafe.answer_sheet(ev)
+    save_evaluation(ev, str(tmp_path / "ev.json"))
+    back = load_evaluation(str(tmp_path / "ev.json"))
+
+    assert {(type(o.config["top_k"]), o.config["top_k"]) for o in back.answers.observations} == {
+        (int, 3), (int, 10)}
+    assert [m["level"] for m in back.attribution.factor_marginals][:2] == ["3", "10"]
+    assert back.attribution.factor_marginals == ev.attribution.factor_marginals
+    assert back.records() == ev.records()                       # np.int64(3) == 3
+    assert all(r["output"] is not None for r in back.records())  # each verdict joined
+    scores = [{"answer_id": s["answer_id"], "rater": "h", "score": 3} for s in sheet]
+    assert len(cafe.human_evaluation(back, scores).ratings.items) == len(sheet)
+
+
+async def test_a_container_of_numpy_numbers_reads_the_same_after_a_reload(tmp_path):
+    """A tuple level built from NumPy arrays holds NumPy numbers. Its label (JSON text) must
+    show them as the numbers a saved evaluation brings back, "[256, 0]" rather than
+    '["256", "0"]', so the reloaded evaluation reads as the original does."""
+    np = pytest.importorskip("numpy")
+    from cafe.evaluation import evaluate, load_evaluation, save_evaluation
+    from cafe.execution.results import level_label
+
+    chunking = list(zip(np.array([256, 512]), np.array([0, 64])))  # tuples of np.int64
+    assert level_label(chunking[0]) == "[256, 0]"
+    study = cafe.Study(name="np", system=lambda config, item: f"{config}:{item}",
+                       factors=[cafe.Factor("chunking", chunking), cafe.Factor("m", ["a", "b"])],
+                       dataset=[f"q{i}" for i in range(8)], rubric=cafe.ANSWER_QUALITY_1_5,
+                       judge=_LengthJudge())
+    ev = await evaluate(study, progress=False)
+    save_evaluation(ev, str(tmp_path / "ev.json"))
+    back = load_evaluation(str(tmp_path / "ev.json"))
+    assert {m["level"] for m in back.attribution.factor_marginals} == {
+        "[256, 0]", "[512, 64]", "a", "b"}
+    assert back.attribution.factor_marginals == ev.attribution.factor_marginals
+    assert back.show() == ev.show()
+
+
+async def test_checkpoint_resume_finds_the_cells_of_numpy_levels(tmp_path):
+    """A checkpoint writes levels as config_id encodes them, so a resumed run recognises every
+    finished cell of a NumPy level and runs none of them again."""
+    np = pytest.importorskip("numpy")
+    from cafe.execution import run_study
+
+    calls = []
+    study = cafe.Study(name="np", system=lambda config, item: calls.append(item) or "x",
+                       factors=[cafe.Factor("top_k", [np.int64(3), np.int64(10)])],
+                       dataset=["q1", "q2"])
+    ckpt = str(tmp_path / "run.jsonl")
+    await run_study(study, checkpoint_path=ckpt)
+    res = await run_study(study, checkpoint_path=ckpt)
+    assert len(calls) == 4 and len(res) == 4
+
+
+def test_a_bundle_saved_with_numpy_levels_as_text_still_loads():
+    """Bundles saved before NumPy numbers were written as numbers hold such a level as text
+    ("3"), with answer keys hashed from that text. They still load, every verdict joined to
+    its answer (the level stays "3": its type was lost when it was saved)."""
+    import hashlib
+
+    from cafe.evaluation import load_evaluation
+
+    old_key = hashlib.sha1(b'{"top_k": "3"}').hexdigest()[:12] + "::q0::0"
+    rubric = cafe.ANSWER_QUALITY_1_5
+    bundle = {
+        "study_name": "old",
+        "answers": {"factors": ["top_k"], "observations": [
+            {"config": {"top_k": "3"}, "input_id": "q0", "rep": 0, "output": "x"}]},
+        "ratings": {"factors": ["top_k"], "rubric": {
+            "name": rubric.name, "scale_type": rubric.scale_type.value,
+            "levels": [{"value": lv.value, "label": lv.label, "description": lv.description}
+                       for lv in rubric.levels]},
+            "items": [{"obs_key": old_key, "config": {"top_k": "3"}, "input_id": "q0", "rep": 0,
+                       "judge_rep": 0, "value": 4, "value_numeric": 4}]},
+    }
+    (row,) = load_evaluation(bundle).records()
+    assert (row["top_k"], row["output"], row["verdict"]) == ("3", "x", 4)

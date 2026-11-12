@@ -533,8 +533,25 @@ def save_evaluation(evaluation: "Evaluation", path: str) -> None:
     shared without re-running** the study (e.g. imported into the web app). Captures the
     answers, the judge ratings, the rubric, the question/reference maps, and timing — i.e.
     everything :meth:`Evaluation.report` and the stats layers are derived from.
+
+    Parameters
+    ----------
+    evaluation
+        The evaluation to save.
+    path
+        The JSON file to write.
+
+    Notes
+    -----
+    A NumPy number (a level from ``np.arange``, say) is written as the number it holds, so
+    :func:`load_evaluation` brings ``np.int64(3)`` back as ``3``: it sorts as a number and
+    keeps its configuration's id, so the answers keep their keys (an answer sheet exported
+    before saving still matches). Any other value JSON has no type for is written as its
+    ``str``; a tuple comes back as a list.
     """
     import json
+
+    from cafe.execution.results import _json_default
 
     ans = evaluation.answers
     data: dict[str, Any] = {
@@ -568,7 +585,7 @@ def save_evaluation(evaluation: "Evaluation", path: str) -> None:
             "items": [r.to_dict() for r in evaluation.ratings.items],
         }
     with open(path, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, default=str)
+        json.dump(data, fh, default=_json_default)
 
 
 def load_evaluation(source: "str | dict[str, Any]") -> "Evaluation":

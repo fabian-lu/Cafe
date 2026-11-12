@@ -16,7 +16,7 @@ import json
 import os
 from typing import TYPE_CHECKING, Iterator
 
-from cafe.execution.results import Observation
+from cafe.execution.results import Observation, _json_default
 
 if TYPE_CHECKING:
     from cafe.judging.ratings import Rating
@@ -51,7 +51,8 @@ class Checkpoint:
     def append(self, obs: Observation) -> None:
         """Append one observation, flushing to disk so a crash loses at most this cell."""
         with open(self.path, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(obs.to_dict(), default=str) + "\n")
+            # levels as config_id encodes them, so a resumed run finds this cell's key
+            fh.write(json.dumps(obs.to_dict(), default=_json_default) + "\n")
             fh.flush()
             os.fsync(fh.fileno())
 
@@ -98,6 +99,6 @@ class RatingsCheckpoint:
     def append(self, rating: "Rating") -> None:
         """Append one verdict, flushed to disk so a crash loses at most this one."""
         with open(self.path, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(rating.to_dict(), default=str) + "\n")
+            fh.write(json.dumps(rating.to_dict(), default=_json_default) + "\n")
             fh.flush()
             os.fsync(fh.fileno())
