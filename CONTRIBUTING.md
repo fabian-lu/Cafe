@@ -37,6 +37,10 @@ cafe doctor
 
 ### Tests & linting
 
+The `dev` extra pins ruff to the 0.14 series, the version `ruff check` is kept clean with. Ruff 0.16
+turned on several hundred more rules by default, so a newer ruff reports findings that 0.14 doesn't.
+If you run ruff from outside the venv, use the same series, e.g. `uvx ruff@0.14.0 check .`.
+
 ```bash
 cd packages/cafe-core
 pytest                 # unit tests
