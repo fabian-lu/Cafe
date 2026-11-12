@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api } from "../lib/api.js";
+import { api, answerText } from "../lib/api.js";
 
 const band = (a) => (a == null ? "muted" : a >= 0.8 ? "green" : a >= 0.667 ? "amber" : "error");
 
@@ -169,7 +169,7 @@ export default function Raters() {
             <div className="card" key={item.key} style={{ marginBottom: 10 }}>
               <div style={{ marginBottom: 6 }}><b>Q:</b> {item.question}</div>
               {item.reference && <div className="hint" style={{ marginBottom: 6 }}><b>Gold:</b> {item.reference}</div>}
-              <div className="mono" style={{ fontSize: 13, marginBottom: 10, color: "var(--on-surface-variant)" }}>{item.answer}</div>
+              <div className="mono" style={{ fontSize: 13, marginBottom: 10, color: "var(--on-surface-variant)" }}>{answerText(item.answer)}</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {levels.map((l) => (
                   <button key={l.value} title={l.description || l.label}

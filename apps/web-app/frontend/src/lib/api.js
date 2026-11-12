@@ -90,3 +90,8 @@ export const api = {
 // "judging · <rubric>" (one per extra dimension), "saving", then "done" / "error".
 export const isJudgingPhase = (phase) => (phase || "").startsWith("judging");
 export const phaseLabel = (phase) => (!phase || phase === "answers" ? "answering" : phase);
+
+// A system may answer with any JSON value — cafe-core keeps a dict, list or number as the answer,
+// and results records (`output`) and the rating sheet (`answer`) pass it through. Show text as is
+// and anything else as JSON, so a 0 or false answer stays visible; no answer is "".
+export const answerText = (v) => (v == null ? "" : typeof v === "string" ? v : JSON.stringify(v, null, 1));
