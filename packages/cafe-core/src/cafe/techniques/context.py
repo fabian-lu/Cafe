@@ -108,7 +108,9 @@ class Context:
         self._techniques = techniques   # this pipeline's registry — NOT a global
         self.config = config
         self.trace: list[dict[str, Any]] = []
-        self.total_cost: float = 0.0
+        #: The run's cost so far (USD), or ``None`` once a step's cost is unknown — it called
+        #: a model without a known price — since a sum missing that part would understate it.
+        self.total_cost: float | None = 0.0
         self.total_tokens: int = 0
         self.total_energy_wh: float = 0.0
         self.energy_declared: bool = False  # True once any executed step had declared energy
@@ -121,7 +123,8 @@ class Context:
         Called inside a technique, the cost is attributed to that technique's step, also
         when several steps run at once (``asyncio.gather``) or one ``ctx.run`` is nested
         in another. Called from the compose function itself (outside any ``ctx.run``),
-        it is added to the run's total ``cost_usd`` without belonging to any stage.
+        it is added to the run's total ``cost_usd`` without belonging to any stage. A step
+        or total that is already unknown (see :meth:`run`) stays unknown.
 
         Parameters
         ----------
@@ -131,14 +134,19 @@ class Context:
         current = _manual_cost_sink.get()
         if current is not None and current[0] is self:
             current[1].append(float(usd))
-        else:
+        elif self.total_cost is not None:
             self.total_cost += float(usd)
 
     async def run(self, stage: str, *, cache: bool = True, **inputs: Any) -> Any:
         """Run whichever technique the config selected for ``stage`` and return its output.
 
-        The step is timed, metered and appended to :attr:`trace`. Its energy adds up the
-        tokens of each LLM call at the figure of the model it called
+        The step is timed, metered and appended to :attr:`trace`. Its ``cost_usd`` is the cost
+        of the LLM calls made inside it, plus the technique's fixed ``cost_usd``, anything added
+        with :meth:`add_cost`, and a ``"cost_usd"`` the technique returns. If one of those LLM
+        calls went to a model without a known price, the step's ``cost_usd`` is ``None``
+        (unknown) rather than the partial sum of the known parts, and so is
+        :attr:`total_cost`; the step's ``tokens`` still count every call. Its energy adds up
+        the tokens of each LLM call at the figure of the model it called
         (:func:`cafe.set_model_energy`), the tokens of calls to models without a figure at the
         technique's ``energy_wh_per_1k_tokens``, and the technique's fixed ``energy_wh``; with
         none of these declared the step has no ``energy_wh``. A call identical to an earlier
@@ -258,7 +266,7 @@ class Context:
         elapsed = round(time.monotonic() - t0, 5)
 
         auto_tokens = sum(u["tokens"] for u in sink)
-        auto_cost = sum(u["cost_usd"] for u in sink)
+        auto_costs = [u["cost_usd"] for u in sink]
 
         # A technique may also return a plain value, or a dict {"output":…, "cost_usd":…}
         # to declare a cost explicitly (e.g. a priced API CAFE can't see).
@@ -267,8 +275,12 @@ class Context:
             output = raw["output"]
             declared_cost = float(raw.get("cost_usd", 0.0) or 0.0)
         # Total = LLM cost + the technique's fixed cost_usd + anything via ctx.add_cost()
-        # + an explicit cost in the return dict.
-        cost = round(auto_cost + spec.cost_usd + sum(manual) + declared_cost, 6)
+        # + an explicit cost in the return dict. An LLM call to a model without a known
+        # price has cost None, and makes the step's cost unknown too: unknown + x = unknown.
+        if any(c is None for c in auto_costs):
+            cost = None
+        else:
+            cost = round(sum(auto_costs) + spec.cost_usd + sum(manual) + declared_cost, 6)
 
         meta = {
             "stage": stage,
@@ -291,7 +303,10 @@ class Context:
             meta["energy_wh"] = round(energy, 6)
             self.total_energy_wh += energy
             self.energy_declared = True
-        self.total_cost += cost
+        if cost is None or self.total_cost is None:
+            self.total_cost = None
+        else:
+            self.total_cost += cost
         self.total_tokens += auto_tokens
         self.trace.append(meta)
         if key is not None:

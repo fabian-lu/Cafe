@@ -164,6 +164,19 @@ technique that itself calls `ctx.run`); each step keeps its own cost. `ctx.add_c
 in the compose function itself, outside any `ctx.run`, counts toward the answer's total
 `cost_usd` but belongs to no stage, so it does not show up in `cafe.stage_report`.
 
+CAFE prices an LLM call at the rate you set with `cafe.set_model_cost`, else from LiteLLM's
+price tables. A model priced by neither (every `ollama_cloud/...` model, and many OpenRouter
+models) gets an **unknown** cost, not $0: CAFE warns once per model, still counts the call's
+tokens, and records `cost_usd` as `None` for the step, for the answer, and for that technique's
+mean in `cafe.stage_report`, since a sum with a part missing would understate the cost.
+`cafe.pareto` treats it like an unreported cost, so a configuration with no known cost leaves
+cost out of the frontier, and the preflight's estimate uses only the answers whose cost is known
+and says so. Set a price to get the cost back:
+
+```python
+cafe.set_model_cost("ollama_cloud/gpt-oss:120b", per_1k_input=0.00015, per_1k_output=0.0006)
+```
+
 ### Energy of a run
 
 Energy is **opt-in**. CAFE never guesses a figure: a step, and the answer, get an `energy_wh`

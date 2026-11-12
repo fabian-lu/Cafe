@@ -10,10 +10,11 @@ Quality is maximized; cost / latency / tokens are minimized. An objective that
 doesn't vary across configs (e.g. cost is 0 for a local model) is dropped from the
 dominance test automatically, so the frontier reflects only what actually trades off.
 
-A cost / tokens / latency value an answer doesn't report is **missing, not zero**: the
-means use only the answers that report it, a configuration reporting it for none of its
-answers gets ``None``, and such an objective is left out of the default dominance test
-(an unreported cost must not make a configuration look free).
+A cost / tokens / latency value an answer doesn't report, or a cost CAFE couldn't price (a
+pipeline that called a model without a known price records ``None``), is **missing, not
+zero**: the means use only the answers that report it, a configuration reporting it for
+none of its answers gets ``None``, and such an objective is left out of the default
+dominance test (an unreported cost must not make a configuration look free).
 
 Needs the ``stats`` extra (pandas); :meth:`ParetoResult.plot` needs matplotlib.
 """

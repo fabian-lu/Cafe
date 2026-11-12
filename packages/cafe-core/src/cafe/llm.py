@@ -48,12 +48,16 @@ _usage_sink: contextvars.ContextVar[list | None] = contextvars.ContextVar(
 
 # User-set price overrides, model string -> {"input": $/1k, "output": $/1k}. Used when
 # LiteLLM's automatic pricing is wrong or missing: a flat subscription, a negotiated
-# rate, self-hosting, or a provider LiteLLM doesn't price (e.g. Ollama Cloud → $0 auto).
+# rate, self-hosting, or a provider LiteLLM doesn't price (e.g. Ollama Cloud, whose
+# calls otherwise get an unknown cost).
 _model_prices: dict[str, dict[str, float]] = {}
 
 # User-declared energy figures, model string -> Wh per 1k tokens. Strictly opt-in: CAFE
 # never guesses one, so a call to a model without a figure records no energy of its own.
 _model_energy: dict[str, float] = {}
+
+# Models already warned about having no known price (see ``_emit_usage``): once each.
+_unpriced_warned: set[str] = set()
 
 
 def set_model_cost(
@@ -68,8 +72,26 @@ def set_model_cost(
     Use ``per_1k_tokens`` for a single blended rate, or ``per_1k_input`` /
     ``per_1k_output`` for separate prompt/completion rates. This takes priority over
     LiteLLM's automatic pricing — set it for subscriptions, negotiated/enterprise
-    rates, self-hosted models, or providers LiteLLM doesn't price. Pass all-None to
-    clear the override.
+    rates, self-hosted models, or providers LiteLLM doesn't price. A model with neither
+    an override nor a LiteLLM price (e.g. every ``ollama_cloud/...`` model and many
+    OpenRouter models) gets an *unknown* cost (``None``), not $0, and CAFE warns once
+    per model. Pass all-None to clear the override.
+
+    Parameters
+    ----------
+    model:
+        The model string exactly as passed to :func:`complete`, e.g.
+        ``"ollama_cloud/gpt-oss:120b"``.
+    per_1k_tokens:
+        One blended rate for prompt and completion tokens.
+    per_1k_input, per_1k_output:
+        Separate prompt / completion rates. Each takes precedence over ``per_1k_tokens``
+        for its side; a side with neither rate is priced at 0.
+
+    Raises
+    ------
+    ValueError
+        If a rate is negative.
     """
     if per_1k_tokens is None and per_1k_input is None and per_1k_output is None:
         _model_prices.pop(model, None)
@@ -138,12 +160,44 @@ def _energy_from_figure(model: str, tokens: int) -> float | None:
     return tokens / 1000 * per_1k
 
 
+def _price_from_litellm(resp: Any) -> float | None:
+    """LiteLLM's price for one completion, or ``None`` if it has no price for the model.
+
+    ``litellm.completion_cost`` raises for a model missing from its price map
+    (``ModelNotMappedError`` in current LiteLLM, a plain ``Exception`` in older ones), so
+    any exception means "no price" — never a free call. A price LiteLLM does state is kept,
+    including a genuine 0.0 (e.g. a local ``ollama/`` model).
+    """
+    try:
+        import litellm
+
+        cost = litellm.completion_cost(completion_response=resp)
+    except Exception:  # noqa: BLE001 — no price for this model; the caller records "unknown"
+        return None
+    return None if cost is None else float(cost)
+
+
+def _warn_unpriced(model: str) -> None:
+    """Warn, once per model, that calls to ``model`` get an unknown cost."""
+    if model in _unpriced_warned:
+        return
+    _unpriced_warned.add(model)
+    warnings.warn(
+        f"no price known for model {model!r} — the cost of its calls is recorded as unknown "
+        "(None), not $0; tokens are still counted. Set a price with "
+        f"cafe.set_model_cost({model!r}, per_1k_input=..., per_1k_output=...).",
+        # _warn_unpriced ← _emit_usage ← complete ← the code that called cafe.complete
+        stacklevel=4,
+    )
+
+
 def _emit_usage(model: str, resp: Any) -> None:
     """Record one completion's tokens + cost (and energy, if declared) to the sink.
 
     Cost priority: (1) a user override via :func:`set_model_cost`, else (2) LiteLLM's
-    automatic pricing, else (3) 0.0 (tokens are still recorded, so it can be priced later).
-    Energy is recorded (as ``energy_wh``) only when ``model`` has a figure from
+    automatic pricing (a genuine 0.0 included), else (3) ``None``: unknown, not free. The
+    tokens are recorded either way, and an unknown price warns once per model. Energy is
+    recorded (as ``energy_wh``) only when ``model`` has a figure from
     :func:`set_model_energy`; without one the record has no ``energy_wh`` key, and the
     technique's own ``energy_wh_per_1k_tokens`` (if any) covers the call's tokens.
     """
@@ -157,12 +211,9 @@ def _emit_usage(model: str, resp: Any) -> None:
 
     cost = _price_from_override(model, prompt_tokens, completion_tokens)
     if cost is None:
-        try:
-            import litellm
-
-            cost = float(litellm.completion_cost(completion_response=resp) or 0.0)
-        except Exception:  # noqa: BLE001 — pricing unknown (e.g. local/Ollama) → cost 0
-            cost = 0.0
+        cost = _price_from_litellm(resp)
+        if cost is None:
+            _warn_unpriced(model)
     record: dict[str, Any] = {"model": model, "tokens": tokens, "cost_usd": cost}
     energy = _energy_from_figure(model, tokens)
     if energy is not None:
@@ -204,7 +255,41 @@ async def complete(
     timeout: float = 120.0,
     **kwargs: Any,
 ) -> str:
-    """Run one chat completion and return the assistant's text content."""
+    """Run one chat completion and return the assistant's text content.
+
+    Called inside a pipeline stage (``ctx.run``), the call's tokens and cost are recorded
+    to that stage. The cost comes from :func:`set_model_cost` if a price is set for
+    ``model``, else from LiteLLM's price tables; a model priced by neither gets an unknown
+    cost (``None``), not $0.
+
+    Parameters
+    ----------
+    model:
+        A LiteLLM model string (``"gpt-4o"``, ``"anthropic/claude-..."``), or
+        ``"ollama_cloud/<model>"`` for Ollama Cloud.
+    messages:
+        The chat messages, ``[{"role": ..., "content": ...}, ...]``.
+    temperature, timeout:
+        The sampling temperature, and the request timeout in seconds.
+    **kwargs:
+        Passed through to ``litellm.acompletion``.
+
+    Returns
+    -------
+    str
+        The reply's text (``""`` if it has none).
+
+    Raises
+    ------
+    LLMError
+        If the call can't be made or fails (missing key, auth, network, provider error),
+        or returns an unexpected payload.
+
+    Warns
+    -----
+    UserWarning
+        Once per model, when a call inside a pipeline stage has no known price.
+    """
     load_env()
     try:
         import litellm

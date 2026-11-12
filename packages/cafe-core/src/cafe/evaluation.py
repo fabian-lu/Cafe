@@ -400,6 +400,14 @@ class Preflight:
     judge_calls: int = 0                                 # judge calls the full study will make
 
     def show(self) -> str:
+        """The preflight as text: each configuration's output, the estimate, the design check.
+
+        Returns
+        -------
+        str
+            The report. The cost estimate reads "unknown" when no sampled answer has a
+            known ``cost_usd``, and a note says so when it rests on only some of them.
+        """
         lines = ["preflight — one input through every configuration:"]
         for o in self.answers.observations:
             cfg = "·".join(f"{k}={o.config[k]}" for k in sorted(o.config))
@@ -412,10 +420,21 @@ class Preflight:
         compute = e.get("est_total_compute_s")
         cost = e.get("est_total_cost_usd")
         compute_s = f"~{compute}s" if compute is not None else "n/a"
-        # Cost is only available if the system returns a `cost_usd` per answer.
-        cost_s = f"~${cost}" if cost is not None else "n/a (system reports no cost_usd)"
+        # Cost is only available from answers with a known `cost_usd`: a system may report
+        # none, and a pipeline's is unknown when it calls a model without a known price.
+        cost_s = f"~${cost}" if cost is not None else (
+            "unknown (no answer has a known cost_usd — the system reports none, or a pipeline "
+            "stage calls a model without a known price: see cafe.set_model_cost)"
+        )
         lines.append("")
         lines.append(f"full study: {e['total_cells']} cells; est. compute {compute_s}, est. cost {cost_s}")
+        known, sampled = e.get("cost_known_cells"), e.get("sampled_cells")
+        if cost is not None and known is not None and sampled is not None and known < sampled:
+            lines.append(
+                f"  note: the cost is extrapolated from the {known} of {sampled} sampled answers "
+                "with a known cost_usd; the others report none, or call a model without a known "
+                "price."
+            )
         # The estimate is answer generation only — the judge phase is not measured here.
         if self.judge_calls:
             lines.append(

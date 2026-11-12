@@ -45,6 +45,22 @@ function Stat({ label, value }) {
 
 const GRID = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 };
 
+// Why the cost estimate is unknown, or rests on only some configurations: cafe-core counts an
+// answer's cost only when it's known — a call to a model without a known price makes it unknown, not $0.
+function CostNote({ estimate: e }) {
+  const known = e.cost_known_cells, sampled = e.sampled_cells;
+  if (known == null || !sampled || known >= sampled) return null;
+  const fix = <>set one with <span className="mono">cafe.set_model_cost(...)</span> in the pipeline's file</>;
+  return (
+    <div className="hint" style={{ marginTop: 6 }}>
+      {known === 0
+        ? <>cost unknown — the pipeline calls a model without a known price; {fix}.</>
+        : <>cost extrapolated from the {known} of {sampled} sampled configurations with a known cost — the
+          others call a model without a known price; {fix}.</>}
+    </div>
+  );
+}
+
 export default function StudyDetail() {
   const { id } = useParams();
   const nav = useNavigate();
@@ -197,11 +213,12 @@ export default function StudyDetail() {
                     <div style={GRID}>
                       <Stat label="full run" value={`${est.estimate.total_cells} cells`} />
                       <Stat label="≈ compute time" value={fmtSecs(est.estimate.est_total_compute_s)} />
-                      <Stat label="≈ cost" value={est.estimate.est_total_cost_usd != null ? `$${est.estimate.est_total_cost_usd}` : "n/a"} />
+                      <Stat label="≈ cost" value={est.estimate.est_total_cost_usd != null ? `$${est.estimate.est_total_cost_usd}` : "unknown"} />
                       <Stat label="judge calls" value={est.judge_calls ?? "—"} />
                     </div>
                     <div className="hint" style={{ marginTop: 10 }}>
                       compute time is summed across cells — wall-clock is lower with parallelism; judging time isn't included.</div>
+                    <CostNote estimate={est.estimate} />
                     {est.warnings?.length > 0 && (
                       <div style={{ marginTop: 10 }}>
                         {est.warnings.map((w, i) => <div key={i} className="hint" style={{ color: "var(--amber-soft)" }}>⚠ {w}</div>)}

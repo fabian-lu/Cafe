@@ -54,7 +54,9 @@ shows it like any other study, without re-running anything.
    message, instead of failing when the study runs.
 3. **New study** — choose which stages/parameters to vary as factors, the questions, a
    judge and rubric, and the number of replications. CAFE shows the configuration count
-   and a cost/time estimate before you commit.
+   and a cost/time estimate before you commit. If the pipeline calls a model without a
+   known price, the cost reads *unknown*, or rests on the configurations whose cost is
+   known; set a price with `cafe.set_model_cost` in the pipeline's file.
 4. **Run** — launch it and watch **live progress** stream as cells complete. A run
    executes inside the backend process: if the backend restarts mid-run, the study is
    marked **failed** and can be re-run from its page (the run starts over).
