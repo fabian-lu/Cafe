@@ -45,6 +45,12 @@ cafe.reliability(raters={"120b": result, "20b": other})     # judge ↔ judge
 agrees with your experts about as well as they agree with each other, the judge is a
 trustworthy stand-in for the rest of the study.
 
+Every rater needs a name of their own. In `cafe.reliability(result, human=human)` the
+judge is the rater `judge`, so a human rater may not be called that: name your experts
+something else, or give the judge another name with `judge_label="llm_judge"`. With
+`raters=`, the human raters may not share a name with its entries either. A clash
+raises a `ValueError` rather than letting the human's scores replace the other rater's.
+
 ## Analyze the humans, not the judge
 
 Sometimes you want the full attribution — which factor drove quality — computed on

@@ -103,6 +103,29 @@ def test_reliability_needs_two_raters():
         cafe.reliability(ev)  # judge only
 
 
+def test_reliability_refuses_a_human_rater_named_like_the_judge():
+    """A human rater named like judge_label ("judge") used to replace the LLM judge: judge
+    vs human then compared two humans, alpha 1.0 although the judge disagreed with both."""
+    ev, keys = _evaluation_with_judge()   # the judge: 5, 4, 5, 3
+    humans = [{"answer_id": k, "rater": r, "score": s}
+              for k, s in zip(keys, [3, 5, 4, 5]) for r in ("judge", "expert")]
+    with pytest.raises(ValueError, match="judge_label="):
+        cafe.reliability(ev, human=humans)
+    rel = cafe.reliability(ev, human=humans, judge_label="llm_judge")
+    assert set(rel.raters) == {"llm_judge", "judge", "expert"}
+    assert rel.alpha < 0.5
+
+
+def test_reliability_refuses_a_human_rater_named_like_a_raters_entry():
+    ev, keys = _evaluation_with_judge()
+    humans = [{"answer_id": k, "rater": "B", "score": 1} for k in keys]
+    with pytest.raises(ValueError, match="raters="):
+        cafe.reliability(raters={"A": ev, "B": ev}, human=humans)
+    # With raters=, the evaluation's judge is no rater, so "judge" is a free name.
+    judge_named = [dict(h, rater="judge") for h in humans]
+    assert set(cafe.reliability(ev, raters={"A": ev}, human=judge_named).raters) == {"A", "judge"}
+
+
 def test_reliability_table_path_and_pairwise():
     table = {
         "j": {1: 5, 2: 4, 3: 3, 4: 2},
