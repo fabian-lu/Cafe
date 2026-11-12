@@ -52,12 +52,36 @@ _GENERATORS = {
     "fractional": _fractional,
 }
 
+#: The ``design_options`` each design takes (passed to it as keyword arguments).
+_OPTIONS: dict[str, tuple[str, ...]] = {
+    "full_factorial": (),
+    "single": (),
+    "fractional": ("runs", "generators"),
+}
+
 
 def generate(study: Study) -> list[Config]:
     """Expand a study's design into its list of configurations.
 
-    A study's ``design_options`` dict is passed to designs that take parameters
-    (e.g. ``fractional`` accepts ``runs`` / ``generators``).
+    Parameters
+    ----------
+    study:
+        The study. Its ``design_options`` dict is passed to designs that take parameters:
+        ``fractional`` accepts ``runs`` / ``generators``; ``full_factorial`` and
+        ``single`` take none.
+
+    Returns
+    -------
+    list of dict
+        One ``{factor: level}`` dict per configuration.
+
+    Raises
+    ------
+    ValueError
+        If the design is unknown, if ``design_options`` holds an option the design
+        doesn't take (e.g. ``runs`` left over after switching a study from
+        ``fractional`` back to ``full_factorial``: ignoring it could run many times the
+        configurations it asked for), or if the design itself rejects the factors.
     """
     try:
         gen = _GENERATORS[study.design]
@@ -66,11 +90,27 @@ def generate(study: Study) -> list[Config]:
             f"unknown design {study.design!r}; available: {sorted(_GENERATORS)}"
         ) from None
     options = getattr(study, "design_options", None) or {}
+    takes = _OPTIONS.get(study.design, ())
+    unknown = [k for k in options if k not in takes]
+    if unknown:
+        owner = next((d for d, opts in _OPTIONS.items() if set(unknown) <= set(opts)), None)
+        raise ValueError(
+            f"design={study.design!r} doesn't take design_options {unknown}"
+            + (f", which are for design={owner!r}: remove them, or set design={owner!r}"
+               if owner else f"; it takes {', '.join(takes) or 'none'}")
+        )
     if options:
         return gen(study.factors, **options)
     return gen(study.factors)
 
 
 def size(study: Study) -> int:
-    """Number of configurations the design will produce (without running it)."""
+    """Number of configurations the design will produce (without running it).
+
+    Raises
+    ------
+    ValueError
+        Whenever :func:`generate` does, e.g. for ``design_options`` the design doesn't
+        take.
+    """
     return len(generate(study))

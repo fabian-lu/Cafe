@@ -51,6 +51,24 @@ def test_single_rejects_varying_factor():
         generate(_study(design="single"))
 
 
+def test_design_options_the_design_does_not_take_are_refused_by_name():
+    """Switching a study back to full_factorial with design_options={"runs": 16} still set
+    failed with "full_factorial() got an unexpected keyword argument 'runs'"."""
+    import pytest
+
+    for design in ("full_factorial", "single"):
+        study = _study(design=design, design_options={"runs": 16})
+        with pytest.raises(ValueError, match=r"doesn't take design_options \['runs'\], which "
+                                             r"are for design='fractional'"):
+            size(study)
+    misspelt = Study(name="t", system=lambda config, item: "x", dataset=["q"],
+                     factors=[Factor(c, [0, 1]) for c in "ABCDE"],
+                     design="fractional", design_options={"run": 16})
+    with pytest.raises(ValueError, match=r"\['run'\]; it takes runs, generators"):
+        generate(misspelt)
+    assert size(_study(design_options={})) == 6
+
+
 def test_factor_validation():
     import pytest
 
