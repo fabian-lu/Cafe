@@ -38,7 +38,7 @@ export default function Questions() {
                 <tr key={d.id} style={{ cursor: "pointer" }} onClick={() => nav(`/questions/${d.id}`)}>
                   <td className="mono" style={{ color: "var(--amber-soft)" }}>{d.name}</td>
                   <td>{d.items.length}</td>
-                  <td className="muted">{d.items.filter((i) => i.reference).length}</td>
+                  <td className="muted">{d.items.filter((i) => i.reference != null && i.reference !== "").length}</td>
                   <td style={{ textAlign: "right" }} onClick={(e) => e.stopPropagation()}>
                     <button className="btn btn-sm ghost" onClick={() => nav(`/questions/${d.id}`)}>view</button>{" "}
                     <button className="btn btn-sm danger"
