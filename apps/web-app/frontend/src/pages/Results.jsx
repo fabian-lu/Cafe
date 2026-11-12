@@ -301,9 +301,15 @@ function FactorTests({ tests }) {
 }
 
 // ── ordinal CLMM ─────────────────────────────────────────────────────────────────
+// cafe-core's reasons when R or an R package is missing (stats/ordinal.py check_r, clmm.R;
+// "the 'ordinal' package is missing", or "the R package(s) … is/are missing"):
+// only then does installing R help — any other reason is about the data or the fit itself
+const rMissing = (reason) =>
+  /Rscript not found|Rscript present but failed|packages? .*(is|are) missing|R package .* not installed/.test(reason || "");
+
 function CLMMTable({ clmm }) {
   if (!clmm.available) return <div className="card" style={{ marginBottom: 16 }}>
-    <div className="hint">ordinal model not fitted{clmm.reason ? ` — ${clmm.reason}` : ""}. Install R + the <span className="mono">ordinal</span> package (<span className="mono">cafe doctor</span>) to enable it.</div></div>;
+    <div className="hint">ordinal model not fitted{clmm.reason ? ` — ${clmm.reason}` : ""}.{rMissing(clmm.reason) && <> Install R + the <span className="mono">ordinal</span> package (<span className="mono">cafe doctor</span>) to enable it.</>}</div></div>;
   const coefs = [...clmm.coefficients].sort((a, b) => Math.abs(b.estimate || 0) - Math.abs(a.estimate || 0));
   return (
     <div className="card" style={{ marginBottom: 16 }}>
