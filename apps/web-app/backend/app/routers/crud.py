@@ -175,8 +175,17 @@ async def create_study(body: schemas.StudyIn, db: AsyncSession = Depends(get_ses
 
 @router.post("/studies/{id_}/archive", response_model=schemas.StudyOut)
 async def archive_study(id_: int, db: AsyncSession = Depends(get_session)):
-    """Soft-delete: hide the study but keep its results/ratings (the default 'delete' action)."""
+    """Soft-delete: hide the study but keep its results/ratings (the default 'delete' action).
+
+    Raises
+    ------
+    HTTPException
+        404 for an unknown study; 409 while it is running (archive it once the run has ended).
+    """
     study = await _get_or_404(db, models.Study, id_)
+    if study.status == "running":
+        raise HTTPException(409, "the study is running — wait for its run to finish before "
+                                 "archiving it")
     study.archived = True
     await db.commit()
     await db.refresh(study)
@@ -337,8 +346,18 @@ async def import_study(request: Request, attach_to: int | None = None,
 @router.delete("/studies/{id_}", status_code=204)
 async def delete_study(id_: int, db: AsyncSession = Depends(get_session)):
     """Permanent delete — destroys the run's results/ratings. Guarded: a study must be archived
-    first, so an expensive run can never be lost with a single accidental click."""
+    first, so an expensive run can never be lost with a single accidental click.
+
+    Raises
+    ------
+    HTTPException
+        404 for an unknown study; 409 while it is running (an archived study can be re-run)
+        or if it isn't archived yet.
+    """
     study = await _get_or_404(db, models.Study, id_)
+    if study.status == "running":
+        raise HTTPException(409, "the study is running — wait for its run to finish before "
+                                 "deleting it")
     if not study.archived:
         raise HTTPException(409, "archive the study before permanently deleting it")
     # remove dependent rows first (avoids FK violations), then the study

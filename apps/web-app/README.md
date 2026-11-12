@@ -40,7 +40,7 @@ All pages are implemented:
 
 - **Studies** — create a study over one of the discovered pipelines, optionally with extra rubrics
   (each judges the same answers as its own dimension); estimate time/cost, run it with live progress,
-  archive/restore/delete. **Import study** loads a `cafe.save_evaluation` bundle (or a
+  archive/restore/delete (not while it runs). **Import study** loads a `cafe.save_evaluation` bundle (or a
   multi-dimension bundle) without re-running anything.
 - **Questions / Rubrics** — create, view and delete question datasets and rubrics.
 - **Techniques** — the discovered pipelines with their stages, techniques and parameters.
