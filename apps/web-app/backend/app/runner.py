@@ -534,6 +534,55 @@ def record_output(rec: dict) -> Any:
     return rec["output"] if "output" in rec else rec.get("answer")
 
 
+def dataset_items(items: list | None) -> list[dict]:
+    """A dataset's items in the shape the API and the pages expect: one object per question.
+
+    cafe-core also takes plain strings (or other values) as items and names such an item by
+    its position, ``in<i>``. Each one becomes ``{"id": "in<i>", "text": str(item)}``, so it
+    keeps the id and question its results were recorded under; object items stay as they are.
+
+    Parameters
+    ----------
+    items : list or None
+        The items as a ``cafe.Study`` dataset, or a saved evaluation's ``items``, holds them.
+
+    Returns
+    -------
+    list of dict
+        The items, every one an object.
+    """
+    from cafe.execution import _input_id
+
+    return [it if isinstance(it, dict) else {"id": _input_id(it, i), "text": str(it)}
+            for i, it in enumerate(items or [])]
+
+
+async def normalize_stored_dataset_items() -> int:
+    """Store every dataset's items as objects (called once at startup).
+
+    An import used to store a bundle's plain-string items as they were; the API serves items
+    as objects, so from then on every dataset listing failed. :func:`dataset_items` rewrites
+    them, keeping their ids and questions.
+
+    Returns
+    -------
+    int
+        How many datasets were rewritten.
+    """
+    from sqlalchemy import select
+
+    fixed = 0
+    async with SessionLocal() as db:
+        for ds in (await db.execute(select(models.Dataset))).scalars():
+            if any(not isinstance(it, dict) for it in ds.items or []):
+                ds.items = dataset_items(ds.items)
+                fixed += 1
+        await db.commit()
+    if fixed:
+        print(f"[startup] stored the items of {fixed} dataset(s) as objects")
+    return fixed
+
+
 def _evaluation_from_payload(payload: dict, items: list[dict], keep_ids: set[str],
                              name: str = "filtered"):
     """Reconstruct a minimal cafe Evaluation from a stored results payload, restricted to

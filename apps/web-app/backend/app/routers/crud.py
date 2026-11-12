@@ -233,6 +233,10 @@ async def import_study(request: Request, attach_to: int | None = None,
     (the same answers judged on several rubrics, e.g. via ``result.rejudge``). One POST creates
     the study with ALL its dimensions; the Results page then offers a dimension selector.
 
+    The new study's question set is the bundle's items. cafe-core also takes plain strings as
+    items: each is stored as an object, ``{"id": "in<i>", "text": ...}``, with the position id
+    its answers were recorded under (see :func:`app.runner.dataset_items`).
+
     ``?attach_to=<study_id>`` adds the bundle's dimension(s) to an existing study instead of
     creating a new one (rarely needed — e.g. re-judging an old study on a new rubric later).
 
@@ -290,11 +294,14 @@ async def import_study(request: Request, attach_to: int | None = None,
     first, first_payload = evs[0], payloads[0]
     rubric = _rubric_row(first)
     ids = list(first.questions) or sorted({o.input_id for o in first.answers.observations})
+    from app.runner import dataset_items
+
     # Prefer the bundle's full items (id/text/reference + metadata keys — feeds the question
-    # filters); fall back to rebuilding bare items from the question/reference maps.
+    # filters; a plain-string item becomes an object with its in<i> id); fall back to
+    # rebuilding bare items from the question/reference maps.
     dataset = models.Dataset(
         name=f"{name_override or first.study_name or 'imported'} (imported)",
-        items=(list(first.items) if getattr(first, "items", None) else
+        items=(dataset_items(first.items) if getattr(first, "items", None) else
                [{"id": i, "text": first.questions.get(i, ""), "reference": first.references.get(i)}
                 for i in ids]),
     )
