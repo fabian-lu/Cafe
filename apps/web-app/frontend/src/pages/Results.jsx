@@ -529,16 +529,22 @@ function AnswerDetail({ row, factors, onClose }) {
   );
 }
 
+// Records hold one row per verdict, so with judge replications an answer has several rows:
+// count the answers themselves — distinct (configuration, question, replication).
+const countAnswers = (records, factors) =>
+  new Set(records.map((r) => JSON.stringify([...factors.map((f) => r[f]), r.input_id, r.rep]))).size;
+
 function Records({ records, factors }) {
   const [vf, setVf] = useState("");
   const [detail, setDetail] = useState(null);
   const verdicts = useMemo(() => [...new Set(records.map((r) => r.verdict).filter((v) => v != null))].sort((a, b) => a - b), [records]);
+  const nAnswers = useMemo(() => countAnswers(records, factors), [records, factors]);
   const filtered = vf === "" ? records : records.filter((r) => String(r.verdict) === vf);
   const shown = filtered.slice(0, 80);
   return (
     <div className="card">
       <div className="row-between" style={{ marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
-        <div className="hint mono" style={{ margin: 0 }}>{records.length} answers · click a row for the full text</div>
+        <div className="hint mono" style={{ margin: 0 }}>{nAnswers} answers · click a row for the full text</div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <span className="hint mono" style={{ margin: 0 }}>verdict:</span>
           <button className={"btn btn-sm" + (vf === "" ? " primary" : "")} onClick={() => setVf("")}>all</button>
@@ -657,6 +663,9 @@ export default function Results() {
     return vals.length ? Math.max(...vals) : null;
   }, [res]);
 
+  // a filtered view carries no run timing (it is full-run only): count its answers from the records
+  const nAnswers = useMemo(() => (res?.records ? countAnswers(res.records, res.factors || []) : null), [res]);
+
   const factors = res?.factors || [];
   const scale = res?.rubric?.scale_type;
   const marginalMax = scaleMax || Math.max(...(res?.marginal_means || []).map((r) => r.mean), 0.0001);
@@ -726,7 +735,7 @@ export default function Results() {
           <div className="card" style={{ marginBottom: 16 }}>
             <div style={GRID}>
               <Stat label="overall mean quality" value={fmt(res.overall_mean, 2)} sub={scaleMax != null ? `of ${scaleMax}` : null} />
-              <Stat label="answers" value={res.timing?.n_answers ?? res.records?.length ?? "—"} />
+              <Stat label="answers" value={res.timing?.n_answers ?? nAnswers ?? "—"} />
               <Stat label="configurations" value={res.config_means?.length ?? "—"} />
               <Stat label={<InfoTip label="variance explained">{G.r2}</InfoTip>} value={res.r_squared != null ? pct(res.r_squared) : "—"} />
             </div>
