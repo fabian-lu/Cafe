@@ -40,7 +40,9 @@ pipeline.
 
 Already ran a study in Python? **Import study** on the Studies page takes a
 `cafe.save_evaluation` bundle (or a multi-dimension bundle holding one per rubric) and
-shows it like any other study, without re-running anything.
+shows it like any other study, without re-running anything. A script can post the same
+file to `POST /api/studies/import`: the body is the bundle's JSON itself, and anything
+else, such as a file path, is refused, so an import never reads a file on the server.
 
 ## The flow
 

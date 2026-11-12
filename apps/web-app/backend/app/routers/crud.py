@@ -206,6 +206,51 @@ def _rubric_row(ev) -> models.Rubric:
     )
 
 
+def _json_kind(value) -> str:
+    """The JSON type of a parsed value, for error messages ("a string", "an array", …)."""
+    if isinstance(value, bool):  # before int: bool is an int subclass
+        return "a boolean"
+    if isinstance(value, (int, float)):
+        return "a number"
+    return {str: "a string", list: "an array", dict: "an object"}.get(type(value), "null")
+
+
+def _bundles_of(raw) -> tuple[list[dict], str | None]:
+    """The evaluation bundles in an import body, and the multi-dimension bundle's name.
+
+    ``cafe.load_evaluation`` also takes a *path* (a ``str``) and opens that file, which here
+    would be a file on the server. So every bundle must be a JSON object before it reaches
+    ``load_evaluation``: a string, array, number, boolean or null is refused, never opened.
+
+    Parameters
+    ----------
+    raw
+        The parsed JSON body: a ``cafe.save_evaluation`` bundle, or a multi-dimension bundle
+        ``{"dimensions": {<name>: <bundle>, ...}, "name": ...}``.
+
+    Returns
+    -------
+    tuple[list[dict], str | None]
+        The bundles in order, and the multi-dimension bundle's ``name`` (``None`` for a single
+        bundle).
+
+    Raises
+    ------
+    HTTPException
+        400 if the body, or a dimension's bundle, is not a JSON object.
+    """
+    if not isinstance(raw, dict):
+        raise HTTPException(400, "not a valid cafe evaluation bundle: expected a JSON object "
+                                 f"(the bundle file's contents), got {_json_kind(raw)}")
+    if not (isinstance(raw.get("dimensions"), dict) and raw["dimensions"]):
+        return [raw], None
+    for dim, bundle in raw["dimensions"].items():
+        if not isinstance(bundle, dict):
+            raise HTTPException(400, f"dimension {dim!r} is not a valid cafe evaluation bundle: "
+                                     f"expected a JSON object, got {_json_kind(bundle)}")
+    return list(raw["dimensions"].values()), raw.get("name")
+
+
 async def _attach_dimension(db: AsyncSession, study: models.Study, ev, payload) -> None:
     """Add one Evaluation as an additional dimension (Rubric + StudyResult row) of ``study``."""
     rb_name = ev.ratings.rubric.name
@@ -236,6 +281,10 @@ async def import_study(request: Request, attach_to: int | None = None,
     ``?attach_to=<study_id>`` adds the bundle's dimension(s) to an existing study instead of
     creating a new one (rarely needed — e.g. re-judging an old study on a new rubric later).
 
+    The body is the bundle's content, never a path: a body or dimension that is not a JSON
+    object is refused (400) before cafe-core sees it, so an import never opens a file on the
+    server.
+
     Raises
     ------
     HTTPException
@@ -253,12 +302,7 @@ async def import_study(request: Request, attach_to: int | None = None,
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(400, f"not valid JSON: {exc}")
 
-    name_override = None
-    if isinstance(raw, dict) and isinstance(raw.get("dimensions"), dict) and raw["dimensions"]:
-        name_override = raw.get("name")
-        bundles = list(raw["dimensions"].values())
-    else:
-        bundles = [raw]
+    bundles, name_override = _bundles_of(raw)
 
     evs = []
     for b in bundles:
