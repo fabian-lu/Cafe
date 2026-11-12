@@ -23,6 +23,7 @@ from __future__ import annotations
 import contextvars
 import json
 import time
+from inspect import isawaitable
 from typing import TYPE_CHECKING, Any
 
 from cafe import llm
@@ -146,7 +147,11 @@ class Context:
         manual_token = _manual_cost_sink.set((self, manual))
         t0 = time.monotonic()
         try:
-            raw = await spec.fn(self, **inputs, **params)
+            # An ``async def`` technique returns an awaitable, a plain ``def`` its output. It's
+            # awaited in here, so the LLM usage and costs it incurs still count for this step.
+            raw = spec.fn(self, **inputs, **params)
+            if isawaitable(raw):
+                raw = await raw
         finally:
             _manual_cost_sink.reset(manual_token)
             llm._usage_sink.reset(token)
