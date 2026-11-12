@@ -13,6 +13,11 @@ Keys are read from the environment / nearest ``.env``. ``litellm`` is imported
 lazily and only required if you actually call an LLM (``pip install
 'cafe-core[llm]'``). If you need something LiteLLM doesn't cover, plug in your own
 :class:`cafe.Judge` instead — there is no client abstraction to implement.
+
+``ollama_cloud/`` models go to ``https://ollama.com``, or to the endpoint in
+``OLLAMA_HOST`` if that is an ``https://`` URL. Any other ``OLLAMA_HOST`` (Ollama's own
+tools read it as the address of an Ollama server, e.g. ``127.0.0.1:11434``) is ignored
+for them, with a warning.
 """
 
 from __future__ import annotations
@@ -112,6 +117,49 @@ def _emit_usage(model: str, resp: Any) -> None:
     sink.append({"model": model, "tokens": tokens, "cost_usd": cost})
 
 
+# Where ollama_cloud/ models go unless OLLAMA_HOST names another https:// endpoint.
+_OLLAMA_CLOUD = "https://ollama.com"
+# OLLAMA_HOST values already warned about as not used for ollama_cloud/ models: once each.
+_ollama_host_warned: set[str] = set()
+
+
+def _ollama_cloud_base() -> str:
+    """The base URL of Ollama Cloud's OpenAI-compatible API (``<host>/v1``) for this call.
+
+    The host is ``OLLAMA_HOST`` when that is an ``https://`` URL, else
+    ``https://ollama.com``. Surrounding whitespace, trailing slashes and a trailing ``/v1``
+    or ``/api`` are dropped, so ``https://ollama.com/v1`` does not become ``…/v1/v1``.
+
+    Ollama's own tools (the ``ollama`` CLI, server and Python client) read the same variable
+    as the address of an Ollama server, such as a local daemon: ``127.0.0.1:11434``,
+    ``0.0.0.0``, ``http://localhost:11434``. Such a value, often exported in the shell
+    (where it wins over ``.env``), is never Ollama Cloud, which is served over HTTPS
+    only. So a value without ``https://`` is not used here, with a warning once per value,
+    rather than sending ``ollama_cloud/`` calls and the cloud key to that server, or to a
+    URL without a scheme.
+    """
+    raw = os.environ.get("OLLAMA_HOST") or ""
+    host = raw.strip().rstrip("/")
+    if not host:
+        return f"{_OLLAMA_CLOUD}/v1"
+    if not host.lower().startswith("https://"):
+        if raw not in _ollama_host_warned:
+            _ollama_host_warned.add(raw)
+            warnings.warn(
+                f"OLLAMA_HOST={raw!r} is not an https:// URL, so 'ollama_cloud/' models ignore "
+                f"it and go to {_OLLAMA_CLOUD}. (Ollama's own tools read OLLAMA_HOST as the "
+                "address of an Ollama server; reach a local one with 'ollama/<model>'.) To send "
+                "'ollama_cloud/' models elsewhere, set OLLAMA_HOST to an https:// URL.",
+                stacklevel=4,  # _ollama_cloud_base ← _route ← complete ← its caller
+            )
+        return f"{_OLLAMA_CLOUD}/v1"
+    for suffix in ("/v1", "/api"):  # the API path pasted with the host: it is added below
+        if host.lower().endswith(suffix):
+            host = host[: -len(suffix)].rstrip("/")
+            break
+    return f"{host}/v1"
+
+
 def _route(model: str, kwargs: dict[str, Any]) -> dict[str, Any]:
     """Map a ``model`` string to LiteLLM call kwargs.
 
@@ -122,7 +170,10 @@ def _route(model: str, kwargs: dict[str, Any]) -> dict[str, Any]:
 
     - ``"ollama/<model>"``        → local daemon, handled entirely by LiteLLM.
     - ``"ollama_cloud/<model>"``  → Ollama Cloud (``ollama.com``); routed here to its
-      OpenAI-compatible endpoint with ``OLLAMA_API_KEY`` (and optional ``OLLAMA_HOST``).
+      OpenAI-compatible endpoint with ``OLLAMA_API_KEY``. ``OLLAMA_HOST`` may name
+      another ``https://`` endpoint; a value in the form Ollama's own tools use for an
+      Ollama server (``127.0.0.1:11434``, ``http://localhost:11434``) is not used for it
+      (see :func:`_ollama_cloud_base`).
     """
     out = {"model": model, **kwargs}
     if model.startswith("ollama_cloud/"):
@@ -133,8 +184,7 @@ def _route(model: str, kwargs: dict[str, Any]) -> dict[str, Any]:
                 "model 'ollama_cloud/...' needs OLLAMA_API_KEY (set it in .env). "
                 "For a local Ollama daemon use 'ollama/<model>' instead."
             )
-        host = (os.environ.get("OLLAMA_HOST") or "https://ollama.com").rstrip("/")
-        out.update(model=f"openai/{tag}", api_base=f"{host}/v1", api_key=key)
+        out.update(model=f"openai/{tag}", api_base=_ollama_cloud_base(), api_key=key)
     return out
 
 
