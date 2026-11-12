@@ -355,7 +355,16 @@ async def estimate_study(study_id: int) -> dict[str, Any]:
 
 
 async def run_study_task(study_id: int) -> None:
-    """Background task: execute the study and cache its results."""
+    """Background task: execute the study and cache its results.
+
+    A re-run replaces the study's stored results, then drops the filtered views computed from
+    them (:func:`app.filtered_views.forget`).
+
+    Parameters
+    ----------
+    study_id : int
+        The study to run; ``POST /studies/{id}/run`` has already marked it ``"running"``.
+    """
     PROGRESS[study_id] = {"phase": "starting", "done": 0, "total": 0, "status": "running"}
     try:
         import time as _time
@@ -425,6 +434,9 @@ async def run_study_task(study_id: int) -> None:
                 traceback.print_exc()
             # upsert one cached result row per dimension
             from sqlalchemy import select
+
+            from app import filtered_views
+            replaced = []
             for dim_name, dim_payload in dim_payloads.items():
                 res = (await db.execute(select(models.StudyResult).where(
                     models.StudyResult.study_id == study_id,
@@ -433,7 +445,15 @@ async def run_study_task(study_id: int) -> None:
                     db.add(models.StudyResult(study_id=study_id, dimension=dim_name, payload=dim_payload))
                 else:
                     res.payload = dim_payload
+                    replaced.append(res.id)
             await db.commit()
+            # the filtered views of the replaced payloads no longer match them, so they are never
+            # served; drop them too, best effort: a finished run must not be marked failed over them
+            try:
+                await filtered_views.forget(db, study_id, replaced)
+                await db.commit()
+            except Exception:  # noqa: BLE001
+                traceback.print_exc()
         PROGRESS[study_id].update({"phase": "done", "status": "done"})
     except asyncio.CancelledError:
         # The task was cancelled (e.g. Ctrl+C: asyncio cancels leftover tasks on the way out).

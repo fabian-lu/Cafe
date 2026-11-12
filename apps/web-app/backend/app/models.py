@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text,
+                        UniqueConstraint)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -113,3 +114,23 @@ class StudyResult(Base):
     dimension: Mapped[str] = mapped_column(String(200), default="quality")  # rubric name of this pass
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class FilteredResult(Base):
+    """A StudyResult's payload recomputed on the questions whose metadata ``fkey`` equals ``fval``
+    (a question filter on the Results page), stored so each view is computed once instead of once
+    per backend process. ``version`` names the payload it was computed from; a view whose version
+    no longer matches its StudyResult is never served (see app/filtered_views.py)."""
+    __tablename__ = "filtered_results"
+    __table_args__ = (UniqueConstraint("study_result_id", "fkey", "fval",
+                                       name="uq_filtered_results_view"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # No FOREIGN KEY: db._migrate_sqlite rebuilds study_results by renaming it, which would
+    # re-point the reference at the dropped copy. filtered_views.forget() removes the views of
+    # replaced or deleted results instead.
+    study_result_id: Mapped[int] = mapped_column(Integer)
+    fkey: Mapped[str] = mapped_column(Text)
+    fval: Mapped[str] = mapped_column(Text)
+    version: Mapped[str] = mapped_column(String(200))   # filtered_views.view_version(parent payload)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

@@ -14,19 +14,30 @@ import sys
 from sqlalchemy import select
 
 from app.db import SessionLocal, init_db
-from app import models
+from app import filtered_views, models
 
 
 async def _replace_payload(path: str, study_id: int) -> None:
     """Update just an existing study's cached StudyResult.payload (e.g. after adding a field like
-    timing to the payload) — leaves the Study/Rubric/Dataset rows untouched."""
+    timing to the payload) — leaves the Study/Rubric/Dataset rows untouched. The filtered views
+    stored for the old payload are dropped with it.
+
+    Parameters
+    ----------
+    path : str
+        A recovered-payload JSON file (``{"payload": …}``).
+    study_id : int
+        The study whose StudyResult is replaced.
+    """
     blob = json.load(open(path, encoding="utf-8"))
+    await init_db()  # a database from before filtered views were stored lacks their table
     async with SessionLocal() as db:
         res = (await db.execute(select(models.StudyResult).where(
             models.StudyResult.study_id == study_id))).scalar_one_or_none()
         if res is None:
             raise SystemExit(f"study {study_id} has no StudyResult to replace")
         res.payload = blob["payload"]
+        await filtered_views.forget(db, study_id, [res.id])
         await db.commit()
         print(f"replaced payload for study {study_id} "
               f"(records={len(blob['payload'].get('records', []))}, timing={'yes' if blob['payload'].get('timing') else 'no'})")

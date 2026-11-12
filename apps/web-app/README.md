@@ -34,6 +34,17 @@ uvicorn app.main:app --reload
 cd apps/web-app/frontend && npm install && npm run dev
 ```
 
+## Tests
+
+The backend has a pytest suite. Each test runs the app in-process on its own temporary SQLite
+database, with no LLM calls and no network access:
+
+```bash
+cd apps/web-app/backend
+pip install pytest pytest-asyncio httpx   # on top of requirements.txt and cafe-core
+pytest
+```
+
 ## Status
 
 All pages are implemented:
@@ -47,7 +58,9 @@ All pages are implemented:
 - **Results** — attribution, marginal means, interactions, the configuration ranking, effect sizes,
   the ordinal or binary model (by rubric scale), variance components, latency, verdict distribution, run timing and
   cost/quality. Multi-rubric studies get a dimension selector. Extra question fields (2–30 distinct
-  values) become filters that recompute the statistics on that subset of questions. Energy is shown
+  values) become filters that recompute the statistics on that subset of questions. Each filtered
+  view is computed once and stored in the database, so afterwards it opens at once, also after a
+  restart; a re-run or a statistics update computes it again. Energy is shown
   when the pipeline's techniques declare coefficients.
 - **Raters** — score a study's answers by name on the judge's rubric and see judge↔human and
   human↔human Krippendorff's α (on the primary dimension).

@@ -10,7 +10,7 @@ from sqlalchemy import delete as sql_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import models, schemas
+from app import filtered_views, models, schemas
 from app.db import get_session
 
 router = APIRouter(prefix="/api", tags=["crud"])
@@ -336,12 +336,20 @@ async def import_study(request: Request, attach_to: int | None = None,
 
 @router.delete("/studies/{id_}", status_code=204)
 async def delete_study(id_: int, db: AsyncSession = Depends(get_session)):
-    """Permanent delete — destroys the run's results/ratings. Guarded: a study must be archived
-    first, so an expensive run can never be lost with a single accidental click."""
+    """Permanent delete — destroys the run's results (with their stored filtered views) and
+    ratings. Guarded: a study must be archived first, so an expensive run can never be lost with
+    a single accidental click.
+
+    Raises
+    ------
+    HTTPException
+        404 for an unknown study; 409 if it isn't archived.
+    """
     study = await _get_or_404(db, models.Study, id_)
     if not study.archived:
         raise HTTPException(409, "archive the study before permanently deleting it")
     # remove dependent rows first (avoids FK violations), then the study
+    await filtered_views.forget(db, id_)  # before its results: finds the views through them
     await db.execute(sql_delete(models.StudyResult).where(models.StudyResult.study_id == id_))
     await db.execute(sql_delete(models.HumanRating).where(models.HumanRating.study_id == id_))
     await db.execute(sql_delete(models.Answer).where(models.Answer.study_id == id_))

@@ -44,7 +44,8 @@ ruff check .           # lint
 ruff format .          # format
 ```
 
-Please add or update tests for any behavior change, and keep `ruff check` clean.
+Please add or update tests for any behavior change, and keep `ruff check` clean. The web app's
+backend has a test suite of its own; see the [web app README](apps/web-app/README.md#tests).
 
 ### Running the web app
 

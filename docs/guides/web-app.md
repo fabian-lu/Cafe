@@ -63,7 +63,10 @@ shows it like any other study, without re-running anything.
    means, and the best configuration. A study created with extra rubrics (each judges
    the same answers as its own dimension) gets a dimension selector; extra fields on the
    questions (2–30 distinct values) become filters that recompute the statistics on that
-   subset; energy is shown when the pipeline's techniques declare it. (See
+   subset. The first time a filter value is opened, this takes from a few seconds up to
+   about a minute; the view is then stored, so it opens at once, also after a restart, until
+   a re-run or an update of the statistics replaces the results. Energy is shown when the
+   pipeline's techniques declare it. (See
    [Interpreting results](../interpreting-results.md) for how to read these.)
 6. **Raters** — collect human ratings by name and see judge↔human reliability, the
    platform version of the [human-ratings workflow](human-ratings.md). A rating belongs
