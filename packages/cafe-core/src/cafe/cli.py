@@ -34,6 +34,13 @@ def _load_study(target: str) -> Study:
     ``example`` -> the bundled toy study. Otherwise ``target`` is a path to a
     .py file exposing a module-level ``study`` or a ``build_study()``/
     ``build_example_study()`` callable.
+
+    The file is imported the way ``python study.py`` runs it: registered in
+    ``sys.modules`` (``@dataclass`` and pickle look a class's module up there) and
+    with its directory first on ``sys.path``, so it can import the modules next to
+    it (``from helpers import answer``). The directory stays on ``sys.path`` for the
+    rest of the command, since the study's system may import such modules lazily
+    while it runs; :func:`main` restores ``sys.path`` when the command is done.
     """
     if target == "example":
         from cafe.examples import build_example_study
@@ -48,7 +55,13 @@ def _load_study(target: str) -> Study:
     if spec is None or spec.loader is None:
         raise SystemExit(f"cafe: could not import {target!r}")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    sys.path.insert(0, str(path.resolve().parent))
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(spec.name, None)
+        raise
 
     for attr in ("study", "STUDY"):
         obj = getattr(module, attr, None)
@@ -316,7 +329,11 @@ def main(argv: list[str] | None = None) -> int:
     if not getattr(args, "command", None):
         parser.print_help()
         return 0
-    return args.func(args)
+    saved_path = sys.path[:]
+    try:
+        return args.func(args)
+    finally:
+        sys.path[:] = saved_path  # drop the study file's directory (see _load_study)
 
 
 if __name__ == "__main__":  # pragma: no cover
