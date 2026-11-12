@@ -8,7 +8,7 @@ from typing import Callable
 from cafe.execution.progress import progress_bar
 from cafe.execution.results import Results
 from cafe.judging.judge import Judge
-from cafe.judging.ratings import Rating, Ratings
+from cafe.judging.ratings import JudgeOutput, Rating, Ratings
 from cafe.judging.rubric import Rubric
 
 ProgressFn = Callable[[Rating, int, int], None]
@@ -33,6 +33,12 @@ async def judge_results(
 
     ``questions`` / ``references`` map ``input_id`` -> text so the judge sees the
     original question and any gold answer.
+
+    A judge call that raises (a custom judge's grading service is down, say) doesn't stop
+    the run: that verdict becomes an error rating, ``"judge raised <Type>: <message>"``,
+    listed by :meth:`Ratings.failures` and, with ``checkpoint_path``, judged again on
+    resume like any failed verdict. A cancellation (``asyncio.CancelledError``) still
+    stops the run.
 
     Parameters
     ----------
@@ -124,7 +130,16 @@ async def judge_results(
             reference = references.get(obs.input_id)
             answer = obs.output if isinstance(obs.output, str) else str(obs.output)
             async with sem:
-                out = await judge.score(rubric, question, answer, reference)
+                try:
+                    out = await judge.score(rubric, question, answer, reference)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001 — isolation, as for the system's cells
+                    # One failing call (a custom judge's grading service down, say) is one
+                    # error verdict, in ratings.failures() and retried on resume, not an
+                    # exception that discards every answer already generated and paid for.
+                    failure = f"judge raised {type(exc).__name__}" + (f": {exc}" if str(exc) else "")
+                    out = JudgeOutput(None, None, failure, "", None)
             rating = Rating(
                 obs_key=obs.key(),
                 config=dict(obs.config),

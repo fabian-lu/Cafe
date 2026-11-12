@@ -163,5 +163,10 @@ class KeywordJudge:
 study = cafe.Study(..., rubric=cafe.rubrics.CORRECTNESS_0_3, judge=KeywordJudge())
 ```
 
+If `score()` raises (the external service is down, say), judging carries on: that answer
+gets an error verdict, `judge raised ConnectionError: …`, which is left out of the
+statistics, listed in `result.ratings.failures()`, and judged again when you resume from
+a judge checkpoint. The answers already generated are kept.
+
 The full walkthrough — presets, custom rubrics, rejudging, and stability — is in the
 [Judging modes notebook](../notebooks/04_judging_modes.ipynb).

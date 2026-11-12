@@ -37,6 +37,74 @@ async def test_empty_string_answer_is_judged_none_is_error():
     assert "unjudgeable" in (none_row.error or "")
 
 
+# ── a judge call that raises costs that verdict, not the run ──
+async def test_judge_exception_is_an_error_rating_retried_on_resume(tmp_path):
+    class _Service(_FixedJudge):  # a custom judge calling an external grading service
+        down = True
+
+        async def score(self, rubric, question, answer, reference=None):
+            if self.down and answer == "two":
+                raise ConnectionError("503 from grading service")
+            if self.down and answer == "three":
+                raise TimeoutError()
+            return await super().score(rubric, question, answer, reference)
+
+    ckpt = str(tmp_path / "judge.jsonl")
+    results = _results(["one", "two", "three"])
+    judge = _Service()
+    ratings = await judge_results(results, judge, cafe.ANSWER_QUALITY_1_5, checkpoint_path=ckpt)
+    assert len(ratings.items) == 3 and [r.value_numeric for r in ratings.items if r.ok] == [5]
+    assert {f["input_id"]: f["error"] for f in ratings.failures()} == {
+        "q1": "judge raised ConnectionError: 503 from grading service",
+        "q2": "judge raised TimeoutError",
+    }
+
+    judge.down = False  # the service is back: a resumed run judges only the two failures
+    progress = []
+    healed = await judge_results(results, judge, cafe.ANSWER_QUALITY_1_5, checkpoint_path=ckpt,
+                                 on_progress=lambda _r, done, total: progress.append(done))
+    assert progress == [2, 3] and not healed.failures()
+    assert [r.value_numeric for r in healed.items] == [5, 5, 5]
+
+
+async def test_judge_cancellation_still_propagates():
+    import asyncio
+
+    class _Cancelled(_FixedJudge):
+        async def score(self, rubric, question, answer, reference=None):
+            raise asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError):
+        await judge_results(_results(["one"]), _Cancelled(), cafe.ANSWER_QUALITY_1_5)
+
+
+def test_evaluate_keeps_the_answers_when_the_judge_raises():
+    calls = {"system": 0}
+
+    def system(config, item):
+        calls["system"] += 1
+        return f"answer {config['m']} {item}"
+
+    class _Service:
+        model = "external-service"
+
+        async def score(self, rubric, question, answer, reference=None):
+            if answer.endswith("q3"):
+                raise ConnectionError("503 from grading service")
+            return JudgeOutput(2, 2, "", "", "2")
+
+    study = cafe.Study(name="t", system=system, factors=[cafe.Factor("m", ["a", "b"])],
+                       dataset=[f"q{i}" for i in range(10)],
+                       rubric=cafe.rubrics.CORRECTNESS_0_3, judge=_Service())
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # the design advisories
+        ev = study.evaluate(progress=False)  # was: ConnectionError, all 20 answers lost
+    assert calls["system"] == 20 and len(ev.answers) == 20 and len(ev.ratings) == 20
+    assert [f["error"] for f in ev.ratings.failures()] == [
+        "judge raised ConnectionError: 503 from grading service"] * 2
+    assert ev.overall_mean == 2.0
+
+
 # ── C-2: normalize_output warns on a mis-shaped envelope, not on a genuine dict answer ──
 def test_normalize_output_warns_on_stray_metadata():
     from cafe.system import normalize_output
