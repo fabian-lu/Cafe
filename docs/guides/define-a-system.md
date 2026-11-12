@@ -97,12 +97,36 @@ catalog, register techniques programmatically with `pipe.add(stage, name, fn)`.)
 A stage with **several** techniques needs a factor to choose one (`pipe.factor("rerank")`). A
 stage with a **single** technique is *fixed* — it needs no factor of its own; CAFE just runs it.
 
+### Repeated calls — the stage cache
+
 Within one run (one configuration on one input), a repeated `ctx.run` with the same stage,
 technique, parameters and inputs returns the first result without running the technique again;
-the trace marks the repeat `cached: True` and its cost and tokens count once. Nothing is shared
-*between* runs: every configuration, input and replication starts with an empty cache, so a
-stage several configurations have in common (the same retriever under two generators) runs, and
-is paid for, once per configuration. Plan the budget per configuration, not per distinct stage.
+the trace marks the repeat `cached: True` and its cost and tokens count once. Inputs are compared
+by value: plain JSON values (strings, numbers, booleans, `None`, lists, dicts with string keys)
+by their JSON, anything else (a tuple, a numpy array, a dataclass) by its pickle. Two calls share
+a result only if their inputs have the same type and content, never because they print alike. A
+call with an input that can't be pickled (a lambda, an open client) is not cached: it runs every
+time. Nothing is shared *between* runs: every configuration, input and replication starts with an
+empty cache, so a stage several configurations have in common (the same retriever under two
+generators) runs, and is paid for, once per configuration. Plan the budget per configuration, not
+per distinct stage.
+
+To sample a stochastic stage several times in one run (best-of-n, self-consistency), pass
+`cache=False`. Every such call runs the technique, is traced `cached: False`, and pays its own
+cost, tokens and energy:
+
+```python
+@pipe.compose
+async def system(config, item, ctx):
+    answers = [await ctx.run("generate", query=item["text"], cache=False) for _ in range(5)]
+    return max(answers, key=answers.count)           # self-consistency: the most common answer
+```
+
+An uncached call neither reads nor fills the cache, so a later cached call with the same inputs
+returns what it would have returned without it. `cache` is a keyword of `ctx.run` itself, like
+`stage`, and is never passed to the technique, so a technique can't take an input with either
+name: registering one raises a `ValueError`. A tunable parameter (one with a default) may be
+called `cache`; its value comes from the config, as for any parameter.
 
 ### Skipping a stage — the `None` level
 
