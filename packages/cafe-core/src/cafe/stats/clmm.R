@@ -2,8 +2,11 @@
 # Fit a cumulative link mixed model (ordinal regression) and print the result as JSON.
 #
 # Usage:  Rscript clmm.R <csv_path> <comma,separated,factor,columns> [order] [lr_tests: 1|0]
+#                [levels_json]
 # The CSV must contain: `verdict` (integer ordinal score), `input_id` (the grouping
-# variable for the random intercept), and one column per factor.
+# variable for the random intercept), and one column per factor. Every column is read as
+# text. `levels_json` maps each factor to its levels in order (the first is the baseline);
+# without it a factor's levels are R's sorted values.
 #
 # Output (stdout): a JSON object. On any failure it still prints valid JSON with
 # available=false and an error message, so the Python caller never has to parse
@@ -32,6 +35,7 @@ factors <- strsplit(args[[2]], ",")[[1]]
 order <- if (length(args) >= 3) suppressWarnings(as.integer(args[[3]])) else 1L
 if (is.na(order)) order <- 1L
 lr_tests <- length(args) >= 4 && identical(args[[4]], "1")
+levels_path <- if (length(args) >= 5) args[[5]] else NULL
 
 fixed_terms <- function(ord) {
   terms <- paste(sprintf("`%s`", factors), collapse = " + ")
@@ -113,12 +117,22 @@ if (!have_ordinal) {
 }
 
 result <- tryCatch({
-  d <- read.csv(csv_path, stringsAsFactors = TRUE, check.names = FALSE)
-  d$verdict <- ordered(d$verdict)
+  # Every column as text, and no text read as missing: read.csv's own type guessing turned
+  # a level "NA" into a missing value (its rows silently dropped) and "1"/"01" or
+  # "3.1"/"3.10" into one number. The verdict is converted explicitly.
+  d <- read.csv(csv_path, colClasses = "character", na.strings = character(0),
+                check.names = FALSE, encoding = "UTF-8")
+  d$verdict <- ordered(as.integer(d$verdict))
   d$input_id <- factor(d$input_id)
   # Treat every declared factor as categorical (so a numeric-valued knob like top_k=[1,2]
-  # is levels, not a continuous covariate — consistent with the Gaussian model).
-  for (f in factors) d[[f]] <- factor(d[[f]])
+  # is levels, not a continuous covariate — consistent with the Gaussian model), with the
+  # levels in the caller's order: the first is the baseline the coefficients compare with.
+  # (simplifyVector would turn a lone "NA" into a missing value too)
+  lv <- if (is.null(levels_path)) list() else jsonlite::fromJSON(levels_path, simplifyVector = FALSE)
+  for (f in factors) d[[f]] <- if (is.null(lv[[f]])) factor(d[[f]]) else factor(d[[f]], levels = unlist(lv[[f]]))
+  # every row must reach the model (a missing value would drop it while n_obs counts it)
+  missing <- names(d)[vapply(d, anyNA, logical(1))]
+  if (length(missing)) stop("missing or unknown values in: ", paste(missing, collapse = ", "))
 
   form <- build_formula(order)
   m <- tryCatch(ordinal::clmm(form, data = d, Hess = TRUE), error = function(e) NULL)

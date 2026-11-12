@@ -408,7 +408,7 @@ def test_clmm_parses_per_factor_likelihood_ratio_tests(monkeypatch):
 
     monkeypatch.setattr(ordinal.subprocess, "run", fake_run)
     res = fit_clmm(_ratings({"good": 5, "bad": 2}))
-    assert sent[-1][-1] == "1"                              # LR tests requested by default
+    assert sent[-1][5] == "1"                               # LR tests requested by default
     tests = {t["term"]: t for t in res.factor_tests}
     assert tests["method"]["significant"] and tests["method"]["df"] == 1
     assert tests["method × other"]["interaction"] and tests["method × other"]["p"] is None
@@ -416,7 +416,7 @@ def test_clmm_parses_per_factor_likelihood_ratio_tests(monkeypatch):
     assert any("no likelihood-ratio test for method × other" in w for w in res.warnings)
     assert "per-factor tests (likelihood ratio" in res.show()
     fit_clmm(_ratings({"good": 5, "bad": 2}), lr_tests=False)
-    assert sent[-1][-1] == "0"
+    assert sent[-1][5] == "0"
 
 
 def test_clmm_likelihood_ratio_tests_find_the_real_factor():
@@ -942,6 +942,106 @@ def test_glmer_colon_level_is_a_main_effect(model):
     assert main["factor"] == model and main["interaction"] is False
     assert by_label[f"{model}=llama3:8b × prompt=plain"]["interaction"] is True
     assert log.significant_factors == [model]
+
+
+# ── R reads the levels as the text Python sends, in Python's order ──
+def _level_ratings(levels, binary: bool) -> Ratings:
+    """``k`` (the given levels) × ``p`` over 14 questions with a per-question difficulty."""
+    import random
+
+    from cafe.rubrics import CORRECT_PASS_FAIL, CORRECTNESS_0_3
+
+    rng = random.Random(1)
+    items = []
+    for q in range(14):
+        hard = rng.gauss(0, 0.7)
+        for i, k in enumerate(levels):
+            for p in ("x", "y"):
+                eta = hard + 0.5 * i + (0.3 if p == "y" else 0) + rng.gauss(0, 0.9)
+                v = int(eta > 0.4) if binary else (0 if eta < -0.5 else 1 if eta < 0.5 else 2 if eta < 1.5 else 3)
+                items.append(Rating(obs_key=f"{k}{p}{q}", config={"k": k, "p": p}, input_id=f"q{q}",
+                                    rep=0, judge_rep=0, value=v, value_numeric=v))
+    return Ratings(rubric=CORRECT_PASS_FAIL if binary else CORRECTNESS_0_3, judge_model="x",
+                   factors=["k", "p"], items=items)
+
+
+def test_r_data_is_written_as_text_with_the_levels_in_python_order(tmp_path):
+    import json
+
+    from cafe.stats._frame import analysis_frame
+    from cafe.stats.ordinal import _write_r_data
+
+    df = analysis_frame(_level_ratings([None, 10, 5, "NA", "01"], binary=False))
+    csv, levels = str(tmp_path / "d.csv"), str(tmp_path / "levels.json")
+    _write_r_data(df, ["k", "p"], csv, levels)
+    assert json.load(open(levels)) == {"k": ["5", "10", "01", "NA", "none"], "p": ["x", "y"]}
+    with open(csv) as fh:
+        assert fh.readline().strip() == "verdict,input_id,k,p"
+        assert {line.split(",")[2] for line in fh} == {"none", "10", "5", "NA", "01"}
+
+
+# Each level set, with the coefficients R must report for ``k``: R once read the CSV with
+# read.csv's type guessing, so "NA" became a missing value (its rows dropped), "01"/"1" and
+# "3.1"/"3.10" one number, 1.0 the label "1", "T"/"F" the logical TRUE/FALSE, and the
+# baseline followed R's own sort order.
+_LEVEL_CASES = [
+    (["EU", "NA", "APAC"], ["k=EU", "k=NA"]),
+    (["1", "01", "2"], ["k=1", "k=2"]),
+    (["3.1", "3.10", "3.9"], ["k=3.10", "k=3.9"]),
+    ([0.5, 1.0, 2.0], ["k=1.0", "k=2.0"]),
+    ([None, 5, 10], ["k=10", "k=none"]),          # numbers by value first, as in Python
+    ([True, False], ["k=True"]),
+    (["T", "F"], ["k=T"]),
+    (["apple", "Banana", "cherry"], ["k=apple", "k=cherry"]),  # Python's order, not the locale's
+]
+
+
+@pytest.mark.parametrize("levels, coefficients", _LEVEL_CASES)
+def test_clmm_reads_every_level_as_python_writes_it(levels, coefficients):
+    from cafe.stats.ordinal import check_r
+
+    if not check_r()[0]:
+        pytest.skip("R + ordinal not installed")
+    ratings = _level_ratings(levels, binary=False)
+    clmm = fit_clmm(ratings, interactions=1)
+    assert clmm.available, clmm.reason
+    assert clmm.n_obs == len(ratings.items)                 # no row dropped
+    assert [c["label"] for c in clmm.coefficients if c["factor"] == "k"] == coefficients
+    assert {t["term"]: t["df"] for t in clmm.factor_tests}["k"] == len(levels) - 1
+
+
+@pytest.mark.parametrize("levels", [case[0] for case in _LEVEL_CASES])
+def test_glmer_reads_every_level_as_python_writes_it(levels):
+    """The GLMM's terms are the ones the statsmodels backend reports for the same data: the
+    same levels, against the same baseline."""
+    from cafe import fit_logistic
+    from cafe.stats.logistic import check_glmer
+
+    if not check_glmer()[0]:
+        pytest.skip("R + lme4 not installed")
+    pytest.importorskip("statsmodels")
+    ratings = _level_ratings(levels, binary=True)
+    glmm = fit_logistic(ratings, interactions=1, backend="glmer")
+    assert glmm.available and "glmer" in glmm.model           # no fallback to statsmodels
+    assert glmm.n_obs == len(ratings.items)
+    python = fit_logistic(ratings, interactions=1, backend="statsmodels")
+    assert [t["label"] for t in glmm.terms] == [t["label"] for t in python.terms]
+    assert {t["term"]: t["df"] for t in glmm.factor_tests}["k"] == len(levels) - 1
+
+
+def test_clmm_fit_does_not_depend_on_a_level_being_spelled_na():
+    """With "NA" read as missing, the full model lost those rows while the model without the
+    factor kept them, so the likelihood-ratio test compared fits on different data."""
+    from cafe.stats.ordinal import check_r
+
+    if not check_r()[0]:
+        pytest.skip("R + ordinal not installed")
+    na = fit_clmm(_level_ratings(["EU", "NA", "APAC"], binary=False), interactions=1)
+    renamed = fit_clmm(_level_ratings(["EU", "NorthAm", "APAC"], binary=False), interactions=1)
+    assert na.log_lik == pytest.approx(renamed.log_lik)
+    assert [t["df"] for t in na.factor_tests] == [2, 1]
+    assert [t["chisq"] for t in na.factor_tests] == pytest.approx(
+        [t["chisq"] for t in renamed.factor_tests])
 
 
 def test_report_routes_model_by_scale_type():
