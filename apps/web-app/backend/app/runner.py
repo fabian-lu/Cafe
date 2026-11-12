@@ -56,9 +56,76 @@ def _is_num(s: str) -> bool:
         return False
 
 
-def _build_factors(factors_raw: list[dict]) -> list[cafe.Factor]:
-    """The ``cafe.Factor`` list of a study's stored ``[{name, levels}]`` factors."""
-    return [cafe.Factor(f["name"], _coerce_levels(f["levels"])) for f in factors_raw]
+def _param_defaults(pipe) -> dict[str, Any]:
+    """The default of every parameter of a pipeline's techniques.
+
+    Parameters
+    ----------
+    pipe : cafe.Pipeline
+        The pipeline.
+
+    Returns
+    -------
+    dict
+        ``{"stage.param": default}``. Where two techniques of a stage share a parameter, the
+        last one's default, as the study form shows it.
+    """
+    return {f"{stage}.{name}": default
+            for stage in pipe.stages() for technique in pipe.names_for(stage)
+            for name, default in pipe.get(stage, technique).params.items()}
+
+
+def _typed_levels(levels: list[Any], default: Any) -> list[Any]:
+    """A parameter factor's levels in the type of the parameter's default, where a level's text
+    names a value of it.
+
+    Parameters
+    ----------
+    levels : list
+        The stored levels: text from an API caller or an older study form, e.g.
+        ``["True", "False"]``.
+    default : Any
+        The parameter's default.
+
+    Returns
+    -------
+    list
+        For a boolean parameter, ``"true"`` / ``"false"`` (any case) as ``True`` / ``False``;
+        for a parameter whose default is ``None``, ``"none"`` / ``"null"`` as ``None``. Every
+        other level as it is.
+    """
+    if isinstance(default, bool):
+        words = {"true": True, "false": False}
+    elif default is None:
+        words = {"none": None, "null": None}
+    else:
+        return list(levels)
+    return [words.get(v.strip().lower(), v) if isinstance(v, str) else v for v in levels]
+
+
+def _build_factors(factors_raw: list[dict], pipe=None) -> list[cafe.Factor]:
+    """The ``cafe.Factor`` list of a study's stored ``[{name, levels}]`` factors.
+
+    Parameters
+    ----------
+    factors_raw : list of dict
+        The stored factors.
+    pipe : cafe.Pipeline, optional
+        The study's pipeline. Given, a parameter's factor (``"stage.param"``) gets its levels
+        in the parameter's type (see :func:`_typed_levels`), so that ``"False"`` doesn't reach
+        a boolean parameter as a non-empty, truthy string. A stage's factor, whose levels name
+        its techniques, is left as it is.
+
+    Returns
+    -------
+    list of cafe.Factor
+        The factors, with numeric-looking text as numbers (see :func:`_coerce_levels`).
+    """
+    defaults = _param_defaults(pipe) if pipe is not None else {}
+    return [cafe.Factor(f["name"], _coerce_levels(
+                _typed_levels(f["levels"], defaults[f["name"]]) if f["name"] in defaults
+                else f["levels"]))
+            for f in factors_raw]
 
 
 async def _load_study_objects(study_id: int):
@@ -104,7 +171,7 @@ async def _load_study_objects(study_id: int):
                 ))
 
     pipe = get_pipeline(pipeline_name)
-    factors = _build_factors(factors_raw)
+    factors = _build_factors(factors_raw, pipe)
     judge = None
     if judge_model and rubric:
         judge = cafe.LLMJudge(model=judge_model, preset=judge_preset, system_prompt=judge_system)
