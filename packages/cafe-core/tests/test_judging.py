@@ -388,3 +388,32 @@ def test_preview_shows_both_messages():
     assert "[SYSTEM]" in preview and "[USER]" in preview
     assert "You are a strict evaluator." in preview
     assert "Can water turn into wine?" in preview
+
+
+def test_structured_probe_works_in_every_event_loop(monkeypatch):
+    """The probe lock was one module-level asyncio.Lock, which binds to the first event loop
+    that waits on it: unprobed models checked concurrently in a later loop (another
+    study.evaluate() or asyncio.run()) raised "... is bound to a different event loop"."""
+    import sys
+    import types
+
+    probes = []
+
+    async def fake_complete(model, messages, **kwargs):
+        probes.append(model)
+        await asyncio.sleep(0.01)   # the probe is in flight: a concurrent check waits for it
+        return '{"ok": 1}'
+
+    # no capability-map entry for these models (and no litellm import), so each one is probed
+    monkeypatch.setitem(sys.modules, "litellm",
+                        types.SimpleNamespace(supports_response_schema=lambda model: False))
+    monkeypatch.setattr(st, "complete", fake_complete)
+    monkeypatch.setattr(st, "_support_cache", {})
+
+    async def check(models):
+        return await asyncio.gather(*(st.supports_structured(m) for m in models))
+
+    assert asyncio.run(check(["a", "b"])) == [True, True]
+    assert asyncio.run(check(["c", "d", "c"])) == [True, True, True]
+    assert sorted(probes) == ["a", "b", "c", "d"]      # one probe per model
+    assert asyncio.run(check(["a", "d"])) == [True, True] and len(probes) == 4  # cached
