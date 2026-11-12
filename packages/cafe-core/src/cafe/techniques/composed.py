@@ -8,24 +8,76 @@ time/cost, and :func:`pipeline` renders the observed stage order.
 
 from __future__ import annotations
 
+from collections import Counter, defaultdict
 from typing import Any
 
 
-def stage_report(results: Any) -> list[dict[str, Any]]:
-    """Aggregate the traces in a Results object into per-stage timing + cost.
+def _steps(trace: Any) -> list[dict[str, Any]]:
+    """The pipeline steps in an answer's ``trace``. A black-box system may return a
+    ``trace`` of its own (strings, or dicts of another shape); those entries aren't
+    stages and are skipped."""
+    if not isinstance(trace, (list, tuple)):
+        return []
+    return [s for s in trace if isinstance(s, dict)
+            and isinstance(s.get("stage"), str) and isinstance(s.get("technique"), str)]
 
-    Returns one row per (stage, technique): mean elapsed, mean cost, count — the
-    basis for per-stage statistics ("which stage is slowest / most expensive").
+
+def _stage_order(traces: list[list[dict[str, Any]]]) -> list[str]:
+    """Merge the stage sequences of many traces into one execution order.
+
+    Stage ``a`` goes before ``b`` when ``a`` first ran before ``b`` in more traces than the
+    other way round, so a stage that only some configurations run (a query rewrite before
+    retrieval) still sits where it runs, and the order doesn't depend on which answers
+    finished first. Stages the traces leave unordered (parallel branches, or orders that
+    contradict each other) go by their mean position in the traces, then by name.
+    """
+    before: Counter[tuple[str, str]] = Counter()
+    positions: dict[str, list[int]] = defaultdict(list)
+    for trace in traces:
+        firsts = list(dict.fromkeys(step["stage"] for step in trace))  # each stage's first run
+        for i, a in enumerate(firsts):
+            positions[a].append(i)
+            for b in firsts[i + 1:]:
+                before[a, b] += 1
+    rank = {s: (sum(p) / len(p), s) for s, p in positions.items()}
+    waiting = {s: {a for a in positions if before[a, s] > before[s, a]} for s in positions}
+    order: list[str] = []
+    while waiting:
+        ready = [s for s, after in waiting.items() if not after] or list(waiting)  # or a cycle
+        nxt = min(ready, key=rank.__getitem__)
+        order.append(nxt)
+        del waiting[nxt]
+        for after in waiting.values():
+            after.discard(nxt)
+    return order
+
+
+def stage_report(results: Any) -> list[dict[str, Any]]:
+    """Aggregate the traces of a run into per-stage timing + cost.
+
     A repeated identical call that a run served from its stage cache (``cached: True``
     in the trace) is not counted again.
-    """
-    from collections import defaultdict
 
+    Parameters
+    ----------
+    results:
+        The run: a ``Results``, or an :class:`~cafe.evaluation.Evaluation` (its answers
+        are used).
+
+    Returns
+    -------
+    list of dict
+        One row per (stage, technique): mean elapsed, mean cost, count — the basis for
+        per-stage statistics ("which stage is slowest / most expensive"), slowest first.
+        Empty for a system that isn't a composed pipeline: a ``trace`` such a system
+        returns itself is not read as stages.
+    """
+    results = getattr(results, "answers", results)  # Evaluation.answers, or a Results
     agg: dict[tuple[str, str], dict[str, float]] = defaultdict(
         lambda: {"elapsed": 0.0, "cost": 0.0, "tokens": 0.0, "energy": 0.0, "energy_n": 0, "n": 0}
     )
     for obs in getattr(results, "observations", []):
-        for step in (obs.metadata or {}).get("trace", []):
+        for step in _steps((obs.metadata or {}).get("trace")):
             if step.get("cached"):
                 continue
             a = agg[(step["stage"], step["technique"])]
@@ -56,8 +108,9 @@ def stage_report(results: Any) -> list[dict[str, Any]]:
 class PipelineView:
     """The composed system's stages in execution order, each with its technique levels.
 
-    CAFE doesn't hard-code your topology — it *observes* it from a run's trace (the order
-    in which ``ctx.run`` fired). ``str(view)`` renders it as
+    CAFE doesn't hard-code your topology — it *observes* it from a run's traces (the order
+    in which ``ctx.run`` fired, merged across configurations, so a stage that only some
+    configurations run still sits where it runs). ``str(view)`` renders it as
     ``retrieve → rerank → generate`` with the levels underneath — handy for the notebook and
     (later) the web app's pipeline diagram. Get one via :func:`cafe.pipeline`.
     """
@@ -96,10 +149,24 @@ class PipelineView:
 def pipeline(source: Any) -> PipelineView:
     """Derive the :class:`PipelineView` (stage order + levels) from a run.
 
-    ``source`` may be an :class:`~cafe.evaluation.Evaluation`, a ``Results``, or a
-    ``Study``. Given a study, CAFE runs a **single configuration once** (cheap) to observe
-    the topology — the order comes from that trace; the levels come from the study's
-    factors. Given an already-run result, no new run happens.
+    Given a study, CAFE runs a **single configuration once** (cheap) to observe the
+    topology — the order comes from that trace; the levels come from the study's
+    factors. Given an already-run result, no new run happens: the order merges every
+    answer's trace (a stage goes after the stages it followed in most traces, so an
+    optional stage that runs first in some configurations is shown first), and the
+    levels are the techniques observed per stage.
+
+    Parameters
+    ----------
+    source:
+        An :class:`~cafe.evaluation.Evaluation`, a ``Results``, or a ``Study``.
+
+    Returns
+    -------
+    PipelineView
+        The stages in execution order, each with its levels. Empty for a system that
+        isn't a composed pipeline: a ``trace`` such a system returns itself is not read
+        as stages.
     """
     from cafe.study import Study
 
@@ -118,22 +185,16 @@ def pipeline(source: Any) -> PipelineView:
             return PipelineView([])
         raw = study._run_blocking(lambda: as_system(study.system).run(dict(configs[0]), item))
         _, meta = normalize_output(raw)
-        traces = [meta.get("trace", [])]
+        traces = [_steps(meta.get("trace"))]
     else:
-        traces = [(obs.metadata or {}).get("trace", []) for obs in getattr(results, "observations", [])]
+        traces = [_steps((obs.metadata or {}).get("trace"))
+                  for obs in getattr(results, "observations", [])]
 
-    # Observed order: first appearance of each stage across the traces.
-    order: list[str] = []
-    observed: dict[str, list[str]] = {}
+    order = _stage_order(traces)
+    observed: dict[str, set[str]] = defaultdict(set)
     for trace in traces:
         for step in trace:
-            st = step["stage"]
-            if st not in order:
-                order.append(st)
-                observed[st] = []
-            tech = step["technique"]
-            if tech not in observed[st]:
-                observed[st].append(tech)
+            observed[step["stage"]].add(step["technique"])
 
     # Levels: prefer the study's declared factor levels for the stage, else the pipeline's
     # own techniques (study.system is a Pipeline), else whatever was observed.
@@ -146,6 +207,7 @@ def pipeline(source: Any) -> PipelineView:
     stages_out = []
     for st in order:
         pipe_names = pipe.names_for(st) if hasattr(pipe, "names_for") else []
-        levels = factor_levels.get(st) or pipe_names or observed.get(st, [])
-        stages_out.append({"stage": st, "levels": levels, "techniques_observed": observed.get(st, [])})
+        techniques = sorted(observed[st])  # not first-seen: that order is completion order
+        levels = factor_levels.get(st) or pipe_names or techniques
+        stages_out.append({"stage": st, "levels": levels, "techniques_observed": techniques})
     return PipelineView(stages_out)

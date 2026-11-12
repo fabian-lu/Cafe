@@ -4,6 +4,7 @@ pipeline view."""
 import asyncio
 
 import cafe
+from cafe.evaluation import Evaluation
 from cafe.llm import _price_from_override, set_model_cost
 from cafe.techniques import pipeline, stage_report
 
@@ -192,3 +193,69 @@ def test_pipeline_view_order_and_levels():
     pl = pipeline(study)
     assert pl.order == ["retrieve", "rerank", "generate"]   # observed execution order
     assert "retrieve" in pl.show() and "→" in pl.show()
+
+
+def _optional_rewrite_run():
+    """A pipeline whose first stage (rewrite) runs only when query_rewrite is on."""
+    pipe = cafe.Pipeline()
+
+    @pipe.technique("rewrite", "hyde")
+    async def hyde(ctx, query):
+        return query + " (expanded)"
+
+    @pipe.technique("retrieve", "bm25")
+    async def bm25(ctx, query):
+        return [query]
+
+    @pipe.technique("generate", "small")
+    async def small(ctx, query, docs):
+        return f"answer({docs})"
+
+    @pipe.compose
+    async def system(config, item, ctx):
+        q = item
+        if config["query_rewrite"] == "on":
+            q = await ctx.run("rewrite", query=q)
+        docs = await ctx.run("retrieve", query=q)
+        return await ctx.run("generate", query=q, docs=docs)
+
+    study = cafe.Study(name="p", system=pipe, dataset=["q1", "q2"],
+                       factors=[cafe.Factor("query_rewrite", ["off", "on"])])
+    return study.run(concurrency=1)
+
+
+def test_pipeline_view_places_an_optional_stage_where_it_runs():
+    """Ordering stages by first appearance across traces put rewrite last (retrieve → generate
+    → rewrite) whenever an answer without it came first."""
+    res = _optional_rewrite_run()
+    assert pipeline(res).order == ["rewrite", "retrieve", "generate"]
+    # the same answers in any completion order give the same view
+    res.observations.reverse()
+    assert pipeline(res).order == ["rewrite", "retrieve", "generate"]
+    evaluation = Evaluation(study_name="p", answers=res, ratings=None, attribution=None)
+    assert evaluation.pipeline().order == ["rewrite", "retrieve", "generate"]
+
+
+def test_stage_report_accepts_an_evaluation():
+    res = _optional_rewrite_run()
+    evaluation = Evaluation(study_name="p", answers=res, ratings=None, attribution=None)
+    rows = stage_report(evaluation)   # was silently []
+    assert rows == stage_report(res)
+    assert {r["stage"] for r in rows} == {"rewrite", "retrieve", "generate"}
+
+
+def test_a_black_box_systems_own_trace_is_not_read_as_stages():
+    """A system may return its own "trace" (here a list of strings); pipeline() and
+    stage_report() indexed every step as a CAFE stage dict and raised TypeError/AttributeError."""
+    async def agent(config, item):
+        steps = [f"thought: look up {item}", "tool: search", {"tool": "search"}, "answer"]
+        return {"output": f"answer to {item}", "cost_usd": 0.001, "trace": steps}
+
+    study = cafe.Study(name="a", system=agent, dataset=["q1"],
+                       factors=[cafe.Factor("m", ["x", "y"])])
+    res = study.run()
+    evaluation = Evaluation(study_name="a", answers=res, ratings=None, attribution=None)
+    for source in (res, evaluation, study):
+        assert pipeline(source).order == []
+    assert evaluation.pipeline().order == []
+    assert stage_report(res) == [] and stage_report(evaluation) == []

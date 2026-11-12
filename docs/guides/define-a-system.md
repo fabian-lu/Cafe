@@ -39,6 +39,11 @@ model. An answer that leaves them out counts as *unreported*, not free. `cafe.pa
 averages only the answers that report a value, and leaves the objective out of the
 frontier if some configuration never reports it.
 
+A `"trace"` you return (say, your agent's own log of its steps) is kept in the metadata as
+it is. `cafe.stage_report` and `cafe.pipeline` read only the per-stage trace that a
+[composed pipeline](#composed-systems-techniques) records, so for a black box they return an
+empty report and an empty pipeline.
+
 ## An object with a `run` method
 
 Handy when your system needs setup (clients, indexes) held as state:
