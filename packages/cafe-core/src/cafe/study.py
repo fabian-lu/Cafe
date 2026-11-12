@@ -43,7 +43,9 @@ def check_factor_name(name: str) -> None:
 
 
 class FactorType(str, Enum):
-    """How a factor is treated by design generation and (later) statistics."""
+    """What kind of levels a factor has. Advisory for now: designs use the levels as listed
+    whatever the type, the statistics treat every factor as categorical, and
+    ``Study.check()`` warns about a ``continuous`` one."""
 
     categorical = "categorical"  # unordered: reranker in {none, cross_encoder}
     ordinal = "ordinal"          # ordered: effort in {low, med, high}

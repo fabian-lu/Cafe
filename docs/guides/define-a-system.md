@@ -77,6 +77,7 @@ async def system(config, item, ctx):
     return await ctx.run("generate", query=item["text"], chunks=chunks)
 
 study = cafe.Study(
+    name="rag",
     system=pipe,                                         # the pipeline is the system
     factors=[pipe.factor("retrieve"), pipe.factor("rerank"), pipe.factor("generate")],
     dataset=[...],

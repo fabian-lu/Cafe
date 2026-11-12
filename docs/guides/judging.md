@@ -43,11 +43,12 @@ The preset chooses the prompt scaffold:
 |---|---|---|
 | `reference_qa` *(default)* | you have a gold answer to grade against | required |
 | `single_answer` | open-ended quality, no gold answer | not used |
-| `criterion` | grade against a stated criterion (faithfulness, safety, …) | not used |
+| `criterion` | grade against a stated criterion (faithfulness, safety, …) | optional |
 
-`reference_qa` reads a `reference` from each dataset item; give your inputs a
-`"reference"` key for it (`{"text": ..., "reference": ...}`). The others are
-reference-free.
+`reference_qa` and `criterion` read a `reference` from each dataset item; give your inputs a
+`"reference"` key for it (`{"text": ..., "reference": ...}`). `criterion` shows the
+reference when the item has one; without one, its `[Reference]` line reads "(no reference
+provided)". `single_answer` is reference-free.
 
 Each preset ends by asking for a final `GRADE: <…>` line. When the judge asks for a
 structured (JSON) verdict instead (see below), that closing instruction is replaced by the

@@ -164,8 +164,9 @@ def answer_sheet(
 
     Give it to your experts to rate. Pass ``path="sheet.csv"`` to **write a CSV** they can
     open in Excel/Sheets, fill the ``score`` column, and save; load it back with
-    ``cafe.human_ratings("sheet.csv")``. ``raters`` names the columns of experts (one row
-    each). ``questions`` maps ``input_id`` → question text (defaults to the evaluation's).
+    ``cafe.human_ratings("sheet.csv")``. ``raters`` names the experts: each answer gets one
+    row per rater, named in the ``rater`` column. ``questions`` maps ``input_id`` → question
+    text (defaults to the evaluation's).
     """
     from cafe.execution.results import config_label
 
