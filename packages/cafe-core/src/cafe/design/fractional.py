@@ -30,6 +30,13 @@ Config = dict[str, Any]
 _ROMAN = {1: "I", 2: "II", 3: "III", 4: "IV", 5: "V", 6: "VI", 7: "VII", 8: "VIII"}
 
 
+def _word(factors: list[str], names: list[str]) -> str:
+    """Write a product of factors (a generator, an aliased interaction): ``ABC`` in the
+    textbook notation when every factor name in the design is one character long, else
+    joined with ``×`` (``model×prompt``) so longer names can't run together ambiguously."""
+    return ("" if all(len(n) == 1 for n in names) else "×").join(factors)
+
+
 @dataclass
 class FractionalDesign:
     """A generated fractional factorial: the configs plus its defining properties."""
@@ -59,8 +66,8 @@ class FractionalDesign:
             lines.append("")
             lines.append("  generators (added factor = product of basic factors):")
             for f, basics in self.generators.items():
-                lines.append(f"     {f} = {''.join(basics)}")
-        if self.aliases:
+                lines.append(f"     {f} = {_word(basics, self.factor_names)}")
+        if any(self.aliases.values()):
             lines.append("")
             lines.append("  main-effect aliases (assumed negligible):")
             for f, al in self.aliases.items():
@@ -69,6 +76,8 @@ class FractionalDesign:
         res = self.resolution
         if res is not None:
             note = {
+                1: "a factor never varies — its main effect is not estimable",
+                2: "main effects aliased with each other — not estimable",
                 3: "main effects aliased with 2-factor interactions (screening)",
                 4: "main effects clear of 2-factor interactions; 2FIs aliased with each other",
             }.get(res, "main effects and 2-factor interactions estimable")
@@ -184,6 +193,58 @@ def _full_relation(words: list[frozenset[int]]) -> set[frozenset[int]]:
     return full
 
 
+def _generator_columns(
+    generators: dict[str, list[str]], basic: list[str], added: list[str], runs: int
+) -> dict[str, tuple[int, ...]]:
+    """Check user-supplied ``generators`` and map each added factor to its basic-factor
+    indices.
+
+    Each added factor must be the product of two or more distinct basic factors, a
+    different set for each. Anything else degenerates silently: a repeated factor cancels
+    out (A·A = I), a single factor or a shared set makes two main effects the same column,
+    and an empty product never varies — while the defining relation, and so the reported
+    resolution, would be computed as if it hadn't.
+    """
+    where = f"with runs={runs} the basic factors are {basic} and the added ones {added}"
+    extra = [f for f in generators if f not in added]
+    if extra:
+        raise ValueError(f"generators given for {extra}, but only added factors take one ({where})")
+    index = {n: i for i, n in enumerate(basic)}
+    seen: dict[frozenset[str], str] = {}
+    cols: dict[str, tuple[int, ...]] = {}
+    for f in added:
+        if f not in generators:
+            raise ValueError(f"no generator given for added factor {f!r}")
+        gen = list(generators[f])
+        unknown = [g for g in gen if g not in index]
+        if unknown:
+            raise ValueError(
+                f"the generator for {f!r} may only multiply basic factors, but names "
+                f"{unknown} ({where})"
+            )
+        repeated = sorted({g for g in gen if gen.count(g) > 1})
+        if repeated:
+            raise ValueError(
+                f"the generator for {f!r} repeats {repeated}; a factor times itself is "
+                "constant, so list each basic factor once"
+            )
+        if len(gen) < 2:
+            raise ValueError(
+                f"the generator for {f!r} must multiply at least 2 basic factors, got {gen}: "
+                + (f"{f!r} would never vary" if not gen else
+                   f"{f!r} would be the same column as {gen[0]!r}, aliasing their main effects")
+            )
+        if frozenset(gen) in seen:
+            raise ValueError(
+                f"the generators for {seen[frozenset(gen)]!r} and {f!r} are the same product "
+                f"{sorted(gen)}, aliasing their main effects; give each added factor a "
+                "different set of basic factors"
+            )
+        seen[frozenset(gen)] = f
+        cols[f] = tuple(index[g] for g in gen)
+    return cols
+
+
 def fractional_factorial_design(
     factors: list[Factor],
     *,
@@ -204,8 +265,10 @@ def fractional_factorial_design(
         design that can place every factor (a resolution-III screening design when
         nearly saturated).
     generators:
-        ``{added_factor: [basic_factor, ...]}`` to specify the aliasing yourself. If
-        ``None``, CAFE searches for the **minimum-aberration** generators (the fewest
+        ``{added_factor: [basic_factor, ...]}`` to specify the aliasing yourself: one
+        entry per added factor, each the product of two or more distinct basic factors,
+        a different set for each (otherwise two main effects would be the same column).
+        If ``None``, CAFE searches for the **minimum-aberration** generators (the fewest
         shortest defining words, so maximum resolution first; ties go to the design
         with fewer words of the next length). The search is deterministic and gives the
         textbook maximum resolution for every design up to 128 runs. For larger
@@ -217,14 +280,17 @@ def fractional_factorial_design(
     -------
     FractionalDesign
         The configs plus the generators, defining words, resolution and main-effect
-        aliases (``.show()`` prints them).
+        aliases (``.show()`` prints them; a product of factors reads ``ABC`` when every
+        factor name is one character, else ``model×prompt``).
 
     Raises
     ------
     ValueError
         If a factor doesn't have exactly two levels, there are fewer than 3 factors,
-        ``runs`` isn't a power of two ≥ 4 below ``2^k``, the factors don't fit in
-        ``runs``, or ``generators`` misses an added factor.
+        ``runs`` isn't a power of two ≥ 4 below ``2^k``, or the factors don't fit in
+        ``runs``; or if ``generators`` misses an added factor, gives one for a factor
+        that isn't added, names a factor that isn't basic, repeats a factor, multiplies
+        fewer than two factors, or gives two added factors the same product.
     """
     bad = [f.name for f in factors if len(f.levels) != 2]
     if bad:
@@ -269,12 +335,7 @@ def fractional_factorial_design(
         chosen = _choose_generators(b, len(added))
         gen_idx = {added[t]: chosen[t] for t in range(len(added))}
     else:
-        name_to_basic = {n: i for i, n in enumerate(basic)}
-        gen_idx = {}
-        for f in added:
-            if f not in generators:
-                raise ValueError(f"no generator given for added factor {f!r}")
-            gen_idx[f] = tuple(name_to_basic[g] for g in generators[f])
+        gen_idx = _generator_columns(generators, basic, added, runs)
 
     fidx = {n: i for i, n in enumerate(names)}
 
@@ -304,7 +365,7 @@ def fractional_factorial_design(
         for w in relation:
             term = fset ^ w
             if 1 <= len(term) <= 2:  # report aliasing with main effects / 2FIs
-                al.append("".join(sorted(names[i] for i in term)))
+                al.append(_word(sorted(names[i] for i in term), names))
         aliases[f] = sorted(set(al))
 
     return FractionalDesign(
