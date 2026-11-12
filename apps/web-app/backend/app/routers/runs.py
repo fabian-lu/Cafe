@@ -23,11 +23,51 @@ _NO_TASK_GRACE_S = 2.0
 router = APIRouter(prefix="/api", tags=["runs"])
 
 
+async def _missing_pipeline(study: models.Study) -> str | None:
+    """Why a study can't be run here because its pipeline isn't available, or ``None``.
+
+    Parameters
+    ----------
+    study : models.Study
+        The study.
+
+    Returns
+    -------
+    str or None
+        ``None`` if a file of the techniques folder defines the study's pipeline; otherwise
+        the reason, for an imported study (it came without its pipeline) or another study
+        (its pipeline file was removed, renamed or broken since).
+    """
+    from app import pipeline_loader
+
+    name = study.pipeline or "pipeline"  # the runner's default for a study without one
+    try:  # a first scan of the techniques folder imports user code: not on the event loop
+        await asyncio.to_thread(pipeline_loader.get_pipeline, name)
+    except KeyError as exc:
+        if name == "(imported)":
+            return ("it was imported, so the app has its results but not the pipeline that "
+                    "produced them")
+        return (f"its pipeline isn't available ({exc.args[0]}); add or fix it in the techniques "
+                "folder and hit Reload on the Techniques page")
+    return None
+
+
 @router.post("/studies/{id_}/run")
 async def run_study(id_: int, db: AsyncSession = Depends(get_session)):
+    """Start a run of the study in the background (a finished study is re-run).
+
+    Raises
+    ------
+    HTTPException
+        404 for an unknown study; 409 if it is already running, or if its pipeline isn't
+        available (an imported study, or a pipeline file removed or broken since). Refused
+        then, the study is left as it is: its status and its results don't change.
+    """
     study = await db.get(models.Study, id_)
     if study is None:
         raise HTTPException(404, "study not found")
+    if (why := await _missing_pipeline(study)) is not None:
+        raise HTTPException(409, f"can't run this study: {why}")
     # Claim the study with ONE conditional UPDATE, so the check and the write are atomic in the
     # DB: a separate read-check-write let two requests arriving together (double-click, two
     # tabs) both see "not running" and both launch a full run.
@@ -45,10 +85,19 @@ async def run_study(id_: int, db: AsyncSession = Depends(get_session)):
 @router.post("/studies/{id_}/estimate")
 async def estimate(id_: int, db: AsyncSession = Depends(get_session)):
     """Preflight → time/cost estimate for the full run. Slow (runs one input per config, real calls),
-    so the UI shows a spinner while it computes."""
+    so the UI shows a spinner while it computes.
+
+    Raises
+    ------
+    HTTPException
+        404 for an unknown study; 409 if its pipeline isn't available (as for ``/run``); 500 if
+        the preflight fails.
+    """
     study = await db.get(models.Study, id_)
     if study is None:
         raise HTTPException(404, "study not found")
+    if (why := await _missing_pipeline(study)) is not None:
+        raise HTTPException(409, f"can't estimate this study: {why}")
     try:
         return await runner.estimate_study(id_)
     except Exception as exc:  # noqa: BLE001

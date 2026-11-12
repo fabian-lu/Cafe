@@ -40,7 +40,9 @@ pipeline.
 
 Already ran a study in Python? **Import study** on the Studies page takes a
 `cafe.save_evaluation` bundle (or a multi-dimension bundle holding one per rubric) and
-shows it like any other study, without re-running anything.
+shows it like any other study, without re-running anything. It can't be re-run in the
+app, as it came without the pipeline that produced it: the app refuses to run a study
+whose pipeline it doesn't have, and leaves the study and its results as they are.
 
 ## The flow
 
