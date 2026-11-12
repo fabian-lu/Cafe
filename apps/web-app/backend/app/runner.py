@@ -11,6 +11,7 @@ import traceback
 from typing import Any
 
 import cafe
+from cafe.execution import _input_id  # how cafe-core names an item: its "id", else in<position>
 
 from app.db import SessionLocal
 from app import models
@@ -537,7 +538,25 @@ def record_output(rec: dict) -> Any:
 def _evaluation_from_payload(payload: dict, items: list[dict], keep_ids: set[str],
                              name: str = "filtered"):
     """Reconstruct a minimal cafe Evaluation from a stored results payload, restricted to
-    the question ids in ``keep_ids`` — enough for the full stats stack to run again."""
+    the question ids in ``keep_ids`` — enough for the full stats stack to run again.
+
+    Parameters
+    ----------
+    payload : dict
+        A stored results payload.
+    items : list of dict
+        The study's dataset items, in dataset order. An item is matched to its results by
+        the id cafe-core gave it: its ``"id"``, else ``in<position>``.
+    keep_ids : set of str
+        The input ids (as in the payload's records) to keep.
+    name : str, optional
+        The name of the returned evaluation.
+
+    Returns
+    -------
+    cafe.Evaluation
+        The kept questions' answers, verdicts and dataset items.
+    """
     import cafe
     from cafe.evaluation import Evaluation
     from cafe.execution.results import Observation, Results, config_id
@@ -584,7 +603,7 @@ def _evaluation_from_payload(payload: dict, items: list[dict], keep_ids: set[str
     return Evaluation(
         study_name=name, answers=results, ratings=ratings,
         attribution=attribute(ratings) if ratings_items else None,
-        items=[it for it in (items or []) if str(it.get("id")) in keep_ids],
+        items=[it for i, it in enumerate(items or []) if _input_id(it, i) in keep_ids],
         questions={r["input_id"]: r.get("question") or "" for r in payload.get("records") or []
                    if r.get("input_id") in keep_ids},
         references={r["input_id"]: r.get("reference") or "" for r in payload.get("records") or []
@@ -611,8 +630,28 @@ def refresh_payload(payload: dict, items: list[dict]) -> dict:
 def filtered_payload(payload: dict, items: list[dict], fkey: str, fval: str) -> dict:
     """Recompute the full results payload on the subset of questions whose metadata key
     ``fkey`` equals ``fval`` — means, mixed model, CLMM/logistic and energy are all refit
-    on the subset (run timing is full-run only and therefore omitted)."""
-    keep_ids = {str(it.get("id")) for it in (items or [])
+    on the subset (run timing is full-run only and therefore omitted).
+
+    Parameters
+    ----------
+    payload : dict
+        The study's stored results payload.
+    items : list of dict
+        The study's dataset items, in dataset order. An item is matched to its results by
+        the id cafe-core gave it when the study ran: its ``"id"``, else ``in<position>``
+        (ids are optional).
+    fkey : str
+        The question-metadata key to filter on.
+    fval : str
+        The value the key must have (compared with the item's value as stripped text).
+
+    Returns
+    -------
+    dict
+        The payload recomputed on the matching questions, plus ``filtered``:
+        ``{key, value, n_questions, n_total}``.
+    """
+    keep_ids = {_input_id(it, i) for i, it in enumerate(items or [])
                 if str(it.get(fkey, "")).strip() == fval}
     ev = _evaluation_from_payload(payload, items, keep_ids)
     out = _results_payload(ev)
