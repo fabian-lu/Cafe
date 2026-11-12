@@ -1,9 +1,12 @@
 """Fractional factorial designs."""
 
+import itertools
+import math
+
 import pytest
 
 import cafe
-from cafe.design.fractional import fractional_factorial_design
+from cafe.design.fractional import FractionalDesign, fractional_factorial_design
 
 
 def _factors(letters):
@@ -102,6 +105,79 @@ def test_study_fractional_with_options():
         design_options={"runs": 16},
     )
     assert cafe.size(study) == 16
+
+
+def _true_resolution(d):
+    """The shortest word whose product column is constant over the design's runs (brute force)."""
+    signs = [[1 if c[n] == 1 else -1 for n in d.factor_names] for c in d.configs]
+    k = len(d.factor_names)
+    for length in range(1, k + 1):
+        for word in itertools.combinations(range(k), length):
+            if len({math.prod(row[i] for i in word) for row in signs}) == 1:
+                return length
+    return None
+
+
+def test_user_generators_give_the_reported_resolution():
+    d = fractional_factorial_design(_factors("ABCDE"), runs=8,
+                                    generators={"D": ["B", "A"], "E": ["A", "C"]})
+    assert d.generators == {"D": ["B", "A"], "E": ["A", "C"]}
+    assert d.resolution == _true_resolution(d) == 3
+    assert len({tuple(sorted(c.items())) for c in d.configs}) == 8
+
+
+@pytest.mark.parametrize(
+    "generators, problem",
+    [
+        # A·B·A = B: D was the same column as B (true resolution II), reported as III
+        ({"D": ["A", "B", "A"], "E": ["A", "C"]}, "repeats \\['A'\\]"),
+        # D = A aliases two main effects; reported "main effects ... estimable"
+        ({"D": ["A"], "E": ["B", "C"]}, "at least 2 basic factors"),
+        # an empty product never varies D; reported resolution I "...estimable"
+        ({"D": [], "E": ["B", "C"]}, "'D' would never vary"),
+        # D = E: aliased main effects again, in either order
+        ({"D": ["A", "B"], "E": ["B", "A"]}, "same product"),
+        # bare KeyErrors before: an added factor, and a typo
+        ({"D": ["A", "B"], "E": ["D", "C"]}, "only multiply basic factors, but names \\['D'\\]"),
+        ({"D": ["A", "b"], "E": ["A", "C"]}, "only multiply basic factors, but names \\['b'\\]"),
+        # silently ignored before: a generator for a basic factor
+        ({"C": ["A", "B"], "D": ["A", "B"], "E": ["A", "C"]}, "only added factors take one"),
+    ],
+    ids=["repeated", "single", "empty", "duplicate", "added-factor", "typo", "basic-factor"],
+)
+def test_invalid_user_generators_are_refused(generators, problem):
+    with pytest.raises(ValueError, match=problem):
+        fractional_factorial_design(_factors("ABCDE"), runs=8, generators=generators)
+
+
+def test_show_keeps_textbook_words_for_single_letter_names():
+    shown = fractional_factorial_design(_factors("ABCDEFG")).show()
+    assert "D = ABC" in shown
+    assert "A = BE = CF = DG" in shown
+
+
+def test_show_separates_multi_character_factor_names():
+    names = ["model", "retrieve", "top_k", "sabotage", "rerank"]
+    d = fractional_factorial_design([cafe.Factor(n, ["a", "b"]) for n in names], runs=8)
+    shown = d.show()
+    assert "sabotage = model×retrieve×top_k" in shown   # was "modelretrievetop_k"
+    assert "rerank = model×retrieve = sabotage×top_k" in shown
+    assert d.aliases["model"] == ["rerank×retrieve"]
+
+
+def test_show_has_no_empty_alias_section_from_resolution_iv():
+    for d in (fractional_factorial_design(_factors("ABCDEF"), runs=16),   # IV
+              fractional_factorial_design(_factors("ABCDE"), runs=16)):   # V
+        assert d.resolution >= 4
+        assert "main-effect aliases" not in d.show()
+
+
+@pytest.mark.parametrize("resolution", [1, 2])
+def test_show_says_main_effects_are_not_estimable_below_resolution_iii(resolution):
+    d = FractionalDesign(configs=[], factor_names=["A", "B", "C"], runs=4, full_runs=8,
+                         resolution=resolution)
+    note = d.show().splitlines()[-1]
+    assert "not estimable" in note and "interactions estimable" not in note
 
 
 def test_too_many_added_factors_is_a_clear_error_not_a_memory_blowup():
