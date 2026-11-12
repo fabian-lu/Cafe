@@ -42,6 +42,33 @@ def check_factor_name(name: str) -> None:
         )
 
 
+def question_and_reference(item: Any) -> tuple[str, str | None]:
+    """The question and reference the judge is shown for one dataset item.
+
+    The one rule for both the run (:func:`cafe.evaluate` builds its question and reference
+    maps with it) and :meth:`Study.preview_judge_prompt`, so the preview shows what the
+    judge gets.
+
+    Parameters
+    ----------
+    item:
+        One element of ``Study.dataset``.
+
+    Returns
+    -------
+    tuple
+        ``(question, reference)``. For a ``dict`` item: its ``"text"`` (else its
+        ``"question"``, else ``""``) and its ``"reference"``, both as text. The reference is
+        ``None`` only when the item has none or it is ``None``: a falsy one such as ``0`` is
+        the reference ``"0"``. Any other item is the question itself, with no reference.
+    """
+    if isinstance(item, dict):
+        reference = item.get("reference")
+        question = item.get("text", item.get("question", ""))
+        return str(question), None if reference is None else str(reference)
+    return str(item), None
+
+
 class FactorType(str, Enum):
     """How a factor is treated by design generation and (later) statistics."""
 
@@ -308,13 +335,16 @@ class Study:
         verify the judging before spending any tokens. While an ``LLMJudge`` with
         ``structured="auto"`` hasn't yet decided whether its model gets the JSON prompt,
         both user prompts are shown (see :meth:`cafe.LLMJudge.preview`).
+
+        The question and reference are taken from ``item`` exactly as the run takes them
+        (see :func:`question_and_reference`): a dict item's ``"text"`` (or ``"question"``)
+        and its ``"reference"``, as text, so a reference of ``0`` shows as ``0``.
         """
         if self.judge is None or self.rubric is None:
             raise ValueError("study has no judge/rubric set to preview")
         if item is None:
             item = self.dataset[0] if self.dataset else ""
-        question = item["text"] if isinstance(item, dict) and "text" in item else str(item)
-        reference = item.get("reference") if isinstance(item, dict) else None
+        question, reference = question_and_reference(item)
         if not hasattr(self.judge, "preview"):
             raise ValueError("this judge has no .preview() to show a prompt (use an LLMJudge)")
         return self.judge.preview(self.rubric, question, answer, reference)

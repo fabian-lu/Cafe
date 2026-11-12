@@ -22,6 +22,7 @@ from cafe.execution import _input_id, estimate, run_study
 from cafe.judging import Ratings, judge_results
 from cafe.execution.results import Observation, Results
 from cafe.stats import Attribution, attribute
+from cafe.study import question_and_reference
 
 if TYPE_CHECKING:
     from cafe.study import Study
@@ -432,17 +433,16 @@ class Preflight:
 def _question_and_reference_maps(study: "Study") -> tuple[dict[str, str], dict[str, str]]:
     """Derive ``input_id -> question`` and ``input_id -> reference`` from the
     study's inputs, so the judge sees the original question and any gold answer
-    without the caller wiring it up by hand."""
+    without the caller wiring it up by hand. Each item is read by
+    :func:`cafe.study.question_and_reference`, the rule ``Study.preview_judge_prompt``
+    shares."""
     questions: dict[str, str] = {}
     references: dict[str, str] = {}
     for idx, item in enumerate(study.dataset):
         iid = _input_id(item, idx)
-        if isinstance(item, dict):
-            questions[iid] = str(item.get("text", item.get("question", "")))
-            if item.get("reference") is not None:
-                references[iid] = str(item["reference"])
-        else:
-            questions[iid] = str(item)
+        questions[iid], reference = question_and_reference(item)
+        if reference is not None:
+            references[iid] = reference
     return questions, references
 
 

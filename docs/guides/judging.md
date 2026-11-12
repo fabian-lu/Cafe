@@ -35,6 +35,10 @@ earlier in the same Python session by another judge on that model), the preview 
 the prompt that is sent. Pass `structured=True` or `False` to `preview()` to see one mode's
 prompt.
 
+`study.preview_judge_prompt` reads the question and reference from the first dataset item
+(or the `item` you pass) the way the run does: the item's `"text"` (or `"question"`) and
+its `"reference"`, so a reference of `0` is shown as `0`.
+
 ### Presets
 
 The preset chooses the prompt scaffold:
