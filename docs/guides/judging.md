@@ -61,6 +61,12 @@ sit behind every score, so you can audit or debug any grade. CAFE also asks for 
 structured (JSON) verdict where the model supports it and falls back to a `GRADE: <n>`
 line otherwise (`structured="auto"`, the default; force with `True`/`False`).
 
+If the provider refuses the JSON request (HTTP 400, 404 or 422, which is how a
+`response_format` it doesn't support is turned down), the judge sends the plain prompt
+instead. Any other failure, such as a timeout, a rate limit or a server error, would fail
+the plain call too, so nothing is sent again: it becomes an error rating at once, like a
+failed plain call, and shows up in `result.ratings.failures()`.
+
 Grades must be whole numbers on the rubric's scale. A fractional grade (`GRADE: 4.5`, or
 `"grade": 4.5` in a JSON verdict) is recorded as an error rating, like an off-scale one —
 never rounded or truncated — so it shows up in `result.ratings.failures()` instead of

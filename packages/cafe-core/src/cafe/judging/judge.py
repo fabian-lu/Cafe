@@ -189,6 +189,27 @@ class LLMJudge:
     async def score(
         self, rubric: Rubric, question: str, answer: str, reference: str | None = None
     ) -> JudgeOutput:
+        """Judge one answer against ``rubric``.
+
+        Parameters
+        ----------
+        rubric:
+            The rubric whose scale the verdict is on.
+        question, answer:
+            The question asked and the answer to judge.
+        reference:
+            The reference answer, for a preset that grades against one.
+
+        Returns
+        -------
+        JudgeOutput
+            The verdict, with the prompt sent and the raw reply. A call that fails gives an
+            error rating (no value, and ``reasoning`` starting ``"judge call failed:"``)
+            instead of raising. In structured mode a call the provider refuses, as it
+            refuses a ``response_format`` it doesn't support (HTTP 400, 404 or 422), is made
+            again as a plain call; any other failure, such as a timeout or a rate limit, is
+            not, so it never costs a second call.
+        """
         messages = self.render_messages(rubric, question, answer, reference, structured=False)
         prompt = messages[-1]["content"]
 
@@ -208,10 +229,19 @@ class LLMJudge:
     async def _score_structured(
         self, rubric: Rubric, messages: list[dict[str, str]]
     ) -> JudgeOutput | None:
-        """Score by asking for a JSON verdict. Returns ``None`` only if the provider
-        rejects ``response_format`` (so the caller falls back to a plain call); a parsed
-        result — even an unparseable one — is returned with its raw response for audit."""
-        from cafe.judging.structured import parse_json_verdict
+        """Score by asking for a JSON verdict.
+
+        Returns
+        -------
+        JudgeOutput or None
+            ``None`` only if the provider refused the request, as it refuses a
+            ``response_format`` it doesn't support (HTTP 400, 404 or 422), so the caller
+            falls back to a plain call. Any other failed call (a timeout, a rate limit, a
+            server, connection or auth error) is an error rating, as for a failed plain
+            call, and is not sent again. A reply, even an unparseable one, is returned with
+            its raw response for audit.
+        """
+        from cafe.judging.structured import _refused_request, parse_json_verdict
 
         json_messages = self._json_messages(rubric, messages)
         json_prompt = json_messages[-1]["content"]
@@ -221,8 +251,10 @@ class LLMJudge:
                 temperature=self.temperature, timeout=self.timeout, num_retries=self.retries,
                 response_format={"type": "json_object"},
             )
-        except LLMError:
-            return None
+        except LLMError as exc:
+            if _refused_request(exc):
+                return None
+            return JudgeOutput(None, None, f"judge call failed: {exc}", json_prompt, None)
         value, numeric, reasoning = parse_json_verdict(raw, rubric)
         # Only a reply that isn't JSON-with-a-grade goes to the GRADE regex. An off-scale JSON
         # grade stays an error: the regex over the JSON text could match "grade: N" in the
