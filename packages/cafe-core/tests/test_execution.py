@@ -55,6 +55,38 @@ async def test_smoke_runs_one_input_one_rep():
     assert {o.input_id for o in results.observations} == {"in0"}
 
 
+async def test_duplicate_dataset_ids_are_refused_before_anything_runs():
+    """Items sharing an id share their answers' keys and the judge's question/reference
+    lookup — the judge graded one item's answer against the other item's question. So a
+    dataset with a repeated id is refused before any cell runs (smoke runs included)."""
+    import pytest
+
+    calls = []
+
+    async def system(config, item):
+        calls.append(item)
+        return "x"
+
+    def study(dataset):
+        return Study(name="ids", system=system, factors=[Factor("m", ["a", "b"])],
+                     dataset=dataset)
+
+    dup = study([{"id": "q1", "text": "A"}, {"id": "q1", "text": "B"},
+                 {"id": 7, "text": "C"}, {"id": "7", "text": "D"}])
+    for smoke in (False, True):
+        with pytest.raises(ValueError, match="ids must be unique") as err:
+            await run_study(dup, smoke=smoke)
+        assert "'q1' (items 0, 1)" in str(err.value)
+        assert "'7' (items 2, 3)" in str(err.value)   # 7 and "7" are one id
+    with pytest.raises(ValueError, match="ids must be unique"):
+        await run_study(study([{"id": "in1", "text": "A"}, "B"]))   # "B" is in1 by position
+    assert calls == []
+
+    # items without ids are told apart by position, even when they are equal
+    results = await run_study(study(["same", "same"]))
+    assert {o.input_id for o in results.observations} == {"in0", "in1"}
+
+
 def _obs(elapsed_s, metadata):
     return Observation(
         config={"m": "a"}, input_id="q0", rep=0, output="x", elapsed_s=elapsed_s, metadata=metadata

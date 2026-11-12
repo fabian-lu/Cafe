@@ -95,8 +95,10 @@ class Study:
         configurations.
     dataset:
         The evaluation set, one element per item. An item may be any value; if it
-        is a mapping it may carry ``"id"`` (for resume), ``"text"`` (the question
-        shown to the judge), and ``"reference"`` (a gold answer for the judge).
+        is a mapping it may carry ``"id"`` (for resume; unique within the dataset,
+        compared as text), ``"text"`` (the question shown to the judge), and
+        ``"reference"`` (a gold answer for the judge). Running a study whose items
+        repeat an id raises ``ValueError``.
     rubric:
         The :class:`cafe.Rubric` the judge scores answers on. Optional —
         leave ``None`` to only generate answers without judging.
