@@ -17,7 +17,6 @@ humans don't agree enough to trust the judge's verdicts. Needs the ``stats`` ext
 
 from __future__ import annotations
 
-import math
 import statistics
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -262,23 +261,20 @@ class Reliability:
 def _judge_scores(evaluation: "Evaluation", label: str) -> dict[Any, Any]:
     """Collapse the judge's verdicts to one score per answer (mean over judge reps).
 
-    For an ordinal/binary rubric the mean is rounded back to an integer scale point
-    (round-half-up, as in :func:`cafe.stats._frame.analysis_frame`; also for negative
-    levels, where truncating toward zero would move -2 to -1); for a **numeric** rubric
-    the mean is kept as-is — rounding 7.5→8 would corrupt the interval metric that α
-    uses for numeric scales."""
-    from cafe.judging.rubric import ScaleType
-
+    For an ordinal/binary rubric the mean is moved to the nearest level of the rubric, a tie
+    going to the higher level (:meth:`cafe.judging.rubric.Rubric.snap`, as in
+    :func:`cafe.stats._frame.analysis_frame`): on a contiguous scale that is round-half-up,
+    also for negative levels, where truncating toward zero would move -2 to -1; on a
+    non-contiguous scale (1, 3, 5) it never yields an undefined score such as 2. For a
+    **numeric** rubric the mean is kept as-is — rounding 7.5→8 would corrupt the interval
+    metric that α uses for numeric scales."""
     by_answer: dict[Any, list[float]] = defaultdict(list)
     ratings = getattr(evaluation, "ratings", None)
     if ratings is not None:
         for r in ratings.items:
             if r.value_numeric is not None:
                 by_answer[r.obs_key].append(float(r.value_numeric))
-    scale = getattr(getattr(ratings, "rubric", None), "scale_type", None)
-    if scale == ScaleType.numeric:
-        return {u: statistics.fmean(v) for u, v in by_answer.items()}
-    return {u: math.floor(statistics.fmean(v) + 0.5) for u, v in by_answer.items()}  # half-up
+    return {u: ratings.rubric.snap(statistics.fmean(v)) for u, v in by_answer.items()}
 
 
 def _metric_for(evaluation: "Evaluation" | None) -> str:

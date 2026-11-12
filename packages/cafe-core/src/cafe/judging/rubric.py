@@ -107,6 +107,33 @@ class Rubric:
             return iv if self.min_value <= iv <= self.max_value else None
         return iv if any(lvl.value == iv for lvl in self.levels) else None
 
+    def snap(self, mean: float) -> float:
+        """The score that the mean of several verdicts on one answer stands for.
+
+        Judge replications (or several raters) of one answer are averaged before the
+        statistics. For an ``ordinal``/``binary`` rubric the mean is moved to the nearest
+        defined level, so it is always a score the rubric has: on a non-contiguous scale
+        (1, 3, 5) the mean of 1 and 3 is 3, never the undefined 2. A mean exactly halfway
+        between two levels goes to the higher one; on a contiguous scale that is plain
+        round-half-up (2.5 → 3, -1.5 → -1, a tied pass/fail split 0.5 → 1). For a
+        ``numeric`` rubric the mean is returned unchanged (any value in the range is valid).
+
+        Parameters
+        ----------
+        mean:
+            The mean of the answer's verdicts.
+
+        Returns
+        -------
+        float
+            The nearest level's ``value`` (an ``int``) for ``ordinal``/``binary``, else
+            ``mean`` itself.
+        """
+        if self.scale_type == ScaleType.numeric:
+            return mean
+        # nearest level; on a tie the larger value wins
+        return max({lvl.value for lvl in self.levels}, key=lambda v: (-abs(v - mean), v))
+
     def scale_text(self) -> str:
         """A compact, judge-readable description of the scale."""
         return "\n".join(f"  {lvl.value} = {lvl.label}: {lvl.description}" for lvl in self.levels)

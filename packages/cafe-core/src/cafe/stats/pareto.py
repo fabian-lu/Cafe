@@ -145,9 +145,9 @@ def _dominates(a: dict, b: dict, objectives: list[str]) -> bool:
 def _quality_by_config(ratings: "Ratings") -> tuple[dict[str, list[float]], dict[str, dict]]:
     """One quality value per *answer* for each configuration. Judge replications of the same
     answer are technical replicates, so — exactly as in :func:`cafe.stats._frame.analysis_frame`
-    — they are averaged first (rounded half-up to a scale point for ordinal/binary rubrics),
-    keeping Pareto quality equal to :func:`cafe.attribute`'s configuration mean."""
-    import math
+    — they are averaged first (for ordinal/binary rubrics moved to the nearest level of the
+    rubric, :meth:`cafe.judging.rubric.Rubric.snap`), keeping Pareto quality equal to
+    :func:`cafe.attribute`'s configuration mean."""
     import statistics
 
     from cafe.judging.rubric import ScaleType
@@ -160,12 +160,13 @@ def _quality_by_config(ratings: "Ratings") -> tuple[dict[str, list[float]], dict
         label = config_label(r.config)
         configs[label] = dict(r.config)
         per_answer[(label, r.input_id, r.rep)].append(float(r.value_numeric))
-    scale = getattr(getattr(ratings, "rubric", None), "scale_type", None)
+    rubric = getattr(ratings, "rubric", None)
+    scale = getattr(rubric, "scale_type", None)
     quality: dict[str, list[float]] = defaultdict(list)
     for (label, _input_id, _rep), values in per_answer.items():
         verdict = statistics.fmean(values)
         if scale in (ScaleType.ordinal, ScaleType.binary):
-            verdict = float(math.floor(verdict + 0.5))
+            verdict = float(rubric.snap(verdict))
         quality[label].append(verdict)
     return quality, configs
 
