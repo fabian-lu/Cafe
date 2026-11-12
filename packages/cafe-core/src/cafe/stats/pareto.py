@@ -20,6 +20,7 @@ Needs the ``stats`` extra (pandas); :meth:`ParetoResult.plot` needs matplotlib.
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -34,6 +35,10 @@ if TYPE_CHECKING:
 # objective -> +1 if higher is better, -1 if lower is better
 _DIRECTION = {"quality": +1, "cost": -1, "latency": -1, "tokens": -1}
 
+# Two means closer than this (relative to their size) are equal: what separates them is the
+# floating-point error of averaging, not a difference between the configurations.
+_REL_TOL = 1e-9
+
 
 @dataclass
 class ParetoResult:
@@ -41,7 +46,8 @@ class ParetoResult:
 
     A row's ``quality`` is the mean over the configuration's *answers*: judge replications
     of an answer are averaged first (as in :func:`cafe.attribute`), so each answer counts
-    once however many of its judge calls succeeded.
+    once however many of its judge calls succeeded. The rows hold the unrounded means, the
+    values the frontier was decided on; :meth:`show` rounds them for display.
     """
 
     objectives: list[str]
@@ -128,10 +134,13 @@ class ParetoResult:
 
 def _dominates(a: dict, b: dict, objectives: list[str]) -> bool:
     """True if config ``a`` is at least as good as ``b`` on every objective and
-    strictly better on at least one (objectives oriented by ``_DIRECTION``)."""
+    strictly better on at least one (objectives oriented by ``_DIRECTION``; values within
+    ``_REL_TOL`` of each other are a tie)."""
     at_least_as_good = True
     strictly_better = False
     for obj in objectives:
+        if math.isclose(a[obj], b[obj], rel_tol=_REL_TOL):
+            continue
         sign = _DIRECTION[obj]
         av, bv = sign * a[obj], sign * b[obj]
         if av < bv:
@@ -207,7 +216,9 @@ def pareto(
         One row per configuration. ``latency`` / ``cost`` / ``tokens`` are means over the
         answers that report them, or ``None`` if none of the configuration's answers do;
         an objective that is ``None`` for any configuration is left out of the default
-        objectives.
+        objectives. The means are not rounded: the objectives and the frontier are decided
+        on them as they are (only :meth:`ParetoResult.show` rounds, for display), so a
+        cost of $0.0000166 vs $0.0000174 per answer is a difference, not a tie.
 
     Raises
     ------
@@ -225,8 +236,9 @@ def pareto(
     quality, configs = _quality_by_config(ratings)
     resources = _resources_by_config(answers)
 
-    def _mean(values: list[float], ndigits: int) -> float | None:
-        return round(statistics.fmean(values), ndigits) if values else None  # None = unreported
+    def _mean(values: list[float]) -> float | None:
+        # Unrounded: rounding first made e.g. $0.0000166 and $0.0000174 the same cost.
+        return statistics.fmean(values) if values else None  # None = unreported
 
     rows: list[dict[str, Any]] = []
     for label, cfg in configs.items():
@@ -234,10 +246,10 @@ def pareto(
         rows.append({
             "config": cfg,
             "label": label,
-            "quality": round(statistics.fmean(quality[label]), 4) if quality[label] else 0.0,
-            "latency": _mean(r["latency"], 4),
-            "cost": _mean(r["cost"], 6),
-            "tokens": _mean(r["tokens"], 1),
+            "quality": statistics.fmean(quality[label]) if quality[label] else 0.0,
+            "latency": _mean(r["latency"]),
+            "cost": _mean(r["cost"]),
+            "tokens": _mean(r["tokens"]),
         })
 
     # Choose objectives: quality always; a resource objective only if every configuration
@@ -245,8 +257,10 @@ def pareto(
     if objectives is None:
         objectives = ["quality"]
         for obj in ("cost", "latency", "tokens"):
-            values = {r[obj] for r in rows}
-            if None not in values and len(values) > 1:
+            values = [r[obj] for r in rows]
+            if None not in values and any(
+                not math.isclose(v, values[0], rel_tol=_REL_TOL) for v in values
+            ):
                 objectives.append(obj)
     else:
         for obj in objectives:

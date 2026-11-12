@@ -127,3 +127,31 @@ def test_pareto_missing_cost_and_tokens_are_not_zero():
         cafe.pareto(_metadata_evaluation(meta), objectives=["quality", "cost"])
     with pytest.raises(ValueError, match="not reported"):
         res.plot(x="cost")
+
+
+def test_pareto_decides_on_unrounded_means():
+    """Every config scores the same, so the cost per answer decides. The means used to be
+    rounded (cost to 6 decimals) before choosing the objectives and testing dominance:
+    $0.0000166 and $0.0000174 both became 1.7e-05, and $2e-7 and $4e-7 both 0.0, so the cost
+    objective was dropped as constant and every config was starred."""
+    import pytest
+
+    for cheap, dear in ((1.66e-5, 1.74e-5), (2e-7, 4e-7)):
+        cost = {"a": cheap, "b": dear, "c": cheap, "d": dear}
+        res = cafe.pareto(_metadata_evaluation(lambda name, i: {"cost_usd": cost[name]}))
+        assert res.objectives == ["quality", "cost"]
+        assert {r["config"]["sys"] for r in res.frontier} == {"a", "c"}
+        assert {r["config"]["sys"]: r["cost"] for r in res.rows} == pytest.approx(cost, rel=1e-12)
+        assert f"{cheap:.4g}" in res.show() and f"{dear:.4g}" in res.show()
+
+
+def test_pareto_float_noise_in_a_mean_is_a_tie():
+    """a's answers cost 0.05, 0.05, 0.35 and 0.35, the others' 0.2 each: every mean is $0.2,
+    although a's float mean is 0.19999999999999998. That last bit is not a cheaper a."""
+    per_answer = {"a": [0.05, 0.05, 0.35, 0.35], "b": [0.2] * 4, "c": [0.2] * 4, "d": [0.2] * 4}
+    res = cafe.pareto(_metadata_evaluation(lambda name, i: {"cost_usd": per_answer[name][i]}))
+    assert res.objectives == ["quality"]                      # cost doesn't vary
+    assert len(res.frontier) == 4
+    explicit = cafe.pareto(_metadata_evaluation(lambda name, i: {"cost_usd": per_answer[name][i]}),
+                           objectives=["quality", "cost"])
+    assert len(explicit.frontier) == 4                         # a doesn't dominate the rest
