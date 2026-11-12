@@ -94,6 +94,21 @@ them with a `"stage.param"` factor, e.g. `cafe.Factor("retrieve.top_k", [3, 5])`
 *without* defaults (`query`) are runtime inputs you pass via `ctx.run`. (For a deployed
 catalog, register techniques programmatically with `pipe.add(stage, name, fn)`.)
 
+Like a black-box system, a technique or the compose function can be a plain `def` instead
+of an `async def`. That suits a technique that awaits nothing:
+
+```python
+@pipe.technique("rerank", "by_length")
+def by_length(ctx, chunks):                              # plain def: nothing to await
+    return sorted(chunks, key=len, reverse=True)
+```
+
+A plain `def` is called directly on CAFE's event loop. It can't `await`, so it can't run a
+stage with `ctx.run` or call a model with `cafe.complete` (`ctx.add_cost` works), and other
+answers wait while it runs. Write `async def` for a compose function that runs stages, for a
+technique that awaits anything, and for slow blocking work (a synchronous HTTP client, a
+local model), which it can hand to a thread with `await asyncio.to_thread(...)`.
+
 A stage with **several** techniques needs a factor to choose one (`pipe.factor("rerank")`). A
 stage with a **single** technique is *fixed* — it needs no factor of its own; CAFE just runs it.
 

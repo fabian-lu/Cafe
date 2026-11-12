@@ -24,20 +24,32 @@ build one per run via :meth:`add` — see :meth:`add`.
 from __future__ import annotations
 
 import inspect
-from typing import Any, Awaitable, Callable
+from typing import Any, Callable
 
 from cafe.study import Factor
 from cafe.system import normalize_output
 from cafe.techniques.context import Context
 from cafe.techniques.registry import TechniqueSpec
 
-ComposeFn = Callable[[dict, Any, Context], Awaitable[Any]]
+# An ``async def`` (its call returns an awaitable of the answer) or a plain ``def``.
+ComposeFn = Callable[[dict, Any, Context], Any]
 
 _NONE_UNSET = object()
 
 
 class Pipeline:
-    """A scoped collection of techniques + a compose function, usable as a Study ``system``."""
+    """A scoped collection of techniques + a compose function, usable as a Study ``system``.
+
+    Notes
+    -----
+    A technique and the compose function can each be an ``async def`` or a plain ``def``, like
+    a black-box system. A plain ``def`` is called directly on the event loop: it can't
+    ``await`` — so it can't run a stage (``ctx.run``) or call a model (:func:`cafe.complete`),
+    though ``ctx.add_cost`` works — and other answers wait while it runs. So write
+    ``async def`` for a compose function that runs stages, for a technique that awaits
+    anything, and for slow blocking work, which it can hand to a thread with
+    ``await asyncio.to_thread(...)``.
+    """
 
     def __init__(self, compose: ComposeFn | None = None) -> None:
         self._techniques: dict[tuple[str, str], TechniqueSpec] = {}
@@ -95,8 +107,19 @@ class Pipeline:
     def compose(self, fn: ComposeFn) -> ComposeFn:
         """Mark ``fn(config, item, ctx)`` as this pipeline's system function (decorator).
 
-        ``fn`` returns the answer, or ``{"output": answer, "cost_usd": ..., ...}`` to report
-        a cost spent outside any stage (see :meth:`run`)."""
+        Parameters
+        ----------
+        fn:
+            The system function, an ``async def`` or a plain ``def`` (see :class:`Pipeline`).
+            It returns the answer, or ``{"output": answer, "cost_usd": ..., ...}`` to report
+            a cost spent outside any stage (see :meth:`run`). It runs a stage with
+            ``await ctx.run(stage, ...)``, so one that runs stages is an ``async def``.
+
+        Returns
+        -------
+        Callable
+            ``fn``, unchanged.
+        """
         self._compose = fn
         self.name = getattr(fn, "__name__", "pipeline")
         return fn
@@ -190,7 +213,9 @@ class Pipeline:
         # A fresh Context, and with it an empty stage cache, for every cell: steps are
         # memoized within this run only, never across configurations, items or reps.
         ctx = Context(self._techniques, config)
-        result = await self._compose(config, item, ctx)
+        result = self._compose(config, item, ctx)
+        if inspect.isawaitable(result):  # an async def; a plain def returned the answer itself
+            result = await result
         # The compose fn may return the answer or, like any system, an {"output": ...} dict;
         # its cost/tokens/energy add to the run's totals (not to any stage's step).
         output, extra = normalize_output(result)
