@@ -119,11 +119,42 @@ def human_ratings(records: Any) -> HumanRatings:
     partially-rated sheet is fine; a row whose score can't be read as a number is skipped
     with a warning (naming the row) rather than aborting the whole import — a stray header
     row or a typo like ``"5?"`` in one cell shouldn't lose the sheet.
+
+    Parameters
+    ----------
+    records:
+        The rows: a list of dicts, a DataFrame, or the path of a CSV, as a ``str`` or an
+        ``os.PathLike`` such as a ``pathlib.Path``. A CSV's answer ids and rater names are
+        read as written, so a rater ``"01"`` or ``"NA"`` keeps that name (instead of
+        becoming ``"1"`` or ``"nan"``). Its scores are read as numbers, and a score cell
+        that is blank or that pandas reads as missing (``NA``, ``n/a``, ...) is unrated.
+
+    Returns
+    -------
+    HumanRatings
+        One record per scored row: the rater as text, the score as a number (an ``int``
+        if it is whole).
+
+    Raises
+    ------
+    ValueError
+        If a row has no ``answer_id``, ``rater`` or ``score``.
+
+    Warns
+    -----
+    UserWarning
+        For each row whose score can't be read as a number (that row is skipped).
     """
-    if isinstance(records, str):  # a CSV path (a filled-in answer sheet)
+    import os
+
+    if isinstance(records, (str, os.PathLike)):  # a CSV path (a filled-in answer sheet)
         import pandas as pd
 
-        records = pd.read_csv(records)
+        # Every cell as written: by default pandas reads a rater "01" as 1 and "NA" as nan...
+        sheet = pd.read_csv(records, dtype=str, keep_default_na=False)
+        if "score" in sheet.columns:  # ...but the scores as before: blank or NA cells unrated
+            sheet["score"] = pd.read_csv(records, dtype=str, usecols=["score"])["score"]
+        records = sheet
     if hasattr(records, "to_dict"):  # a DataFrame
         records = records.to_dict("records")
     out = []
