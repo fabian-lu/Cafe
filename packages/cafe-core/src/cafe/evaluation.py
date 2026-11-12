@@ -307,6 +307,10 @@ class Evaluation:
 
             result.plot()                 # everything
             result.plot("interaction")    # just one
+
+        Level labels are shortened (a model path to its last part, long text to 16
+        characters), except where two levels of a factor would then read the same: those
+        show more of their text, or a number (``… (1)``, ``… (2)``).
         """
         from cafe.stats.plots import plot as _plot
 
