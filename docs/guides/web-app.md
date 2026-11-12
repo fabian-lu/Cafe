@@ -29,13 +29,16 @@ and the front-end deps); subsequent starts are fast. Keys come from the repo-roo
 The app evaluates the pipelines in the repo-root [`techniques/`](https://github.com/fabian-lu/Cafe/tree/main/techniques)
 folder, which is mounted into the backend. Every `.py` file there whose module-level
 `pipe` (a `cafe.Pipeline`) has a `@pipe.compose` is one selectable pipeline, named after
-the file; files without a compose are technique libraries. The app discovers them at
+the file; files without a compose are technique libraries, which a compose file imports
+like any module next to it (`from retrieval import dense`). The app discovers them at
 startup, and the study form builds its factors from the chosen pipeline's stages and
 techniques.
 
 To evaluate your own system, drop your techniques into that folder (or point
 `CAFE_TECHNIQUES_DIR` at your own), then hit **Reload** on the Techniques page — no
-restart needed. See [Define your system](define-a-system.md) for how to write the
+restart needed, and edited libraries are read again too. A file that fails to import (a
+syntax error, a missing package) is skipped and listed there with its error; the backend
+log has its traceback. See [Define your system](define-a-system.md) for how to write the
 pipeline.
 
 Already ran a study in Python? **Import study** on the Studies page takes a
