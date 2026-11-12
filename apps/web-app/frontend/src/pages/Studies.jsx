@@ -5,12 +5,22 @@ import NumberField from "../components/NumberField.jsx";
 import JudgeModelField from "../components/JudgeModelField.jsx";
 import Spinner from "../components/Spinner.jsx";
 
-function parseLevels(str) {
-  const parts = str.split(",").map((s) => s.trim()).filter(Boolean);
+// The words that name a value of a parameter's type, by its default: as text, "False" would
+// reach a boolean parameter as a truthy string. (Maps: a level may be any word, "constructor" too.)
+const BOOLEAN_WORDS = new Map([["true", true], ["false", false]]);
+const NONE_WORDS = new Map([["none", null], ["null", null]]);
+
+// A parameter's comma-separated levels, typed like its default `def`: true/false (any case) for a
+// boolean, none/null for a parameter that defaults to None, numbers if all the rest are numbers.
+function parseLevels(str, def) {
+  const words = typeof def === "boolean" ? BOOLEAN_WORDS : def === null ? NONE_WORDS : new Map();
+  const levels = str.split(",").map((s) => s.trim()).filter(Boolean)
+    .map((p) => (words.has(p.toLowerCase()) ? words.get(p.toLowerCase()) : p));
+  const text = levels.filter((p) => typeof p === "string");
   // numbers only if every level is a finite one: JSON has no Infinity or NaN, so JSON.stringify
   // would send "Infinity" or "1e400" as null, the level that means None; as text, the level is kept
-  if (parts.length && parts.every((p) => Number.isFinite(Number(p)))) return parts.map(Number);
-  return parts;
+  if (text.length && text.every((p) => Number.isFinite(Number(p)))) return levels.map((p) => (typeof p === "string" ? Number(p) : p));
+  return levels;
 }
 
 // One study row — clickable through to its overview page. Live (read-only) progress while running;
@@ -102,7 +112,7 @@ function CreateStudy({ pipelines, datasets, rubrics, onCreated }) {
         if (levels.length) f.push({ name: s.stage, levels });
       }
       for (const p of stageParams[s.stage] || []) {
-        const lv = parseLevels(paramVals[`${s.stage}.${p.name}`] || "");
+        const lv = parseLevels(paramVals[`${s.stage}.${p.name}`] || "", p.default);
         if (lv.length) f.push({ name: `${s.stage}.${p.name}`, levels: lv });
       }
     }
