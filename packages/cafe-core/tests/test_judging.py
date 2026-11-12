@@ -388,3 +388,32 @@ def test_preview_shows_both_messages():
     assert "[SYSTEM]" in preview and "[USER]" in preview
     assert "You are a strict evaluator." in preview
     assert "Can water turn into wine?" in preview
+
+
+@pytest.mark.parametrize("item", [
+    {"id": "q1", "question": "What is 5 - 5?", "reference": 0},
+    {"id": "q1", "text": "What is 5 - 5?", "reference": 0},
+    {"id": "q1", "text": "Is 5 - 5 positive?", "reference": False},
+    {"id": "q1", "text": "What is 5 - 5?", "question": "not shown", "reference": None},
+    {"id": "q1"},
+    "What is 5 - 5?",
+], ids=["question-key", "zero-reference", "false-reference", "text-wins", "no-text", "plain"])
+def test_preview_shows_the_question_and_reference_the_judge_gets(monkeypatch, item):
+    import warnings
+
+    sent = []
+
+    async def fake_complete(model, messages, **kwargs):
+        sent.append(messages)
+        return "ok\nGRADE: 2"
+
+    monkeypatch.setattr("cafe.judging.judge.complete", fake_complete)
+    study = cafe.Study(name="t", system=lambda c, i: "zero", factors=[cafe.Factor("m", ["a", "b"])],
+                       dataset=[item], rubric=cafe.rubrics.CORRECTNESS_0_3,
+                       judge=cafe.LLMJudge("m", structured=False))
+    preview = study.preview_judge_prompt("zero")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # the design advisories
+        study.evaluate(progress=False)
+    assert len(sent) == 2
+    assert preview == "\n\n".join(f"[{m['role'].upper()}]\n{m['content']}" for m in sent[0])
