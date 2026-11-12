@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { api, isJudgingPhase, phaseLabel } from "../lib/api.js";
+import { api, followRun, isJudgingPhase, phaseLabel } from "../lib/api.js";
 import Breadcrumb from "../components/Breadcrumb.jsx";
 import { useConfirm } from "../components/ConfirmModal.jsx";
 import Spinner from "../components/Spinner.jsx";
@@ -59,31 +59,32 @@ export default function StudyDetail() {
   const [est, setEst] = useState(null);
   const [estimating, setEstimating] = useState(false);
   const [estErr, setEstErr] = useState(null);
-  const es = useRef(null);
+  const stopFollowing = useRef(null);
 
-  const load = () => api.study(id).then((s) => {
+  const show = (s) => {
     setStudy(s);
     if (s.rubric_id) api.rubric(s.rubric_id).then(setRubric).catch(() => setRubric(null));
     if (s.dataset_id) api.dataset(s.dataset_id).then(setDataset).catch(() => setDataset(null));
     if (s.status === "done") api.results(id).then((r) => setTiming(r.timing || null)).catch(() => setTiming(null));
     return s;
-  }).catch((e) => setErr(e.message));
+  };
+  const load = () => api.study(id).then(show).catch((e) => setErr(e.message));
 
+  // Live progress until the run is over, then the study as it ended — also when the stream's
+  // connection drops on the way (followRun re-reads the study and subscribes again).
   const listen = () => {
-    es.current?.close();
-    const src = new EventSource(api.streamUrl(id));
-    es.current = src;
-    src.onmessage = (e) => {
-      const p = JSON.parse(e.data);
-      setProg(p);
-      if (p.status === "done" || p.status === "failed") { src.close(); load(); }
-    };
-    src.onerror = () => src.close();
+    stopFollowing.current?.();
+    stopFollowing.current = followRun(id, {
+      onProgress: setProg,
+      onEnd: (s, error) => (s ? show(s)
+        : setErr(`Lost track of the run${error ? ` (${error.message})` : ""} — reload the page to see how it is doing.`)),
+    });
   };
 
   useEffect(() => {
-    load().then((s) => { if (s?.status === "running") listen(); });
-    return () => es.current?.close();
+    let current = true;   // a load that answers after leaving this study must not follow its run
+    load().then((s) => { if (current && s?.status === "running") listen(); });
+    return () => { current = false; stopFollowing.current?.(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 

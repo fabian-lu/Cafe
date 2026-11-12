@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -19,6 +20,11 @@ _FILTER_CACHE: dict[tuple, dict] = {}
 # /stream: how long a DB-"running" study may lack an in-memory progress entry before the
 # stream reports that no run is active in this process
 _NO_TASK_GRACE_S = 2.0
+
+# /stream: after this long without a progress change, send a comment line, so a proxy in front
+# of the backend doesn't close the stream as idle during a quiet stretch (a slow judge, or
+# fitting the statistics after the last answer)
+_KEEPALIVE_S = 15.0
 
 router = APIRouter(prefix="/api", tags=["runs"])
 
@@ -61,7 +67,27 @@ async def stream_progress(id_: int):
 
     A study with no run in this process gets a single event and the stream ends, instead of an
     idle stream that never terminates: its DB status (a draft, or a run that finished before a
-    restart), or ``"failed"`` for a "running" row whose run task is gone. 404 if no such study."""
+    restart), or ``"failed"`` for a "running" row whose run task is gone. While the progress
+    doesn't change, a ``: ping`` comment goes out every ``_KEEPALIVE_S`` seconds: EventSource
+    ignores comments, and the traffic keeps a proxy in front of the backend from closing the
+    stream as idle.
+
+    Parameters
+    ----------
+    id_ : int
+        The study.
+
+    Returns
+    -------
+    StreamingResponse
+        ``text/event-stream`` of ``data: <progress JSON>`` events (``runner.PROGRESS``:
+        phase, done, total, status, error); it ends after a ``"done"`` or ``"failed"`` one.
+
+    Raises
+    ------
+    HTTPException
+        404 if there is no such study.
+    """
     async with SessionLocal() as db:  # short-lived: don't hold a DB connection for the stream
         study = await db.get(models.Study, id_)
         if study is None:
@@ -71,6 +97,7 @@ async def stream_progress(id_: int):
     async def gen():
         last = None
         waited = 0.0
+        quiet_since = time.monotonic()
         while True:
             p = runner.PROGRESS.get(id_)
             if p is None:
@@ -91,6 +118,10 @@ async def stream_progress(id_: int):
             if snapshot != last:
                 yield f"data: {snapshot}\n\n"
                 last = snapshot
+                quiet_since = time.monotonic()
+            elif time.monotonic() - quiet_since >= _KEEPALIVE_S:
+                yield ": ping\n\n"
+                quiet_since = time.monotonic()
             if p.get("status") in ("done", "failed"):
                 break
             await asyncio.sleep(0.5)

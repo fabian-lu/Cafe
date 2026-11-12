@@ -92,3 +92,8 @@ recommended way to run the app.
 Run a **single** backend process per database (no `--workers`): runs and their live
 progress live in that process, and on startup it marks any study still "running" as
 failed, which would also hit another worker's live runs.
+
+The live progress is a server-sent event stream (`/api/studies/{id}/stream`) that stays
+open while the study runs. It sends a keep-alive comment every 15 s, so a proxy in front
+of the backend doesn't close it as idle; if the connection drops anyway, the page
+reconnects and catches up by itself, also when the run ended in the meantime.
