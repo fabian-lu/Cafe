@@ -99,7 +99,7 @@ class Pipeline:
             A fixed cost charged every time this technique runs — for a non-LLM component
             whose price CAFE can't see (a paid reranker, a web-search API, a human step).
             It's added to any LLM cost tracked inside the function and shows up in
-            ``stage_report`` / Pareto / ``report()``.
+            ``stage_report`` and Pareto.
         energy_wh:
             A fixed energy use (Wh) charged every time this technique runs, e.g. for non-LLM
             work. It adds to the energy of the LLM calls made inside the run.
