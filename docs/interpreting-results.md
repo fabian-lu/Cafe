@@ -123,7 +123,10 @@ straddles 0 (like `finalize`) is not. (Cohen's d compares the raw scores of two 
 unlike the F-test it does not take question difficulty out.)
 
 The **variance components** line shows how much the questions themselves differ, from
-the random-intercept model `verdict ~ factors + (1 | question)`:
+the random-intercept model `verdict ~ factors + (1 | question)` — its maximum-likelihood
+estimates, the same as R's `lme4::lmer(..., REML = FALSE)` (CAFE fits it with several
+optimizers and keeps the best fit). When the likelihood is highest with no between-question
+variance at all, the estimate is 0, a boundary fit, and a note says so:
 
 ```text
 variance components:  between-question sigma^2 = 0.207 · residual sigma^2 = 0.366 · ICC = 0.361

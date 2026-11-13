@@ -35,8 +35,11 @@ class Effects:
     terms: list[dict[str, Any]] = field(default_factory=list)       # factor, df, F, p, partial_eta_sq, significant
     pairwise_d: list[dict[str, Any]] = field(default_factory=list)  # factor, level_a/b, d, ci_low/high
     warnings: list[str] = field(default_factory=list)
-    #: Random-intercept / residual variance (from the mixed model), or ``None`` when only a
-    #: fixed-effects fit was possible. ``{"random_intercept": σ², "residual": σ²}``.
+    #: Random-intercept / residual variance of the mixed model ``verdict ~ factors +
+    #: (1 | question)`` — its maximum-likelihood estimates, as R's ``lme4::lmer(REML = FALSE)``
+    #: gives them — or ``None`` when only a fixed-effects fit was possible.
+    #: ``{"random_intercept": σ², "residual": σ²}``. A random intercept at its boundary (the
+    #: likelihood is highest with no between-question variance at all) gets a note.
     variance_components: dict[str, float] | None = None
     #: Share of all verdict variance the factors (and their modeled interactions) explain —
     #: from the model *without* the question block, so question difficulty doesn't count.
@@ -248,19 +251,25 @@ def _oneway(df, factors, warnings, alpha):
     return terms
 
 
-#: Optimizers tried in turn for the random-intercept model. statsmodels' lbfgs can crash
+#: Optimizers the random-intercept model is fit with. statsmodels' lbfgs can crash
 #: ("Singular matrix") on data the others fit fine — on the paper's HotpotQA study it did,
-#: while bfgs / powell / nm all matched R's lme4 (between-question σ² = 0.207).
+#: while bfgs / powell / nm all matched R's lme4 (between-question σ² = 0.207) — and a fit
+#: can report convergence well short of the maximum, so each is tried and the best kept.
 _MIXEDLM_METHODS = ("lbfgs", "bfgs", "powell", "nm")
 
 
 def _fit_random_intercept(smf, formula: str, dfs):
-    """Fit ``formula`` with a random intercept per question (ML), trying each optimizer in
-    :data:`_MIXEDLM_METHODS` until one converges. Returns the fit, or ``None`` if none did."""
+    """Fit ``formula`` with a random intercept per question (ML) with each optimizer in
+    :data:`_MIXEDLM_METHODS`, and return the converged fit with the highest log-likelihood —
+    the maximum-likelihood estimate, as R's ``lme4::lmer(REML = FALSE)`` finds it — or
+    ``None`` if none converged. Taking the first converged fit isn't enough: an optimizer
+    can stop short of the maximum and still report convergence (lbfgs put the between-question
+    variance at ≈ 0 on data where lme4's higher-likelihood fit has it at 0.165)."""
     import warnings
 
     import numpy as np
 
+    best = None
     for method in _MIXEDLM_METHODS:
         # statsmodels' convergence chatter is judged below instead; llf is computed lazily,
         # so it is read inside the silenced block too.
@@ -272,9 +281,9 @@ def _fit_random_intercept(smf, formula: str, dfs):
                 ok = bool(getattr(fit, "converged", True)) and bool(np.isfinite(fit.llf))
             except Exception:  # noqa: BLE001
                 continue
-        if ok:
-            return fit
-    return None
+        if ok and (best is None or fit.llf > best.llf):
+            best = fit
+    return best
 
 
 def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 2) -> Effects:
@@ -294,7 +303,8 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
     -------
     Effects
         Per-term ``F`` / ``p`` / ``partial_eta_sq`` / ``significant``, pairwise Cohen's d,
-        variance components and notes. On an **exact fit** (zero residual variance: every
+        variance components (maximum likelihood, the best of several optimizers' fits; see
+        :class:`Effects`) and notes. On an **exact fit** (zero residual variance: every
         answer within a configuration got the same score) the F-tests are degenerate, so a
         term with any effect is reported as ``F=inf``, ``p=0.0``, ``partial_eta_sq=1.0``
         (significant) and a term with no effect as ``None`` (not significant); ``model``
@@ -382,7 +392,16 @@ def fit_effects(ratings: "Ratings", *, alpha: float = 0.05, interactions: int = 
         re_var = float(np.asarray(mfit.cov_re).ravel()[0])
         scale = float(mfit.scale)
         res.variance_components = {"random_intercept": re_var, "residual": scale}
-        if re_var <= 1e-6 * (re_var + scale):
+        # A boundary fit: the ML estimate of the between-question variance is exactly 0 when
+        # adding any of it lowers the likelihood, i.e. when the likelihood's slope there,
+        # Σ_q (Σ_{i in q} r_i)² − Σ_i r_i² for the residuals r of the same model without the
+        # random intercept (least squares), is ≤ 0. lme4 then lands on 0 and calls the fit
+        # singular; statsmodels' optimizers stop somewhere short of 0, so a cut-off on the
+        # estimate would be arbitrary.
+        x, y = np.asarray(mfit.model.exog), np.asarray(mfit.model.endog)
+        r = y - x @ np.linalg.lstsq(x, y, rcond=None)[0]
+        q = np.unique(np.asarray(mfit.model.groups), return_inverse=True)[1]
+        if float((np.bincount(q, weights=r) ** 2).sum()) <= float(r @ r):
             res.warnings.append(
                 "between-question variance estimated at ≈ 0 (a boundary fit): the questions "
                 "don't differ beyond what the factors explain"
