@@ -150,6 +150,20 @@ result <- tryCatch({
   })
   vc <- ordinal::VarCorr(m)$input_id   # 1x1 random-intercept variance (+ "stddev" attribute)
   random_intercept <- list(variance = vc[1, 1], sd = unname(attr(vc, "stddev"))[1])
+  # No standard errors at all: clmm's Hessian is singular, e.g. because the random intercept
+  # collapsed (sigma_u ~ 0 leaves the likelihood flat in log sigma_u). The same fixed effects
+  # without the question effect (clm) are sent too; fit_clmm decides whether to use them.
+  clm_fit <- NULL
+  if (length(beta_names) && all(is.na(ct[beta_names, 2]))) {
+    m0 <- tryCatch(suppressWarnings(ordinal::clm(
+      stats::as.formula(paste("verdict ~", fixed_terms(used_order))), data = d)),
+      error = function(e) NULL)
+    c0 <- if (is.null(m0)) NULL else coef(summary(m0))
+    if (!is.null(c0)) clm_fit <- list(
+      logLik = as.numeric(logLik(m0)), convergence = m0$convergence$code,
+      coefficients = lapply(intersect(beta_names, rownames(c0)), function(rn) list(
+        term = rn, std_error = unname(c0[rn, 2]), z = unname(c0[rn, 3]), p = unname(c0[rn, 4]))))
+  }
 
   # per-term likelihood-ratio tests — only for a converged fit (its logLik is the reference)
   factor_tests <- if (lr_tests && isTRUE(optimizer$convergence == 0))
@@ -160,7 +174,7 @@ result <- tryCatch({
   list(available = TRUE, n_obs = nrow(d), formula = formula,
        logLik = as.numeric(logLik(m)), coefficients = coeffs, thresholds = thresholds,
        used_order = used_order,   # < the requested order when interactions fell back
-       random_intercept = random_intercept, factor_tests = factor_tests)
+       random_intercept = random_intercept, factor_tests = factor_tests, clm = clm_fit)
 }, error = function(e) list(available = FALSE, error = conditionMessage(e)))
 if (isTRUE(result$available)) result$optimizer <- optimizer
 

@@ -270,6 +270,11 @@ def fit_clmm(
         optimizer stopped without converging (``converged=False``), every coefficient's
         ``std_error``, ``z`` and ``p`` are ``None`` and ``significant`` is ``False``, because
         the standard errors of such a fit are not valid; ``warnings`` says so.
+
+        When the random intercept collapsed (σ_u ≈ 0, a near-singular fit) ``ordinal::clmm``
+        has no standard errors at all (its Hessian is singular). The fit is then the same
+        model without a question effect, so ``std_error``, ``z`` and ``p`` are taken from
+        ``ordinal::clm`` with the same fixed effects; ``warnings`` says so.
     """
     import json
     import os
@@ -386,6 +391,7 @@ def fit_clmm(
         c["significant"] = c.get("p") is not None and c["p"] < alpha
     res.coefficients = coeffs
     _apply_convergence_guard(res, payload.get("optimizer"))
+    _use_clm_standard_errors(res, payload.get("clm"))
     res.factor_tests, note = _parse_factor_tests(payload, alpha)
     if note:
         res.warnings.append(note)
@@ -412,4 +418,40 @@ def _apply_convergence_guard(res: CLMMResult, optimizer: dict[str, Any] | None) 
         f"R's optimizer did not converge (nlminb: {msg}) — the standard errors of this fit "
         "are not valid, so no p-values are shown; treat the estimates as unreliable and "
         "read the linear layer's tests and effect sizes instead"
+    )
+
+
+def _use_clm_standard_errors(res: CLMMResult, clm: dict[str, Any] | None) -> None:
+    """Take std_error / z / p from ``ordinal::clm`` (clmm.R's ``clm`` payload: the same
+    fixed effects without the question effect) when the CLMM has none because its random
+    intercept collapsed.
+
+    At σ_u = 0 the CLMM *is* that model: the same likelihood, so the same estimates and
+    logLik. ``ordinal::clmm`` computes its standard errors from the Hessian in (thresholds,
+    β, log σ_u), which is singular there — the likelihood is flat in log σ_u — so its
+    variance-covariance matrix is undefined and every p-value is missing. The coupling
+    between β and log σ_u vanishes like σ_u², so as σ_u → 0 the CLMM's standard errors tend
+    to clm's: clm's are the CLMM's at the boundary (conditional on σ_u = 0, as lme4 reports
+    the GLMM's). Used only when σ_u < ``_SINGULAR_SD``, the fit converged, no coefficient
+    has a standard error, and clm converged with a standard error for every coefficient
+    and the same logLik — otherwise (e.g. separation, where clm's are missing too) nothing
+    changes."""
+    vc = res.variance_components or {}
+    if (not clm or res.converged is False or not res.coefficients
+            or vc.get("random_intercept_sd", math.inf) >= _SINGULAR_SD
+            or any(c.get("std_error") is not None for c in res.coefficients)
+            or clm.get("convergence") != 0 or res.log_lik is None or clm.get("logLik") is None
+            or not math.isclose(clm["logLik"], res.log_lik, rel_tol=1e-6, abs_tol=1e-3)):
+        return
+    by_term = {c.get("term"): c for c in clm.get("coefficients") or []}
+    if any(by_term.get(c.get("term"), {}).get("std_error") is None for c in res.coefficients):
+        return
+    for c in res.coefficients:
+        c0 = by_term[c.get("term")]
+        c["std_error"], c["z"], c["p"] = c0["std_error"], c0.get("z"), c0.get("p")
+        c["significant"] = c["p"] is not None and c["p"] < res.alpha
+    res.warnings.append(
+        "with σ_u ≈ 0 the CLMM's own standard errors are undefined (its Hessian is singular), "
+        "so the standard errors and p-values are those of ordinal::clm — the same fixed "
+        "effects without the question effect, which this fit equals"
     )
