@@ -3,8 +3,9 @@
 Judge re-scores of the **same** answer are *technical* replicates — pure judge noise,
 not new information about the system. Treating them as independent observations would be
 pseudo-replication (it inflates N and understates uncertainty). So before any factor
-model we collapse them to a single verdict per answer (mean over ``judge_rep``; rounded
-back to an integer scale point for ordinal/binary rubrics).
+model we collapse them to a single verdict per answer (mean over ``judge_rep``; for
+ordinal/binary rubrics moved to the nearest level of the rubric, see
+:meth:`cafe.judging.rubric.Rubric.snap`).
 
 **System** replications are different — each is a genuinely different answer (run-to-run
 nondeterminism, which CAFE exists to measure), so they keep their own rows. The grouping
@@ -25,8 +26,9 @@ if TYPE_CHECKING:
 def analysis_frame(ratings: "Ratings"):
     """A DataFrame with one row per answer: factors + ``input_id`` + ``rep`` + ``verdict``.
 
-    ``verdict`` is the mean over judge replications (rounded for ordinal/binary scales).
-    NaN/unparseable verdicts are dropped first.
+    ``verdict`` is the mean over judge replications; for ordinal/binary scales it is the
+    nearest level of the rubric (a tie goes to the higher level). NaN/unparseable verdicts
+    are dropped first.
     """
     import pandas as pd
 
@@ -46,11 +48,9 @@ def analysis_frame(ratings: "Ratings"):
         return df  # nothing to group on — return the usable rows as they are
 
     agg = df.groupby(key_cols, dropna=False)["verdict"].mean().reset_index()
-    scale = getattr(getattr(ratings, "rubric", None), "scale_type", None)
-    if scale in (ScaleType.ordinal, ScaleType.binary):
-        # Round-half-up (not numpy's round-half-to-even): a tied binary split (mean 0.5
-        # over an even number of judge reps) must not systematically become 0 (a fail).
-        import numpy as np
-
-        agg["verdict"] = np.floor(agg["verdict"].to_numpy() + 0.5).astype(int)
+    rubric = getattr(ratings, "rubric", None)
+    if getattr(rubric, "scale_type", None) in (ScaleType.ordinal, ScaleType.binary):
+        # The nearest defined level, a tie going up: a mean of 2 on a 1/3/5 scale must not
+        # become an undefined level 2, and a tied binary split (mean 0.5) is a pass.
+        agg["verdict"] = agg["verdict"].map(rubric.snap).astype(int)
     return agg

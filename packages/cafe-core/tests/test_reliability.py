@@ -121,6 +121,27 @@ def test_reliability_keeps_negative_judge_scores():
     assert cafe.reliability(ev, human=human).alpha == 1.0
 
 
+def test_reliability_snaps_judge_means_to_the_rubric_levels():
+    """On a non-contiguous rubric (1, 3, 5) the judge's per-answer score is the nearest
+    level, a tie going up: 1 and 3 give 3, not the undefined 2 that rounding the mean
+    half-up gave — so a human who scored that answer 3 agrees with the judge exactly."""
+    from cafe.judging.rubric import Level, Rubric
+    from cafe.stats.reliability import _judge_scores
+
+    rubric = Rubric(name="lmh", scale_type="ordinal", levels=[Level(v, str(v), "") for v in (1, 3, 5)])
+    obs = [Observation(config={"m": "a"}, input_id=f"q{i}", rep=0, output="x") for i in range(5)]
+    verdicts = [[1], [5], [1, 3], [3, 5], [1, 1, 3]]     # means 1, 5, 2, 4, 1.67
+    items = [Rating(obs_key=o.key(), config=o.config, input_id=o.input_id, rep=0, judge_rep=jr,
+                    value=v, value_numeric=v)
+             for o, vs in zip(obs, verdicts) for jr, v in enumerate(vs)]
+    ev = Evaluation(study_name="t", answers=Results("t", ["m"], obs),
+                    ratings=Ratings(rubric=rubric, judge_model="j", factors=["m"], items=items))
+    scores = _judge_scores(ev, "judge")
+    assert [scores[o.key()] for o in obs] == [1, 5, 3, 5, 1]
+    human = [{"answer_id": o.key(), "rater": "ann", "score": s} for o, s in zip(obs, [1, 5, 3, 5, 1])]
+    assert cafe.reliability(ev, human=human).alpha == 1.0
+
+
 def test_reliability_needs_two_raters():
     ev, _ = _evaluation_with_judge()
     with pytest.raises(ValueError, match="two raters"):

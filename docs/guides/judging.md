@@ -123,7 +123,11 @@ print(result.judge_stability().show())   # per-answer std dev + a summary
 ```
 
 Repeated passes are averaged before the factor models (so they do not masquerade as
-extra data), but the raw spread is kept as a diagnostic. Note that repetitions only
+extra data), but the raw spread is kept as a diagnostic. For an ordinal or binary rubric
+the average is moved to the nearest level of the scale, a tie going to the higher level
+(`Rubric.snap`), so every answer keeps a score the rubric defines — also on a
+non-contiguous scale such as 1/3/5, where the average of 1 and 3 counts as 3, not 2. A
+numeric rubric keeps the plain average. Note that repetitions only
 tell you something at a non-zero judge temperature — a deterministic judge will not
 vary.
 

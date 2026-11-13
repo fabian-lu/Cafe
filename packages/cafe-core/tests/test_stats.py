@@ -1014,6 +1014,33 @@ def test_judge_reps_averaged_system_reps_kept():
     assert attr.n_usable == 2    # answers actually entering the stats
 
 
+def test_judge_means_snap_to_the_levels_of_a_non_contiguous_rubric():
+    """A rubric's levels may be non-contiguous (1, 3, 5). The mean of an answer's judge
+    calls is the nearest level, a tie going up: 1 and 3 give 3, 3 and 5 give 5. Rounding
+    the mean half-up gave the undefined scores 2 and 4, and the CLMM then fit cut-points
+    between levels the rubric doesn't have (1|2, 2|3, 3|4, 4|5)."""
+    from cafe.judging.rubric import Level, Rubric
+    from cafe.stats._frame import analysis_frame
+    from cafe.stats.ordinal import check_r
+
+    low_mid_high = Rubric(name="low_mid_high", scale_type="ordinal",
+                          levels=[Level(1, "low", "."), Level(3, "mid", "."), Level(5, "high", ".")])
+    pairs = {"a": [(1, 3), (1, 1), (3, 3), (1, 5), (3, 1), (1, 1), (3, 5), (1, 3)],
+             "b": [(3, 5), (5, 5), (3, 3), (5, 1), (5, 3), (3, 5), (5, 5), (1, 3)]}
+    items = [Rating(obs_key=f"{m}{q}", config={"m": m}, input_id=f"q{q}", rep=0, judge_rep=jr,
+                    value=v, value_numeric=v)
+             for m, answers in pairs.items() for q, pair in enumerate(answers)
+             for jr, v in enumerate(pair)]
+    r = Ratings(rubric=low_mid_high, judge_model="x", factors=["m"], items=items)
+    df = analysis_frame(r).sort_values(["m", "input_id"])
+    assert df["verdict"].tolist() == [3, 1, 3, 3, 3, 1, 5, 3, 5, 5, 3, 3, 5, 5, 5, 3]
+    if not check_r()[0]:
+        pytest.skip("R + ordinal not installed")
+    clmm = fit_clmm(r)
+    assert clmm.available, clmm.reason
+    assert [t["term"] for t in clmm.thresholds] == ["1|3", "3|5"]
+
+
 def _question_effect_ratings(binary: bool, question_sd: float, seed: int) -> Ratings:
     """model (large is better) × prompt (no effect) over 30 questions whose difficulty has
     standard deviation ``question_sd`` on the latent logit scale (0 = no question effect)."""

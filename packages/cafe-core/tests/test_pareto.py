@@ -82,6 +82,35 @@ def test_pareto_quality_counts_each_answer_once():
     assert {r["label"] for r in res.frontier} == {"sys=a", "sys=b"}  # cheaper vs better
 
 
+def test_pareto_quality_snaps_judge_means_to_the_rubric_levels():
+    """On a non-contiguous rubric (1, 3, 5) an answer judged 1 and 3 scores 3 — the nearest
+    level, a tie going up, as in attribute() — not the undefined 2 that rounding the mean
+    half-up gave. That made the cheaper sys=a look worse than sys=b (3.0 vs 4.0)."""
+    import pytest
+
+    from cafe.judging.rubric import Level, Rubric
+
+    rubric = Rubric(name="lmh", scale_type="ordinal", levels=[Level(v, str(v), "") for v in (1, 3, 5)])
+    verdicts = {"a": {"q0": [1, 3], "q1": [3, 5]}, "b": {"q0": [3, 3], "q1": [5, 5]}}
+    obs, items = [], []
+    for name, per_q in verdicts.items():
+        for q, vs in per_q.items():
+            o = Observation(config={"sys": name}, input_id=q, rep=0, output="ans", elapsed_s=1.0,
+                            metadata={"cost_usd": 0.01 if name == "a" else 0.02})
+            obs.append(o)
+            items.extend(Rating(obs_key=o.key(), config={"sys": name}, input_id=q, rep=0,
+                                judge_rep=jr, value=v, value_numeric=v) for jr, v in enumerate(vs))
+    rt = Ratings(rubric=rubric, judge_model="m", factors=["sys"], items=items)
+    ev = Evaluation(study_name="t", answers=Results(study_name="t", factors=["sys"],
+                                                    observations=obs), ratings=rt)
+
+    res = cafe.pareto(ev)
+    quality = {r["config"]["sys"]: r["quality"] for r in res.rows}
+    attributed = {c["config"]["sys"]: c["mean"] for c in cafe.attribute(rt).config_means}
+    assert quality == pytest.approx({"a": 4.0, "b": 4.0}) == attributed
+    assert {r["label"] for r in res.frontier} == {"sys=a"}  # as good and cheaper
+
+
 def test_pareto_plot_returns_axes():
     import matplotlib
     matplotlib.use("Agg")

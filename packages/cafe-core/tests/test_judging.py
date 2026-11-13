@@ -88,6 +88,19 @@ def test_grade_hint_is_scale_aware():
     assert sparse.grade_hint() == "exactly one of: 1, 3, 5"
 
 
+def test_snap_takes_a_mean_to_the_nearest_level():
+    """The mean of an answer's verdicts becomes the nearest defined level, a tie going to
+    the higher one: on a non-contiguous scale never an undefined score, on a contiguous one
+    exactly round-half-up (negative levels too); a numeric scale keeps the mean."""
+    sparse = cafe.Rubric(name="s", scale_type=cafe.ScaleType.ordinal,
+                         levels=[cafe.Level(1, "a", "x"), cafe.Level(3, "b", "y"), cafe.Level(5, "c", "z")])
+    assert [sparse.snap(m) for m in (1.0, 5 / 3, 2.0, 7 / 3, 3.0, 4.0, 5.0)] == [1, 1, 3, 3, 3, 5, 5]
+    likert = cafe.Rubric(name="likert", levels=[cafe.Level(v, str(v), "") for v in range(-2, 3)])
+    assert [likert.snap(m) for m in (-2.0, -5 / 3, -1.5, -0.5, 0.4, 1.5)] == [-2, -2, -1, 0, 0, 2]
+    assert cafe.rubrics.CORRECT_PASS_FAIL.snap(0.5) == 1     # a tied pass/fail split passes
+    assert cafe.rubrics.HELPFULNESS_0_10.snap(7.5) == 7.5    # numeric: any value is valid
+
+
 def test_preset_grade_line_matches_scale():
     j = cafe.LLMJudge(model="m")
     assert "GRADE: <an integer from 0 to 10>" in j.preview(cafe.rubrics.HELPFULNESS_0_10, "Q?", "A.")
