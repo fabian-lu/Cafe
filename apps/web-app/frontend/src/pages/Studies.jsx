@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, isJudgingPhase, phaseLabel } from "../lib/api.js";
+import { api, followRun, isJudgingPhase, phaseLabel } from "../lib/api.js";
 import NumberField from "../components/NumberField.jsx";
 import JudgeModelField from "../components/JudgeModelField.jsx";
 import Spinner from "../components/Spinner.jsx";
@@ -16,15 +16,11 @@ function parseLevels(str) {
 function StudyRow({ s, archived = false }) {
   const nav = useNavigate();
   const [prog, setProg] = useState(null);
-  const es = useRef(null);
 
+  // live progress until the run is over (followRun picks up a dropped connection again)
   useEffect(() => {
     if (s.status !== "running") return;
-    const src = new EventSource(api.streamUrl(s.id));
-    es.current = src;
-    src.onmessage = (e) => { const p = JSON.parse(e.data); setProg(p); if (p.status === "done" || p.status === "failed") src.close(); };
-    src.onerror = () => src.close();
-    return () => src.close();
+    return followRun(s.id, { onProgress: setProg });   // its stop() runs on unmount
   }, [s.status, s.id]);
 
   const pct = prog && prog.total ? Math.round((prog.done / prog.total) * 100) : 0;
