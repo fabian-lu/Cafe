@@ -534,6 +534,34 @@ def record_output(rec: dict) -> Any:
     return rec["output"] if "output" in rec else rec.get("answer")
 
 
+def _payload_rubric(rb: dict) -> cafe.Rubric:
+    """The rubric a stored results payload was judged on, rebuilt for its statistics.
+
+    Results stored before cafe-core refused two levels with the same value can list a value
+    twice; the first of those levels is kept, so such a study's results can still be filtered
+    and compared with human ratings.
+
+    Parameters
+    ----------
+    rb : dict
+        The payload's ``rubric`` (``name``, ``scale_type``, ``levels``); empty if unjudged.
+
+    Returns
+    -------
+    cafe.Rubric
+        One level per value, without descriptions; a 0–5 scale if ``rb`` has no levels.
+    """
+    levels: dict[int, cafe.Level] = {}
+    for lv in rb.get("levels", []):
+        levels.setdefault(int(lv["value"]), cafe.Level(int(lv["value"]), str(lv.get("label", "")), ""))
+    return cafe.Rubric(
+        name=rb.get("name", "quality"),
+        scale_type=cafe.ScaleType(rb.get("scale_type", "ordinal")),
+        instruction="",
+        levels=list(levels.values()) or [cafe.Level(i, str(i), "") for i in range(6)],
+    )
+
+
 def _evaluation_from_payload(payload: dict, items: list[dict], keep_ids: set[str],
                              name: str = "filtered"):
     """Reconstruct a minimal cafe Evaluation from a stored results payload, restricted to
@@ -542,17 +570,9 @@ def _evaluation_from_payload(payload: dict, items: list[dict], keep_ids: set[str
     from cafe.evaluation import Evaluation
     from cafe.execution.results import Observation, Results, config_id
     from cafe.judging.ratings import Rating, Ratings
-    from cafe.judging.rubric import Level, Rubric, ScaleType
 
     factors = list(payload.get("factors") or [])
-    rb = payload.get("rubric") or {}
-    rubric = Rubric(
-        name=rb.get("name", "quality"),
-        scale_type=ScaleType(rb.get("scale_type", "ordinal")),
-        instruction="",
-        levels=[Level(int(lv["value"]), str(lv.get("label", "")), "")
-                for lv in rb.get("levels", [])] or [Level(i, str(i), "") for i in range(6)],
-    )
+    rubric = _payload_rubric(payload.get("rubric") or {})
 
     observations: dict[str, Observation] = {}
     ratings_items: list[Rating] = []

@@ -49,7 +49,9 @@ class Rubric:
     ------
     ValueError
         If ``levels`` has fewer than two distinct values (one scale point leaves the
-        judge nothing to choose), or ``scale_type`` is not a :class:`ScaleType`.
+        judge nothing to choose), two levels share a value (the judge would be offered the
+        same grade twice, under two descriptions), or ``scale_type`` is not a
+        :class:`ScaleType`.
     """
 
     name: str
@@ -62,8 +64,15 @@ class Rubric:
         if isinstance(self.scale_type, str):
             self.scale_type = ScaleType(self.scale_type)
         # One distinct value is not a scale: every verdict would be the same number.
-        if len({lvl.value for lvl in self.levels}) < 2:
+        values = [lvl.value for lvl in self.levels]
+        if len(set(values)) < 2:
             raise ValueError("a rubric needs at least two levels (with different values)")
+        # A grade names one level: two levels with one value make the grade ambiguous.
+        dup = next((v for v in values if values.count(v) > 1), None)
+        if dup is not None:
+            labels = ", ".join(repr(lvl.label) for lvl in self.levels if lvl.value == dup)
+            raise ValueError(f"rubric {self.name!r} has more than one level with the value {dup} "
+                             f"({labels}): each level needs its own value")
         if self.prompt_template is not None:
             from cafe.judging.prompts import check_template_placeholders
 
