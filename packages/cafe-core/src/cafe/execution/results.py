@@ -13,13 +13,40 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
+def _json_default(value: Any) -> Any:
+    """Write a value JSON has no type for: a NumPy number as the Python number it holds
+    (``np.int64(3)`` as ``3``), anything else as its ``str``. :func:`config_id`, the
+    checkpoints and :func:`cafe.save_evaluation` all write levels this way, so a level read
+    back from their JSON keeps its configuration's id."""
+    np = sys.modules.get("numpy")  # a NumPy value can't exist before numpy is imported
+    if np is not None and isinstance(value, (np.number, np.bool_)):
+        return value.item()
+    return str(value)
+
+
 def config_id(config: dict[str, Any]) -> str:
-    """Stable short id for a configuration (order-independent)."""
-    payload = json.dumps(config, sort_keys=True, default=str)
+    """Stable short id for a configuration (order-independent).
+
+    Parameters
+    ----------
+    config
+        A configuration: factor name -> level.
+
+    Returns
+    -------
+    str
+        12 hex characters of the SHA-1 of the configuration's JSON text (sorted keys). A
+        NumPy number is encoded as the number it holds, so ``np.int64(3)`` and ``3`` share
+        an id (a saved evaluation brings the level back as ``3``); any other value JSON has
+        no type for is encoded as its ``str``. A tuple and the list JSON makes of it share
+        an id too.
+    """
+    payload = json.dumps(config, sort_keys=True, default=_json_default)
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
 
 
@@ -59,8 +86,9 @@ def level_label(value: Any) -> Any:
 
 
 def _json_text(value: Any) -> str:
-    """``value`` as canonical JSON text (sorted keys; non-JSON values as their ``str``)."""
-    return json.dumps(value, sort_keys=True, default=str, ensure_ascii=False)
+    """``value`` as canonical JSON text (sorted keys; other values as :func:`_json_default`
+    writes them, so a NumPy number inside reads as a saved evaluation brings it back)."""
+    return json.dumps(value, sort_keys=True, default=_json_default, ensure_ascii=False)
 
 
 def config_label(config: dict[str, Any]) -> str:
@@ -196,7 +224,7 @@ class Results:
     def to_jsonl(self, path: str) -> None:
         with open(path, "w", encoding="utf-8") as fh:
             for o in self.observations:
-                fh.write(json.dumps(o.to_dict(), default=str) + "\n")
+                fh.write(json.dumps(o.to_dict(), default=_json_default) + "\n")
 
     def to_df(self):  # pragma: no cover - thin pandas adapter
         """Return a pandas DataFrame (requires the ``stats`` extra)."""
