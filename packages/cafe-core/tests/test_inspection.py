@@ -49,6 +49,31 @@ def test_records_join_everything():
     assert r0["judge_raw"] == "GRADE: 5"
 
 
+def test_records_show_a_skipped_stage_as_none():
+    """records() kept a None level (a skipped stage) as None, so pd.DataFrame(ev.records())
+    held NaN there and a groupby silently dropped every skipped-stage row. It shows the level
+    as answers.df, ratings.df and the statistics do: "none"."""
+    import pytest
+
+    pd = pytest.importorskip("pandas")
+    observations, items = [], []
+    for i, rerank in enumerate(["cross_encoder", None] * 4):
+        o = Observation(config={"rerank": rerank}, input_id=f"q{i // 2}", rep=0, output="x")
+        observations.append(o)
+        items.append(Rating(obs_key=o.key(), config={"rerank": rerank}, input_id=o.input_id,
+                            rep=0, judge_rep=0, value=4, value_numeric=4))
+    ev = Evaluation(study_name="t", answers=Results(study_name="t", factors=["rerank"],
+                                                    observations=observations),
+                    ratings=Ratings(rubric=cafe.ANSWER_QUALITY_1_5, judge_model="j",
+                                    factors=["rerank"], items=items))
+    rows = ev.records()
+    assert [r["rerank"] for r in rows] == ["cross_encoder", "none"] * 4
+    assert pd.DataFrame(rows).groupby("rerank")["verdict"].size().to_dict() == {
+        "cross_encoder": 4, "none": 4}
+    ev.ratings = None  # one row per answer: the same
+    assert [r["rerank"] for r in ev.records()] == ["cross_encoder", "none"] * 4
+
+
 def test_report_surfaces_failed_answers():
     cfg = {"model": "m"}
     ok = Observation(config=cfg, input_id="q0", rep=0, output="ans")
