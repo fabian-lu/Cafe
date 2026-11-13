@@ -164,6 +164,54 @@ def test_fit_clmm_reason_when_no_variance():
     assert not res.available and res.reason
 
 
+def test_fit_clmm_says_why_it_needs_three_questions(monkeypatch):
+    """ordinal::clmm fits no random intercept from fewer than 3 questions; R's own message
+    was "all(sapply(gfl, nlevels) > 2) is not TRUE" (or "model did not converge"). The
+    reason now says it in words, before R is called."""
+    from cafe.stats import ordinal
+
+    def no_r(*args, **kwargs):
+        raise AssertionError("R must not be called")
+
+    monkeypatch.setattr(ordinal, "check_r", no_r)
+    monkeypatch.setattr(ordinal.subprocess, "run", no_r)
+    for n in (1, 2):
+        for interactions in (1, 2):
+            res = fit_clmm(_ratings({"good": 4, "bad": 2}, n_questions=n), interactions=interactions)
+            assert not res.available
+            assert "needs at least 3 questions" in res.reason and f"this data has {n}" in res.reason
+            assert res.show() == f"ordinal CLMM unavailable: {res.reason}"
+
+
+def test_fit_clmm_says_when_every_answer_scored_the_same(monkeypatch):
+    from cafe.stats import ordinal
+
+    monkeypatch.setattr(ordinal, "check_r", lambda: pytest.fail("R must not be called"))
+    res = fit_clmm(_ratings({"good": 4, "bad": 4}))
+    assert not res.available and res.reason == "every answer scored the same (4) — no variance to model"
+
+
+def test_clmm_script_reports_r_s_error_for_a_main_effects_fit(tmp_path):
+    """clmm.R caught every error of a main-effects fit and reported "model did not converge";
+    now R's own message comes through (here: two questions are too few)."""
+    import json
+    import subprocess
+    from importlib.resources import files
+
+    from cafe.stats._frame import analysis_frame
+    from cafe.stats.ordinal import check_r
+
+    if not check_r()[0]:
+        pytest.skip("R + ordinal not installed")
+    csv = tmp_path / "d.csv"
+    analysis_frame(_ratings({"good": 4, "bad": 2, "ok": 3}, n_questions=2)).to_csv(csv, index=False)
+    proc = subprocess.run(["Rscript", str(files("cafe.stats").joinpath("clmm.R")), str(csv),
+                           "method", "1", "0"], capture_output=True, text=True, timeout=120)
+    payload = json.loads(proc.stdout)
+    assert payload["available"] is False
+    assert payload["error"] != "model did not converge" and "nlevels" in payload["error"]
+
+
 def _two_factor_interaction_ratings() -> Ratings:
     """Two factors where only the a2·b2 cell is bad — a pure interaction."""
     score = {("a1", "b1"): 5, ("a1", "b2"): 5, ("a2", "b1"): 5, ("a2", "b2"): 2}

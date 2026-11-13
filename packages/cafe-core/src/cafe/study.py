@@ -183,8 +183,16 @@ class Study:
             warns.append("no dataset items — nothing to run")
         elif n_items < 2:
             warns.append(
-                f"only {n_items} input — the mixed-effects models need ≥2 questions for the "
-                "per-question random intercept; they'll drop to a fixed-effects fit"
+                f"only {n_items} input — no per-question random intercept can be estimated: the "
+                "linear model drops to a one-way ANOVA, the logistic model to a plain logistic "
+                "regression (no question effect), and the ordinal CLMM (needs ≥3 questions) isn't "
+                "fit. Add inputs"
+            )
+        elif n_items < 3:
+            warns.append(
+                f"{n_items} inputs — the ordinal CLMM needs ≥3 questions and isn't fit; the linear "
+                "and logistic models estimate their per-question random intercept from just two, "
+                "which is near-singular/unstable. Add inputs for reliable p-values"
             )
         elif n_items < 8:
             warns.append(

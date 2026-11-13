@@ -152,7 +152,9 @@ matters: without it, this variation would count as noise and every F would be sm
 
 When the rubric is **ordinal** (ordered categories like 0 < 1 < 2), CAFE also fits a
 cumulative-link mixed model (CLMM) — the statistically correct model for ordered
-verdicts, which the linear view only approximates. It first answers *which factor
+verdicts, which the linear view only approximates. It needs at least three questions (R's
+`ordinal::clmm` fits no per-question random intercept from fewer); with one or two, this
+section says so instead of showing a model. It first answers *which factor
 matters* with one **likelihood-ratio test** per factor and interaction (Type II: the model
 with every term that doesn't contain it, with vs. without the term):
 

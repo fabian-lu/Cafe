@@ -94,7 +94,7 @@ study = cafe.Study(
     system=my_system,
     factors=[cafe.Factor("model", ["small", "large"]),
              cafe.Factor("prompt", ["plain", "cot"])],
-    dataset=["What is 2+2?", "Summarize relativity."],
+    dataset=["What is 2+2?", "Summarize relativity.", "Why is the sky blue?"],
     rubric=cafe.rubrics.CORRECTNESS_0_3,                 # the scale to grade on
     judge=cafe.LLMJudge(model="ollama_cloud/gpt-oss:20b"),
     replications=3,
@@ -106,8 +106,9 @@ print(result.report())           # descriptive means, significance, effect sizes
 
 `report()` prints per-factor significance (F-tests, p-values, partial η²), effect
 sizes, the best configuration, and — for ordinal rubrics — the cumulative-link mixed
-model. **[Interpreting results](interpreting-results.md)** walks through that output
-line by line.
+model, which needs at least three questions (with fewer, the report says so instead).
+**[Interpreting results](interpreting-results.md)** walks through that output line by
+line.
 
 ## Headless / CI
 
