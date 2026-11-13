@@ -4,6 +4,7 @@ import { api } from "../lib/api.js";
 import InfoTip from "../components/InfoTip.jsx";
 import Collapsible from "../components/Collapsible.jsx";
 import Spinner from "../components/Spinner.jsx";
+import AnswerFailures from "../components/AnswerFailures.jsx";
 
 // ── formatting ────────────────────────────────────────────────────────────────
 const fmt = (x, d = 3) => (x === null || x === undefined ? "—" : Number(x).toFixed(d));
@@ -517,6 +518,7 @@ function AnswerDetail({ row, factors, onClose }) {
         {row.reference && <Block label="reference answer">{row.reference}</Block>}
         <Block label="answer (full)">{outputOf(row)}</Block>
         {row.reasoning && <Block label="judge reasoning">{row.reasoning}</Block>}
+        {row.error && row.error !== row.reasoning && <Block label="error">{row.error}</Block>}
         <div className="hint mono" style={{ borderTop: "1px solid var(--outline-variant)", paddingTop: 10 }}>
           {row.elapsed_s != null && <>latency {Number(row.elapsed_s).toFixed(1)}s · </>}
           {row.tokens != null && <>~{row.tokens} tokens · </>}
@@ -722,6 +724,7 @@ export default function Results() {
 
       {res && (
         <>
+          <AnswerFailures failures={res.answer_failures} style={{ marginBottom: 16 }} />
           {/* headline */}
           <div className="card" style={{ marginBottom: 16 }}>
             <div style={GRID}>

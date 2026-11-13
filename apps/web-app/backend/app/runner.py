@@ -118,7 +118,21 @@ async def _load_study_objects(study_id: int):
 
 def _results_payload(ev) -> dict[str, Any]:
     """Serialise a cafe Evaluation into JSON the Results page draws (non-finite floats such as
-    ``F = inf`` become ``null``)."""
+    ``F = inf`` become ``null``).
+
+    Parameters
+    ----------
+    ev : cafe.Evaluation
+        The evaluation, judged or not.
+
+    Returns
+    -------
+    dict
+        The payload: the report, statistics, timing and ``records`` (one per verdict, or per
+        answer when unjudged, each with its ``error``: the judge's, or the answer's), plus
+        ``answer_failures``, the answers that failed to generate (see
+        :func:`_answer_failures`); those have no verdict, so no record of a judged study.
+    """
     import numpy as np
     import pandas as pd
 
@@ -136,6 +150,7 @@ def _results_payload(ev) -> dict[str, Any]:
         "variance_components": None, "clmm": None, "logistic": None, "rubric": None,
         "effects_model": None, "r_squared": None,
         "timing": _timing(ev.answers),
+        "answer_failures": _answer_failures(ev.answers),
         "energy": None,
         "stats_version": STATS_VERSION,
         "computed_at": time.time(),  # tells cached views of an older computation apart
@@ -144,7 +159,7 @@ def _results_payload(ev) -> dict[str, Any]:
         out["records"] = [
             {k: r.get(k) for k in ("input_id", "question", "reference", "output", "verdict",
                                    "reasoning", "cost_usd", "tokens", "elapsed_s", "energy_wh",
-                                   "rep", "judge_rep", *(_factor_keys(ev)))}
+                                   "rep", "judge_rep", "error", *(_factor_keys(ev)))}
             for r in ev.records()
         ]
     except Exception:  # noqa: BLE001
@@ -264,6 +279,41 @@ def _factor_keys(ev) -> list[str]:
         return []
 
 
+def _answer_failures(answers) -> dict[str, Any]:
+    """How many answers failed to generate, overall and per configuration.
+
+    A failed answer (its pipeline raised, e.g. for a missing API key) is never judged, so the
+    records and every statistic leave it out; this summary is how the Results page can say so.
+
+    Parameters
+    ----------
+    answers : cafe.Results
+        The run's answers, failed ones included.
+
+    Returns
+    -------
+    dict
+        ``n_answers`` (every answer attempted), ``n_failed``, ``first_error`` (``None`` when
+        none failed) and ``by_config``: one ``{config, n_answers, n_failed, first_error}`` per
+        configuration with a failed answer, in run order.
+    """
+    by_config: dict[str, dict[str, Any]] = {}
+    for o in answers.observations:
+        entry = by_config.setdefault(o.config_id, {"config": dict(o.config), "n_answers": 0,
+                                                   "n_failed": 0, "first_error": None})
+        entry["n_answers"] += 1
+        if not o.ok:
+            entry["n_failed"] += 1
+            entry["first_error"] = entry["first_error"] or o.error
+    failed = [o for o in answers.observations if not o.ok]
+    return {
+        "n_answers": len(answers.observations),
+        "n_failed": len(failed),
+        "first_error": failed[0].error if failed else None,
+        "by_config": [e for e in by_config.values() if e["n_failed"]],
+    }
+
+
 def _energy(answers) -> dict[str, Any] | None:
     """Aggregate opt-in per-answer energy (Wh) into totals + per-level + per-config means.
 
@@ -346,16 +396,41 @@ def _timing(answers) -> dict[str, Any]:
 
 async def estimate_study(study_id: int) -> dict[str, Any]:
     """Preflight the study (one input through every configuration, no judging) → cost/time estimate
-    for the full run + design warnings. Makes real calls, so it takes a moment (hence the UI spinner)."""
+    for the full run + design warnings. Makes real calls, so it takes a moment (hence the UI spinner).
+
+    Parameters
+    ----------
+    study_id : int
+        The study to estimate.
+
+    Returns
+    -------
+    dict
+        ``{"estimate", "warnings", "judge_calls", "errors"}``: cafe-core's preflight estimate
+        (extrapolated from its ``sampled_cells``, the configurations that answered), design
+        warnings and judge-call count, and one ``{config, error}`` per configuration whose
+        preflight answer failed (a full run would fail there the same way).
+    """
     from cafe.evaluation import preflight
 
     study_obj, concurrency, _extra = await _load_study_objects(study_id)
     pf = await preflight(study_obj, concurrency=concurrency, progress=False)
-    return {"estimate": pf.estimate, "warnings": pf.warnings, "judge_calls": pf.judge_calls}
+    errors = [{"config": dict(o.config), "error": o.error}
+              for o in pf.answers.observations if not o.ok]
+    return {"estimate": pf.estimate, "warnings": pf.warnings, "judge_calls": pf.judge_calls,
+            "errors": errors}
 
 
 async def run_study_task(study_id: int) -> None:
-    """Background task: execute the study and cache its results."""
+    """Background task: execute the study and cache its results.
+
+    Parameters
+    ----------
+    study_id : int
+        The study to run. Its row ends ``"done"``, or ``"failed"`` with the error in
+        :data:`PROGRESS`: also when every answer failed (say, for a missing API key), as
+        nothing is left to judge; the first answer's error is then the reason.
+    """
     PROGRESS[study_id] = {"phase": "starting", "done": 0, "total": 0, "status": "running"}
     try:
         import time as _time
@@ -376,6 +451,11 @@ async def run_study_task(study_id: int) -> None:
 
         answers = await run_study(study_obj, replications=study_obj.replications,
                                   concurrency=concurrency, on_progress=ans_cb, progress=False)
+        # nothing to judge or analyse: fail the run with the reason instead of storing "done"
+        # results without a single answer (the previous results, if any, stay as they are)
+        if answers.observations and not any(o.ok for o in answers.observations):
+            raise RuntimeError(f"All {len(answers.observations)} answers failed. The first error: "
+                               f"{answers.observations[0].error}")
 
         questions, references = _question_and_reference_maps(study_obj)
         ratings = attribution = None
@@ -595,8 +675,27 @@ def _evaluation_from_payload(payload: dict, items: list[dict], keep_ids: set[str
 def refresh_payload(payload: dict, items: list[dict]) -> dict:
     """Recompute a stored results payload with the current statistics code, from its own
     records — no LLM calls. Used when the payload's ``stats_version`` is older than
-    :data:`STATS_VERSION`. Keeps the one part the records can't reproduce: the full run's
-    wall-clock / per-stage timing."""
+    :data:`STATS_VERSION`.
+
+    Parameters
+    ----------
+    payload : dict
+        The stored results payload.
+    items : list of dict
+        The study's dataset items.
+
+    Returns
+    -------
+    dict
+        The recomputed payload. It keeps the parts the records can't reproduce: the full run's
+        wall-clock / per-stage ``timing``, and its ``answer_failures`` (failed answers have no
+        record); a payload stored before failures were counted keeps ``None`` (unknown).
+
+    Raises
+    ------
+    ValueError
+        If the recomputed payload would hold a different number of records.
+    """
     records = payload.get("records") or []
     keep_ids = {r.get("input_id") for r in records}
     out = _results_payload(_evaluation_from_payload(payload, items, keep_ids, name="study"))
@@ -605,18 +704,37 @@ def refresh_payload(payload: dict, items: list[dict]) -> dict:
         raise ValueError(f"refresh would change the record count ({len(records)} -> "
                          f"{len(out.get('records') or [])}); keeping the stored results")
     out["timing"] = payload.get("timing")
+    out["answer_failures"] = payload.get("answer_failures")
     return out
 
 
 def filtered_payload(payload: dict, items: list[dict], fkey: str, fval: str) -> dict:
     """Recompute the full results payload on the subset of questions whose metadata key
     ``fkey`` equals ``fval`` — means, mixed model, CLMM/logistic and energy are all refit
-    on the subset (run timing is full-run only and therefore omitted)."""
+    on the subset (run timing is full-run only and therefore omitted).
+
+    Parameters
+    ----------
+    payload : dict
+        The study's stored results payload.
+    items : list of dict
+        The study's dataset items.
+    fkey, fval : str
+        The question-metadata key to filter on, and the value it must have.
+
+    Returns
+    -------
+    dict
+        The payload recomputed on the matching questions, plus ``filtered``:
+        ``{key, value, n_questions, n_total}``. ``answer_failures`` stays the full run's: a
+        failed answer has no record, so the subset's share can't be told.
+    """
     keep_ids = {str(it.get("id")) for it in (items or [])
                 if str(it.get(fkey, "")).strip() == fval}
     ev = _evaluation_from_payload(payload, items, keep_ids)
     out = _results_payload(ev)
     out["timing"] = None  # wall-clock timing belongs to the full run, not a subset
+    out["answer_failures"] = payload.get("answer_failures")  # the full run's, as said above
     n_total = len({r.get("input_id") for r in payload.get("records") or []})
     out["filtered"] = {"key": fkey, "value": fval,
                        "n_questions": len(keep_ids & {r.get("input_id") for r in payload.get("records") or []}),
