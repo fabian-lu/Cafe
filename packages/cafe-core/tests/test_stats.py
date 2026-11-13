@@ -63,6 +63,48 @@ def test_fit_effects_null_when_no_difference():
     assert eff.significant_factors == []
 
 
+def _scores_ratings(scores: dict[tuple, list], factors: list[str]) -> Ratings:
+    """Ratings from {config levels: [score on q0, q1, ...]} (None: no answer)."""
+    from cafe.rubrics import HELPFULNESS_0_10
+
+    items = [Rating(obs_key=f"{cfg}{q}", config=dict(zip(factors, cfg)), input_id=f"q{q}", rep=0,
+                    judge_rep=0, value=v, value_numeric=v)
+             for cfg, row in scores.items() for q, v in enumerate(row) if v is not None]
+    return Ratings(rubric=HELPFULNESS_0_10, judge_model="x", factors=factors, items=items)
+
+
+def test_variance_components_are_the_maximum_likelihood_fit():
+    """statsmodels' first optimizer (lbfgs) reports convergence here with the between-question
+    variance at ≈ 0 (and a boundary note), short of the maximum: R's
+    lme4::lmer(verdict ~ C + Q + (1 | input_id), REML = FALSE) reaches a higher likelihood at
+    0.165 / 1.564. The best of the optimizers' fits is that maximum."""
+    scores = {("off", "1"): [None, 0, None, 0, 0, None], ("off", "2"): [7, None, 6, 2.5, 8.5, None],
+              ("on", "1"): [0, 2, 1, 0.5, 0, 0], ("on", "2"): [None, 5.5, None, 4.5, 7.5, 7.5]}
+    eff = fit_effects(_scores_ratings(scores, ["C", "Q"]))
+    assert eff.variance_components["random_intercept"] == pytest.approx(0.164826, rel=1e-3)
+    assert eff.variance_components["residual"] == pytest.approx(1.563508, rel=1e-3)
+    assert not any("between-question variance estimated at ≈ 0" in w for w in eff.warnings)
+
+
+def test_variance_components_boundary_note_when_the_likelihood_peaks_at_zero():
+    """Here the likelihood is highest with no between-question variance at all: lme4 puts it at
+    exactly 0 (a singular fit, residual 3.8447). statsmodels' first converged fit stopped at
+    0.0078 and the note's cut-off (1e-6 of the variance) missed the boundary. The note now
+    follows the likelihood's slope at 0, and the best fit is at ≈ 0."""
+    scores = {
+        (5, "a", "llama3:8b"): [3, 2, 8, 1], (5, "a", "qwen:7b"): [4, 1, 0, 4],
+        (5, "a", "x"): [3, 1, 1, 0], (5, "b", "llama3:8b"): [3, 2, 6, 5],
+        (5, "b", "qwen:7b"): [4, 7, 5, 5], (5, "b", "x"): [3, 1, 3, 6],
+        (10, "a", "llama3:8b"): [5, 6, 3, 3], (10, "a", "qwen:7b"): [1, 2, 6, 4],
+        (10, "a", "x"): [2, None, 2, 3], (10, "b", "llama3:8b"): [6, 8, 5, 3],
+        (10, "b", "qwen:7b"): [7, 10, 9, 2], (10, "b", "x"): [3, 0, 3, 5],
+    }
+    eff = fit_effects(_scores_ratings(scores, ["model", "temp", "k"]))
+    assert eff.variance_components["random_intercept"] == pytest.approx(0, abs=1e-4)
+    assert eff.variance_components["residual"] == pytest.approx(3.844693, rel=1e-4)
+    assert any("between-question variance estimated at ≈ 0" in w for w in eff.warnings)
+
+
 def _exact_two_factor_ratings(score: dict[tuple[str, str], int], b_levels: int = 2) -> Ratings:
     """Factors A × B where every answer of a configuration gets the same score on every
     question — the model fits exactly (zero residual variance)."""
