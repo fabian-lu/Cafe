@@ -201,6 +201,10 @@ def _pairwise_d(df, factors):
 
 
 def _oneway(df, factors, warnings, alpha):
+    """One-way ANOVA per factor over all its levels, as R's ``anova(lm(verdict ~ factor))``. A
+    level with a single answer is a group like any other (it adds no within-level spread), so
+    the test needs only two levels and one answer more than levels; a factor short of that
+    gets no term."""
     import numpy as np
 
     try:
@@ -219,9 +223,8 @@ def _oneway(df, factors, warnings, alpha):
             df.loc[df[col].astype(str) == lvl, "verdict"].to_numpy(dtype=float)
             for lvl in sorted(str(x) for x in df[col].dropna().unique())
         ]
-        groups = [g for g in groups if g.size >= 2]
-        if len(groups) < 2:
-            continue
+        if len(groups) < 2 or sum(g.size for g in groups) <= len(groups):
+            continue  # no between-level comparison, or no within-level df to test it against
         if f_oneway is None:
             F = p = float("nan")  # reported as None (not significant)
         else:
