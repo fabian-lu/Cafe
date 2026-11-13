@@ -92,7 +92,9 @@ export default function Raters() {
   };
 
   const items = sheet?.items || [];
-  const levels = sheet?.rubric?.levels || [];
+  // the scores to choose from: on a numeric rubric every whole number from its lowest to its
+  // highest level, as for the judge (a sheet from an older backend lists only the levels)
+  const points = sheet?.rubric?.points || sheet?.rubric?.levels || [];
 
   return (
     <div>
@@ -171,7 +173,7 @@ export default function Raters() {
               {item.reference && <div className="hint" style={{ marginBottom: 6 }}><b>Gold:</b> {item.reference}</div>}
               <div className="mono" style={{ fontSize: 13, marginBottom: 10, color: "var(--on-surface-variant)" }}>{item.answer}</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {levels.map((l) => (
+                {points.map((l) => (
                   <button key={l.value} title={l.description || l.label}
                     className={"btn btn-sm" + (scores[item.key] === l.value ? " primary" : "")}
                     onClick={() => setScores({ ...scores, [item.key]: l.value })}>
