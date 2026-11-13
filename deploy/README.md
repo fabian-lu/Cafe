@@ -33,6 +33,9 @@ cd deploy && docker compose up -d --build
 ## Notes
 
 - The demo data is a frozen snapshot baked into the build (`apps/web-app/frontend/public/demo-data/`);
-  it does not change unless regenerated and committed.
+  it does not change unless regenerated and committed. nginx answers a file missing from it with the
+  demo's `index.html`, so the app takes only a JSON response as snapshot data: a missing list is
+  empty, and anything else missing (an old link to another study, say) shows "This isn't part of
+  the read-only demo."
 - Local preview of the production image: `docker compose up --build` then browse
   `http://localhost` (map a port first, or hit the container directly).
