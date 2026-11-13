@@ -578,6 +578,26 @@ def test_fit_effects_without_statsmodels_or_scipy_returns_result(monkeypatch):
     assert "INFERENTIAL" in ev.report()             # was: ModuleNotFoundError (scipy)
 
 
+def test_oneway_anova_keeps_a_level_with_a_single_answer():
+    """One question, three methods; c has a single usable answer (the others failed). The
+    one-way ANOVA must compare all three levels, as R's anova(lm(verdict ~ method)) does
+    (df 2, F=22.82, p=0.00049, eta² = 27.38 / 32.18). It used to drop c and test a vs b only
+    (df 1, F=20.17, eta²=0.72) while n_obs still counted c's answer."""
+    from cafe.rubrics import HELPFULNESS_0_10
+
+    scores = {"a": [3, 4, 5, 4, 3], "b": [5, 6, 7, 6, 6], "c": [9]}
+    items = [Rating(obs_key=f"{lv}{r}", config={"method": lv}, input_id="q0", rep=r, judge_rep=0,
+                    value=v, value_numeric=v) for lv, vs in scores.items() for r, v in enumerate(vs)]
+    eff = fit_effects(Ratings(rubric=HELPFULNESS_0_10, judge_model="x", factors=["method"],
+                              items=items))
+    assert eff.model.startswith("one-way ANOVA") and eff.n_obs == 11
+    (term,) = eff.terms
+    assert term["df"] == 2 and term["significant"]
+    assert term["F"] == pytest.approx(22.81818, rel=1e-5)
+    assert term["p"] == pytest.approx(0.00049491, rel=1e-4)
+    assert term["partial_eta_sq"] == pytest.approx(27.381818 / 32.181818, rel=1e-6)
+
+
 def test_factor_named_like_patsy_builtin_does_not_crash():
     """A factor literally named 'C' or 'Q' collides with patsy's formula builtins; the stats
     layer must fit on safe internal names and still report the real names (screening designs
