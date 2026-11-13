@@ -191,9 +191,12 @@ reports but does not act on. For such a study, read the linear layer's tests and
 sizes instead.
 
 Each estimate is the **log-odds** of landing in a higher score category, relative to
-the baseline level. Positive = better. It confirms the story from the linear layer on
-the correct scale: retrieval is correctly ordered (`none` strongly negative,
-`dense_rerank` positive), the base model helps, and `finalize` stays null.
+the baseline level: the factor's first level in the order the descriptive layer lists
+them, numbers by value and then text (`dense` for `retrieve` here). R reads every level
+as that text, so a level such as `NA` or `01` stays itself. Positive = better. It
+confirms the story from the linear layer on the correct scale: retrieval is correctly
+ordered (`none` strongly negative, `dense_rerank` positive), the base model helps, and
+`finalize` stays null.
 
 Under the table the CLMM reports its per-question random intercept (R's `VarCorr()`):
 

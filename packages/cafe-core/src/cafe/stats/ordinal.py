@@ -15,6 +15,7 @@ Check your setup with ``cafe doctor``.
 from __future__ import annotations
 
 import math
+import numbers
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -162,6 +163,39 @@ def _variance_line(vc: dict[str, float]) -> str:
     )
 
 
+def _level_order(value: Any) -> tuple[int, float, str]:
+    """Sort key for a factor's levels, in the order the Python layers use (pandas' groupby,
+    patsy's treatment coding): numbers by value, then everything else by its text."""
+    if isinstance(value, numbers.Real) and value == value:  # value == value: not NaN
+        return 0, float(value), ""
+    return 1, 0.0, str(value)
+
+
+def _write_r_data(df, factors: list[str], csv_path: str, levels_path: str) -> None:
+    """Write what clmm.R / glmm.R fit: the frame to ``csv_path`` (``verdict``, ``input_id``
+    and each factor, its levels as text) and each factor's levels to ``levels_path`` (JSON,
+    the R script's ``levels_json`` argument), in the order of :func:`_level_order`.
+
+    R reads every column as text and builds each factor from exactly these levels, so a
+    level stays the text Python shows ("NA", "01" and "3.10" too, where read.csv's type
+    guessing made a missing value or a number), and R's baseline is the Python layers'.
+    """
+    import json
+
+    data = df[["verdict", "input_id", *factors]].copy()
+    levels: dict[str, list[str]] = {}
+    for f in factors:
+        text = data[f].map(str)
+        first: dict[str, Any] = {}  # each level's text -> its value, to sort by
+        for value, label in zip(data[f], text):
+            first.setdefault(label, value)
+        levels[f] = sorted(first, key=lambda label: _level_order(first[label]))
+        data[f] = text
+    data.to_csv(csv_path, index=False)
+    with open(levels_path, "w", encoding="utf-8") as fh:
+        json.dump(levels, fh)
+
+
 @dataclass
 class CLMMResult:
     """Result of the ordinal CLMM (or why it couldn't be fit)."""
@@ -305,11 +339,11 @@ def fit_clmm(
         res.reason = msg
         return res
 
-    keep = ["verdict", "input_id", *factors]
     tmp = tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False)
+    levels_json = tmp.name + ".levels.json"
     try:
-        df[keep].to_csv(tmp.name, index=False)
         tmp.close()
+        _write_r_data(df, factors, tmp.name, levels_json)
         r_script = files("cafe.stats").joinpath("clmm.R")
         order = max(1, min(interactions, len(factors)))
         # Cap the order to what the design can estimate: an aliased fractional factorial is
@@ -333,7 +367,7 @@ def fit_clmm(
         def _run(with_lr: bool):
             return subprocess.run(
                 ["Rscript", str(r_script), tmp.name, ",".join(factors), str(order),
-                 "1" if with_lr else "0"],
+                 "1" if with_lr else "0", levels_json],
                 capture_output=True, text=True, timeout=timeout,
             )
 
@@ -353,10 +387,11 @@ def fit_clmm(
             res.warnings.append(f"per-factor likelihood-ratio tests skipped: with them R took "
                                 f"longer than {timeout}s (pass a larger timeout to get them)")
     finally:
-        try:
-            os.unlink(tmp.name)
-        except OSError:
-            pass
+        for path in (tmp.name, levels_json):
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
 
     if proc.returncode != 0:
         res.reason = f"R exited {proc.returncode}: {proc.stderr.strip()[:200]}"

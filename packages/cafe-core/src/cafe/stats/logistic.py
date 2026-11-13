@@ -220,19 +220,19 @@ def _fit_glmer(
     import tempfile
     from importlib.resources import files
 
-    from cafe.stats.ordinal import _r_coef_term
+    from cafe.stats.ordinal import _r_coef_term, _write_r_data
 
     order = max(1, min(interactions, len(factors)))
-    keep = ["verdict", "input_id", *factors]
     tmp = tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False)
+    levels_json = tmp.name + ".levels.json"
     try:
-        df[keep].to_csv(tmp.name, index=False)
         tmp.close()
+        _write_r_data(df, factors, tmp.name, levels_json)
         r_script = files("cafe.stats").joinpath("glmm.R")
         def _run(with_lr: bool):
             return subprocess.run(
                 ["Rscript", str(r_script), tmp.name, ",".join(factors), str(order),
-                 "1" if with_lr else "0"],
+                 "1" if with_lr else "0", levels_json],
                 capture_output=True, text=True, timeout=timeout,
             )
 
@@ -248,10 +248,11 @@ def _fit_glmer(
             except subprocess.TimeoutExpired:
                 return None
     finally:
-        try:
-            os.unlink(tmp.name)
-        except OSError:
-            pass
+        for path in (tmp.name, levels_json):
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
 
     if proc.returncode != 0:
         return None
