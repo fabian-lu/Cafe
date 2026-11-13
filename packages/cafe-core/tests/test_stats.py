@@ -106,18 +106,62 @@ def _two_factor_ratings(cells: dict[tuple[str, str, str], int]) -> Ratings:
     return Ratings(rubric=ANSWER_QUALITY_1_5, judge_model="fake", factors=["A", "B"], items=items)
 
 
-def test_fit_effects_drops_the_question_block_when_a_factor_is_confounded_with_it():
-    """B's levels split the questions (q0-q4 only saw b1, q5-q9 only b2): blocking by question
-    would absorb B, so the ANOVA must not block (and say why) rather than report a bogus F."""
+def test_fit_effects_keeps_the_question_block_when_a_factor_is_confounded_with_it():
+    """B's levels split the questions (q0-q4 only saw b1, q5-q9 only b2), so within questions
+    B can't be told apart from question difficulty. The ANOVA keeps the block and reports B as
+    not estimable (0 df, no F-test), as R's car::Anova(lm(verdict ~ input_id + ...), type=2)
+    does — it used to drop the block and test B on question difficulty instead. A, compared
+    within each question, keeps car's test."""
     import random
 
     rng = random.Random(3)
     cells = {(f"q{q}", a, "b1" if q < 5 else "b2"): rng.choice([2, 3, 4]) + (a == "a2")
              for q in range(10) for a in ("a1", "a2")}
-    eff = fit_effects(_two_factor_ratings(cells), interactions=1)
-    assert "blocked" not in eff.model and eff.formula == "verdict ~ A + B"
-    assert any("confounded with the questions" in w for w in eff.warnings)
-    assert {t["factor"] for t in eff.terms} == {"A", "B"}
+    r = _two_factor_ratings(cells)
+    # car: (order 1) A F=2.7100 p=0.1341, B 0 df; (order 2) A F=2.4179 p=0.1586, A:B F=0.0299 p=0.8671
+    for order, car in ((1, {"A": (2.7100, 0.1341)}),
+                       (2, {"A": (2.4179, 0.1586), "A × B": (0.02985, 0.8671)})):
+        eff = fit_effects(r, interactions=order)
+        assert eff.model.startswith("Type-II ANOVA, blocked by question")
+        assert eff.formula == ("verdict ~ question + A + B" if order == 1
+                               else "verdict ~ question + (A + B)^2")
+        terms = {t["factor"]: t for t in eff.terms}
+        assert terms["B"]["df"] == 0 and not terms["B"]["significant"]
+        assert terms["B"]["F"] is None and terms["B"]["p"] is None
+        assert terms["B"]["partial_eta_sq"] is None
+        for name, (F, p) in car.items():
+            assert terms[name]["F"] == pytest.approx(F, rel=1e-3)
+            assert terms[name]["p"] == pytest.approx(p, rel=1e-3)
+        assert "B" not in eff.significant_factors
+        assert any(w.startswith("B: not estimable — confounded with the questions")
+                   for w in eff.warnings)
+        assert not any("conservative" in w for w in eff.warnings)
+
+
+def test_fit_effects_blocks_by_question_when_a_question_misses_an_answer():
+    """Method a has no answer on q9 (one failed generation). q9 then just fits its own block
+    parameter; the study must still be blocked by question. It used to be tested unblocked
+    (F=1.10, p=0.31, "conservative"), which buried a clear effect under question difficulty;
+    R's car::Anova(lm(verdict ~ input_id + method), type=2) gives F=18.0, p=0.0028."""
+    from cafe.rubrics import HELPFULNESS_0_10
+
+    qdiff = [1, 9, 3, 7, 2, 8, 4, 6, 5, 9]
+    noise = [0, 1, -1, 0, 1, -1, 0, 0, 1, -1]
+    items = [Rating(obs_key=f"{m}{q}", config={"method": m}, input_id=f"q{q}", rep=0, judge_rep=0,
+                    value=v, value_numeric=v)
+             for q, (base, e) in enumerate(zip(qdiff, noise))
+             for m, v in (("a", base), ("b", min(10, base + 1 + e)))
+             if not (m == "a" and q == 9)]
+    r = Ratings(rubric=HELPFULNESS_0_10, judge_model="x", factors=["method"], items=items)
+    eff = fit_effects(r)
+    assert eff.model == "Type-II ANOVA, blocked by question"
+    assert eff.formula == "verdict ~ question + method"
+    (term,) = eff.terms
+    assert term["df"] == 1
+    assert term["F"] == pytest.approx(18.0, rel=1e-6)
+    assert term["p"] == pytest.approx(0.0028273, rel=1e-4)
+    assert eff.significant_factors == ["method"]
+    assert not any("conservative" in w for w in eff.warnings)
 
 
 def test_fit_effects_tiny_design_is_not_declared_exact_by_the_question_block():
@@ -215,23 +259,25 @@ def test_interactions_detected_and_toggleable():
 
 
 def test_interaction_fallback_residuals_come_from_reported_model():
-    """One usable answer per cell makes the two-way model saturated (0 residual df), so its
-    ANOVA fails and fit_effects falls back to main effects. The residuals/fitted must then
-    describe that main-effects model, not the abandoned (exactly fitting) interaction model."""
-    cells = {("a1", "b1"): ("q0", 5), ("a1", "b2"): ("q1", 4),
-             ("a2", "b1"): ("q2", 3), ("a2", "b2"): ("q0", 1)}
-    items = [Rating(obs_key=f"{a}{b}", config={"A": a, "B": b}, input_id=q, rep=0, judge_rep=0,
-                    value=s, value_numeric=s) for (a, b), (q, s) in cells.items()]
+    """One answer per configuration on q0 (plus one on q1, which only q1's own block parameter
+    fits) makes the blocked two-way model saturated (0 residual df), so its ANOVA fails and
+    fit_effects falls back to main effects. The residuals/fitted must then describe that
+    main-effects model, not the abandoned (exactly fitting) interaction model."""
+    cells = {("a1", "b1", "q0"): 5, ("a1", "b2", "q0"): 4, ("a2", "b1", "q0"): 3,
+             ("a2", "b2", "q0"): 1, ("a1", "b1", "q1"): 2}
+    items = [Rating(obs_key=f"{a}{b}{q}", config={"A": a, "B": b}, input_id=q, rep=0, judge_rep=0,
+                    value=s, value_numeric=s) for (a, b, q), s in cells.items()]
     r = Ratings(rubric=ANSWER_QUALITY_1_5, judge_model="fake", factors=["A", "B"], items=items)
 
     eff = fit_effects(r, interactions=2)
     assert any("main effects only" in w for w in eff.warnings)          # the fallback path
+    assert eff.model == "Type-II ANOVA, blocked by question"
     assert not any(t.get("interaction") for t in eff.terms)
-    # main-effects fit of 5,4,3,1: fitted 5.25,3.75,2.75,1.25 -> residuals ±0.25 (SSR 0.25);
-    # the saturated interaction fit would leave all-zero residuals
-    assert sorted(eff.fitted) == pytest.approx([1.25, 2.75, 3.75, 5.25])
+    # main-effects fit of q0's 5,4,3,1: fitted 5.25,3.75,2.75,1.25 -> residuals ±0.25 (SSR 0.25),
+    # q1's answer fitted exactly; the saturated interaction fit would leave all-zero residuals
+    assert sorted(eff.fitted) == pytest.approx([1.25, 2, 2.75, 3.75, 5.25])
     assert sum(e * e for e in eff.residuals) == pytest.approx(0.25)
-    assert sorted(f + e for f, e in zip(eff.fitted, eff.residuals)) == pytest.approx([1, 3, 4, 5])
+    assert sorted(f + e for f, e in zip(eff.fitted, eff.residuals)) == pytest.approx([1, 2, 3, 4, 5])
 
 
 @pytest.mark.skipif(shutil.which("Rscript") is None, reason="R not installed")

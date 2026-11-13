@@ -108,6 +108,12 @@ Read it row by row:
   strong one. A one-factor-at-a-time sweep cannot see this; the factorial design is
   exactly what surfaces it.
 
+The tests stay blocked by question when some configurations miss some questions (a failed
+generation, an unparseable verdict): such a question just adds fewer within-question
+comparisons. But a factor whose levels were answered on *different* questions can't be told
+apart from question difficulty — the table shows `-` for it (0 degrees of freedom, not
+estimable) and a note names it. Run every level on the same questions to test it.
+
 Below the table, **Cohen's d** gives each pairwise gap a standardized magnitude with a
 confidence interval:
 
