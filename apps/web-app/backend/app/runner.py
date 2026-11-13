@@ -22,7 +22,9 @@ PROGRESS: dict[int, dict[str, Any]] = {}
 #: Bump whenever cafe-core's statistics change what a stored results payload contains (e.g. the
 #: linear layer's F-tests now block by question). A stored payload with an older version is
 #: recomputed from its own records the next time it's opened — see :func:`refresh_payload`.
-STATS_VERSION = 4  # 3: CLMM per-factor likelihood-ratio tests · 4: same for the logistic GLMM
+STATS_VERSION = 5  # 3: CLMM per-factor likelihood-ratio tests · 4: same for the logistic GLMM
+#                    5: the Nov 2026 statistics fixes (judge means on the rubric's levels, R reading
+#                       levels as text, near-singular CLMM p-values, unrounded Pareto means, …)
 
 
 def _build_rubric(row: models.Rubric) -> cafe.Rubric:
