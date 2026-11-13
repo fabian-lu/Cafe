@@ -12,9 +12,13 @@ async function demoRequest(path, method) {
     if (path.includes("archived=true")) return [];   // demo has no archived studies
     const file = demoFile(SAFE_POST[path] || path);
     const res = await fetch(file);
-    if (!res.ok) {
-      // sensible fallbacks so pages never crash on a missing snapshot file
-      return /\/(studies|rubrics|datasets|pipelines|raters|presets)(\?|$)/.test(path) ? [] : {};
+    // a missing file is a 404, or a 200 with the app's index.html from a static host that sends
+    // it for every unknown path (the deploy's nginx, vite preview): only JSON is a snapshot file
+    if (!res.ok || !(res.headers.get("content-type") || "").includes("json")) {
+      // a missing list is empty; anything else fails like the backend's 404, which every page
+      // handles (an empty object instead would crash the page of a study or rubric)
+      if (/\/(studies|rubrics|datasets|pipelines|raters|presets)(\?|$)/.test(path)) return [];
+      throw new Error("This isn't part of the read-only demo.");
     }
     return res.json();
   }
